@@ -169,3 +169,26 @@ h1 {
 .privacy a {
   color: var(--color-accent-text);
 }
+
+.signin {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-3);
+  max-width: calc(var(--spacing-cover-column-min) * 4);
+  margin: 0 auto;
+  padding: var(--spacing-6) var(--spacing-4);
+}
+
+.signin p {
+  margin: 0;
+}
+
+.signin a {
+  color: var(--color-accent-text);
+}
+
+.signin-error {
+  font-weight: var(--typography-title-font-weight);
+}
