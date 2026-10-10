@@ -1,0 +1,13 @@
+{
+  "app.name": "Kkeujeok",
+  "sidebar.label": "Sidebar",
+  "sidebar.settings": "Settings",
+  "library.label": "Library",
+  "settings.title": "Settings",
+  "settings.close": "Close",
+  "settings.language": "Language",
+  "settings.language.system": "Follow system",
+  "settings.language.ko": "한국어",
+  "settings.language.en": "English",
+  "settings.privacy": "Privacy policy"
+}
