@@ -80,12 +80,13 @@ describe('shell', () => {
     expect(html).toContain('설정')
     expect(html).toContain('aria-label="서재"')
   })
-  test('settings has language and privacy only, in the current language', () => {
-    const html = render(createElement(Settings, { onClose: () => {} }), 'fr-FR')
+  test('settings has language, privacy, logout and disconnect, in the current language', () => {
+    const html = render(createElement(Settings, { onClose: () => {}, auth: signedIn }), 'fr-FR')
     expect(html).toContain('Language')
     expect(html).toContain('href="/privacy"')
     expect(html.match(/type="radio"/g)).toHaveLength(3)
-    expect(html).not.toMatch(/logout|disconnect|로그아웃|연결 해제/i)
+    expect(html).toContain('Log out')
+    expect(html).toContain('Disconnect')
   })
   // Keyboard reachability is checked on the live DOM in tests/shell-dom.test.ts:
   // static markup never carries event handlers, so it cannot show a clickable div.

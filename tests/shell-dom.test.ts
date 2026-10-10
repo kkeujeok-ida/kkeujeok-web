@@ -79,13 +79,14 @@ describe('settings', () => {
     expect(document.activeElement).toBe(settingsButton())
   })
 
-  test('shows only language and privacy; logout and disconnect are absent', () => {
+  test('shows language, privacy, logout and disconnect', () => {
     mount()
     act(() => settingsButton().click())
     const text = host.querySelector('.settings')!.textContent!
     expect(host.querySelectorAll('input[type="radio"]')).toHaveLength(3)
     expect(host.querySelector('a[href="/privacy"]')).not.toBeNull()
-    expect(text).not.toMatch(/로그아웃|연결 해제|Log out|Disconnect/)
+    expect(text).toContain('로그아웃')
+    expect(text).toContain('연결 해제')
   })
 
   test('picking English switches the text and <html lang> without a reload, and is remembered', () => {

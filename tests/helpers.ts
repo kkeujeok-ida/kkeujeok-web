@@ -8,4 +8,6 @@ export const signedIn = {
   preload: () => {},
   getAccessToken: () => 't',
   signIn: async () => 'granted',
+  signOut: () => {},
+  disconnect: async () => 'revoked',
 } as Auth
