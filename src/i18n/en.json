@@ -9,5 +9,19 @@
   "settings.language.system": "Follow system",
   "settings.language.ko": "한국어",
   "settings.language.en": "English",
-  "settings.privacy": "Privacy policy"
+  "settings.privacy": "Privacy policy",
+  "privacy.title": "Kkeujeok Privacy Policy",
+  "privacy.storage.heading": "Your notes stay in your Google Drive",
+  "privacy.storage.body": "Notes are stored only in your own Google Drive. The operator cannot access your notes.",
+  "privacy.scope.heading": "Permission we ask for",
+  "privacy.scope.body": "Kkeujeok asks for one Google Drive permission, drive.file. It only works with files Kkeujeok created and cannot see other files in your Drive.",
+  "privacy.noserver.heading": "Servers and data collection",
+  "privacy.noserver.body": "Kkeujeok has no server. It uses no analytics and no crash reporting.",
+  "privacy.encryption.heading": "Encryption",
+  "privacy.encryption.body": "Kkeujeok does not separately encrypt the note files in your Drive.",
+  "privacy.revoke.heading": "Disconnecting and revoking access",
+  "privacy.revoke.body": "Disconnecting in Settings revokes Kkeujeok's Drive access. You can also revoke it at any time on your Google Account permissions page. Note files in your Drive stay as they are.",
+  "privacy.revoke.link": "Google Account permissions page",
+  "privacy.contact.heading": "Contact",
+  "privacy.contact.body": "Leave questions on the public issue page."
 }
