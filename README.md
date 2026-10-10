@@ -34,6 +34,7 @@ commit it. Use a client from your own Google Cloud project, with
 | Command         | What it does                                                     |
 | --------------- | ---------------------------------------------------------------- |
 | `npm run dev`   | Dev server on http://localhost:5173 (fixed port, fails if taken) |
+| `npm run tokens` | Regenerate `design_tokens/build/` from `design_tokens/source/` (commit the result) |
 | `npm run build` | Type-check and build to `dist/`                                  |
 | `npm test`      | Run every fixture in `../test/` against this client              |
 

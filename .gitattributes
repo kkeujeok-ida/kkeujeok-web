@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.woff2 binary
+*.otf binary
+design_tokens/build/* text eol=lf

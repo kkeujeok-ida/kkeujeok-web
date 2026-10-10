@@ -1,0 +1,100 @@
+{
+  "color": {
+    "surface-base": {
+      "$type": "color",
+      "$value": "#F7F6F3"
+    },
+    "surface-raised": {
+      "$type": "color",
+      "$value": "#FFFFFF"
+    },
+    "surface-sunken": {
+      "$type": "color",
+      "$value": "#EFEDE8"
+    },
+    "ink-primary": {
+      "$type": "color",
+      "$value": "#22242A"
+    },
+    "ink-secondary": {
+      "$type": "color",
+      "$value": "#6B6A66"
+    },
+    "ink-disabled": {
+      "$type": "color",
+      "$value": "#B4B2AC"
+    },
+    "accent": {
+      "$type": "color",
+      "$value": "#2F6FEB"
+    },
+    "accent-soft": {
+      "$type": "color",
+      "$value": "#E6EEFD"
+    },
+    "accent-text": {
+      "$type": "color",
+      "$value": "#2459C9"
+    },
+    "on-accent": {
+      "$type": "color",
+      "$value": "#FFFFFF"
+    },
+    "border-hairline": {
+      "$type": "color",
+      "$value": "#E4E1DA"
+    },
+    "border-control": {
+      "$type": "color",
+      "$value": "#84827C"
+    },
+    "status-warning": {
+      "$type": "color",
+      "$value": "#B7791F"
+    },
+    "status-warning-text": {
+      "$type": "color",
+      "$value": "#8F5E12"
+    },
+    "on-warning": {
+      "$type": "color",
+      "$value": "#141517"
+    },
+    "status-error": {
+      "$type": "color",
+      "$value": "#B23A33"
+    },
+    "on-error": {
+      "$type": "color",
+      "$value": "#FFFFFF"
+    },
+    "pen-glyph-outline": {
+      "$type": "color",
+      "$value": "#6B6A66"
+    },
+    "scrim": {
+      "$type": "color",
+      "$value": "#22242A6B"
+    }
+  },
+  "components": {
+    "toolbar": {
+      "shadow": {
+        "$type": "shadow",
+        "$value": "0 2px 12px #22242A29"
+      }
+    },
+    "snackbar": {
+      "background": {
+        "$value": "{color.ink-primary}"
+      },
+      "text": {
+        "$value": "{color.surface-raised}"
+      },
+      "action": {
+        "$type": "color",
+        "$value": "#7AA5F5"
+      }
+    }
+  }
+}
