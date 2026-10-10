@@ -23,5 +23,13 @@
   "privacy.revoke.body": "설정에서 연결을 해제하면 Kkeujeok이 Drive 권한을 거둬요. Google 계정의 권한 페이지에서도 언제든 권한을 철회할 수 있어요. Drive의 노트 파일은 그대로 남아요.",
   "privacy.revoke.link": "Google 계정 권한 페이지",
   "privacy.contact.heading": "문의",
-  "privacy.contact.body": "궁금한 점은 공개 이슈 페이지에 남겨 주세요."
+  "privacy.contact.body": "궁금한 점은 공개 이슈 페이지에 남겨 주세요.",
+  "signin.google": "Google로 로그인",
+  "signin.storage": "노트는 내 Google Drive의 Kkeujeok 폴더에 저장돼요",
+  "signin.denied.title": "Google Drive 접근이 거부됐어요.",
+  "signin.denied.body": "노트를 내 Google Drive의 Kkeujeok 폴더에 저장하려면 접근을 허용해야 해요. Kkeujeok이 만든 파일만 볼 수 있어요.",
+  "signin.denied.retry": "다시 요청",
+  "signin.network": "연결을 확인하고 다시 시도해 주세요",
+  "signin.network.retry": "다시 시도",
+  "signin.unconfigured": "로그인을 설정하지 않았어요"
 }

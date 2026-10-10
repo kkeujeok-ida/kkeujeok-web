@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 import { I18nContext, createI18n, resources, type Key } from '../src/i18n'
+import { signedIn } from './helpers'
 import { App } from '../src/ui/App'
 import { CONTACT_URL, isPrivacyPath } from '../src/ui/PrivacyPolicy'
 
@@ -20,7 +21,7 @@ function open(path: string, lang: string, saved?: string) {
     storage: { getItem: () => saved ?? null, setItem: () => {} },
     applyLang: (l) => void (document.documentElement.lang = l),
   })
-  act(() => root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(App))))
+  act(() => root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(App, { auth: signedIn }))))
   return { host, root }
 }
 let mounted: ReturnType<typeof open> | undefined

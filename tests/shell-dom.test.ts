@@ -5,6 +5,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { I18nContext, STORAGE_KEY, createI18n, resolveLocale } from '../src/i18n'
+import { signedIn } from './helpers'
 import { App } from '../src/ui/App'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -22,7 +23,7 @@ function mount(navigatorLanguage = 'ko-KR') {
     },
     applyLang: (l) => void (document.documentElement.lang = l),
   })
-  act(() => root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(App))))
+  act(() => root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(App, { auth: signedIn }))))
   return { i18n, store }
 }
 const setWidth = (w: number) =>

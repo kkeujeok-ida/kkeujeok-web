@@ -23,5 +23,13 @@
   "privacy.revoke.body": "Disconnecting in Settings revokes Kkeujeok's Drive access. You can also revoke it at any time on your Google Account permissions page. Note files in your Drive stay as they are.",
   "privacy.revoke.link": "Google Account permissions page",
   "privacy.contact.heading": "Contact",
-  "privacy.contact.body": "Leave questions on the public issue page."
+  "privacy.contact.body": "Leave questions on the public issue page.",
+  "signin.google": "Sign in with Google",
+  "signin.storage": "Your notes are saved in the Kkeujeok folder of your Google Drive",
+  "signin.denied.title": "Google Drive access was denied.",
+  "signin.denied.body": "To save notes in the Kkeujeok folder of your Google Drive, access must be allowed. Kkeujeok can only see the files it creates.",
+  "signin.denied.retry": "Request again",
+  "signin.network": "Check your connection and try again",
+  "signin.network.retry": "Try again",
+  "signin.unconfigured": "Sign-in has not been set up"
 }

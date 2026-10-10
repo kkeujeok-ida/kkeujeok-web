@@ -39,7 +39,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           </label>
         ))}
       </fieldset>
-      <a className="btn" href="/privacy">
+      <a className="btn" href="/privacy" target="_blank" rel="noopener noreferrer">
         {t('settings.privacy')}
       </a>
     </section>

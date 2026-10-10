@@ -2,6 +2,7 @@ import { createElement, type ReactElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test } from 'vitest'
 import { I18nContext, STORAGE_KEY, createI18n, resolveLocale, resources, type Locale } from '../src/i18n'
+import { signedIn } from './helpers'
 import { App, isSidebarExpanded } from '../src/ui/App'
 import { Settings } from '../src/ui/Settings'
 
@@ -74,7 +75,7 @@ describe('shell', () => {
     expect(isSidebarExpanded(839)).toBe(false)
   })
   test('app shows the product name, settings entry and an empty library', () => {
-    const html = render(createElement(App))
+    const html = render(createElement(App, { auth: signedIn }))
     expect(html).toContain('Kkeujeok')
     expect(html).toContain('설정')
     expect(html).toContain('aria-label="서재"')
