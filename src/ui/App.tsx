@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useI18n } from '../i18n'
+import { PrivacyPolicy, isPrivacyPath } from './PrivacyPolicy'
 import { Settings } from './Settings'
 
 export const SIDEBAR_EXPANDED_MIN_WIDTH = 840
@@ -16,7 +17,12 @@ function useSidebarExpanded(): boolean {
   )
 }
 
+// No router library: the path alone picks the static policy page or the shell.
 export function App() {
+  return isPrivacyPath(globalThis.location?.pathname ?? '/') ? <PrivacyPolicy /> : <Shell />
+}
+
+function Shell() {
   const { t } = useI18n()
   const expanded = useSidebarExpanded()
   const [settingsOpen, setSettingsOpen] = useState(false)

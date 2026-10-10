@@ -146,3 +146,26 @@ h1 {
 .option input {
   accent-color: var(--color-accent);
 }
+
+.privacy {
+  box-sizing: border-box;
+  max-width: calc(var(--spacing-cover-column-min) * 4);
+  margin: 0 auto;
+  padding: var(--spacing-6) var(--spacing-4);
+}
+
+.privacy h2 {
+  margin: var(--spacing-5) 0 var(--spacing-2);
+  font-size: var(--typography-body-font-size);
+  font-weight: var(--typography-title-font-weight);
+  line-height: var(--typography-body-line-height);
+}
+
+.privacy p {
+  margin: 0 0 var(--spacing-2);
+  overflow-wrap: anywhere;
+}
+
+.privacy a {
+  color: var(--color-accent-text);
+}

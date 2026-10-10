@@ -9,5 +9,19 @@
   "settings.language.system": "시스템 설정 따름",
   "settings.language.ko": "한국어",
   "settings.language.en": "English",
-  "settings.privacy": "개인정보처리방침"
+  "settings.privacy": "개인정보처리방침",
+  "privacy.title": "Kkeujeok 개인정보처리방침",
+  "privacy.storage.heading": "노트는 내 Google Drive에만 저장돼요",
+  "privacy.storage.body": "노트는 사용자의 Google Drive에만 저장돼요. 운영자는 노트에 접근할 수 없어요.",
+  "privacy.scope.heading": "요청하는 권한",
+  "privacy.scope.body": "Kkeujeok은 Google Drive 권한 중 drive.file 하나만 요청해요. Kkeujeok이 만든 파일만 다루고, Drive에 있는 다른 파일은 볼 수 없어요.",
+  "privacy.noserver.heading": "서버와 수집",
+  "privacy.noserver.body": "Kkeujeok에는 서버가 없어요. 분석 도구와 크래시 리포팅도 쓰지 않아요.",
+  "privacy.encryption.heading": "암호화",
+  "privacy.encryption.body": "Drive 안에 있는 노트 파일은 Kkeujeok이 따로 암호화하지 않아요.",
+  "privacy.revoke.heading": "연결 해제와 권한 철회",
+  "privacy.revoke.body": "설정에서 연결을 해제하면 Kkeujeok이 Drive 권한을 거둬요. Google 계정의 권한 페이지에서도 언제든 권한을 철회할 수 있어요. Drive의 노트 파일은 그대로 남아요.",
+  "privacy.revoke.link": "Google 계정 권한 페이지",
+  "privacy.contact.heading": "문의",
+  "privacy.contact.body": "궁금한 점은 공개 이슈 페이지에 남겨 주세요."
 }
