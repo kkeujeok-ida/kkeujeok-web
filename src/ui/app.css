@@ -192,3 +192,51 @@ h1 {
 .signin-error {
   font-weight: var(--typography-title-font-weight);
 }
+
+.settings-group .btn + .btn {
+  margin-left: var(--spacing-2);
+}
+
+.btn-destructive {
+  border-color: transparent;
+  border-radius: var(--components-button-destructive-rounded);
+  background: var(--components-button-destructive-background);
+  color: var(--components-button-destructive-text);
+}
+
+.dialog-scrim {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-4);
+  background: var(--color-scrim);
+}
+
+.dialog {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  max-width: calc(var(--spacing-cover-column-min) * 2);
+  padding: var(--spacing-5);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  box-shadow: var(--components-popover-shadow);
+}
+
+.dialog p {
+  margin: 0;
+}
+
+.dialog-error:empty {
+  display: none;
+}
+
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--spacing-2);
+}

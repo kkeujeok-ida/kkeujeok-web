@@ -1,5 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useI18n, type Choice, type Key } from '../i18n'
+import type { Auth } from '../drive/auth'
+import { deleteNoteDatabase } from '../storage/noteDb'
+import { ConfirmDialog } from './ConfirmDialog'
 
 const CHOICES: { value: Choice; label: Key }[] = [
   { value: 'system', label: 'settings.language.system' },
@@ -7,9 +10,40 @@ const CHOICES: { value: Choice; label: Key }[] = [
   { value: 'en', label: 'settings.language.en' },
 ]
 
-// Logout and disconnect are added by Story 1.12.
-export function Settings({ onClose }: { onClose: () => void }) {
+type Action = 'logout' | 'disconnect'
+
+// Shown only behind the sign-in gate, so logout and disconnect are always valid.
+export function Settings({ onClose, auth }: { onClose: () => void; auth: Auth }) {
   const { t, choice, setChoice } = useI18n()
+  const [action, setAction] = useState<Action | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<Key | null>(null)
+  // Once Google has revoked the grant, a retry must not revoke it again.
+  const revoked = useRef(false)
+  const buttons = { logout: useRef<HTMLButtonElement>(null), disconnect: useRef<HTMLButtonElement>(null) }
+  const open = (a: Action) => {
+    if (busy) return
+    setError(null)
+    setAction(a)
+  }
+  async function confirm() {
+    setBusy(true)
+    setError(null)
+    try {
+      if (action === 'disconnect' && !revoked.current) {
+        if ((await auth.disconnect()) !== 'revoked') return setError('signin.network')
+        revoked.current = true
+      }
+      try {
+        await deleteNoteDatabase()
+      } catch {
+        return setError('settings.deleteFailed')
+      }
+      auth.signOut() // the gate shows the sign-in screen
+    } finally {
+      setBusy(false)
+    }
+  }
   // The view replaced the library: move focus to its heading so the change is announced.
   const title = useRef<HTMLHeadingElement>(null)
   useEffect(() => title.current?.focus(), [])
@@ -42,6 +76,29 @@ export function Settings({ onClose }: { onClose: () => void }) {
       <a className="btn" href="/privacy" target="_blank" rel="noopener noreferrer">
         {t('settings.privacy')}
       </a>
+      <div className="settings-group">
+        <button ref={buttons.logout} type="button" className="btn" onClick={() => open('logout')}>
+          {t('settings.logout')}
+        </button>
+        <button ref={buttons.disconnect} type="button" className="btn" onClick={() => open('disconnect')}>
+          {t('settings.disconnect')}
+        </button>
+      </div>
+      {action && (
+        <ConfirmDialog
+          body={t(action === 'logout' ? 'logout.confirm' : 'disconnect.confirm')}
+          confirmLabel={t(error ? 'signin.network.retry' : action === 'logout' ? 'settings.logout' : 'settings.disconnect')}
+          cancelLabel={t('dialog.cancel')}
+          destructive={action === 'disconnect'}
+          busy={busy}
+          error={error && t(error)}
+          onConfirm={() => void confirm()}
+          onCancel={() => {
+            setAction(null)
+            buttons[action].current?.focus() // back to the button that opened it
+          }}
+        />
+      )}
     </section>
   )
 }

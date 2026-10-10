@@ -20,11 +20,12 @@ interface GoogleOAuth2 {
   initTokenClient(cfg: {
     client_id: string
     scope: string
+    prompt?: string
     callback: (r: TokenResponse) => void
     error_callback: (e: { type?: string }) => void
   }): { requestAccessToken(): void }
   hasGrantedAllScopes(r: TokenResponse, scope: string): boolean
-  revoke?(token: string, done: () => void): void
+  revoke?(token: string, done: (r?: { successful?: boolean; error?: string }) => void): void
 }
 const gis = () => (globalThis as { google?: { accounts?: { oauth2?: GoogleOAuth2 } } }).google?.accounts?.oauth2
 
@@ -51,11 +52,15 @@ export function loadGisScript(): Promise<void> {
 export interface Env {
   clientId: string | undefined
   loadScript: () => Promise<void>
+  /** How long to wait for Google to answer a revoke before calling it failed. */
+  revokeTimeoutMs?: number
 }
 
-export function createAuth({ clientId, loadScript }: Env) {
+export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000 }: Env) {
   let state: AuthState = { token: null, notice: null, busy: false }
   const listeners = new Set<() => void>()
+  // After a disconnect the next sign-in must show the consent screen again.
+  let reconsent = false
   const set = (patch: Partial<AuthState>) => {
     state = { ...state, ...patch }
     listeners.forEach((fn) => fn())
@@ -67,6 +72,7 @@ export function createAuth({ clientId, loadScript }: Env) {
         .initTokenClient({
           client_id: clientId!.trim(),
           scope: DRIVE_SCOPE,
+          ...(reconsent && { prompt: 'consent' }),
           callback: (r) => {
             if (r.error || !r.access_token) resolve(r.error === 'access_denied' ? 'denied' : 'network')
             else if (!oauth2.hasGrantedAllScopes(r, DRIVE_SCOPE)) {
@@ -75,6 +81,7 @@ export function createAuth({ clientId, loadScript }: Env) {
               resolve('denied')
             }
             else {
+              reconsent = false
               set({ token: r.access_token })
               resolve('granted')
             }
@@ -115,6 +122,30 @@ export function createAuth({ clientId, loadScript }: Env) {
       }
       set({ busy: false, notice: outcome === 'denied' || outcome === 'network' ? outcome : null })
       return outcome
+    },
+    // Drop the in-memory token; the gate then shows the sign-in screen.
+    signOut: () => set({ token: null, notice: null }),
+    // Revoke the Drive grant at Google. Only 'revoked' means it is gone.
+    async disconnect(): Promise<'revoked' | 'failed'> {
+      const token = state.token
+      if (!token) return 'failed'
+      try {
+        await loadScript()
+        const oauth2 = gis()
+        if (!oauth2?.revoke) return 'failed'
+        // No answer (offline, blocked request) must not leave the dialog busy forever.
+        const ok = await new Promise<boolean>((res) => {
+          const timer = setTimeout(() => res(false), revokeTimeoutMs)
+          oauth2.revoke!(token, (r) => {
+            clearTimeout(timer)
+            res(r?.successful === true && !r.error)
+          })
+        })
+        if (ok) reconsent = true
+        return ok ? 'revoked' : 'failed'
+      } catch {
+        return 'failed'
+      }
     },
   }
 }

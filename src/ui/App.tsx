@@ -23,10 +23,10 @@ function useSidebarExpanded(): boolean {
 export function App({ auth = defaultAuth }: { auth?: Auth }) {
   const { token, notice } = useSyncExternalStore(auth.subscribe, auth.getState, auth.getState)
   if (isPrivacyPath(globalThis.location?.pathname ?? '/')) return <PrivacyPolicy />
-  return token ? <Shell /> : <SignIn auth={auth} notice={notice} />
+  return token ? <Shell auth={auth} /> : <SignIn auth={auth} notice={notice} />
 }
 
-function Shell() {
+function Shell({ auth }: { auth: Auth }) {
   const { t } = useI18n()
   const expanded = useSidebarExpanded()
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -61,7 +61,7 @@ function Shell() {
       </nav>
       <main className="content">
         {settingsOpen ? (
-          <Settings onClose={() => setSettingsOpen(false)} />
+          <Settings auth={auth} onClose={() => setSettingsOpen(false)} />
         ) : (
           <section className="library" aria-label={t('library.label')} />
         )}
