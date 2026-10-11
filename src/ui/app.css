@@ -227,6 +227,10 @@ h1 {
   box-shadow: var(--components-popover-shadow);
 }
 
+.dialog.new-note {
+  min-height: 60vh;
+}
+
 .dialog p {
   margin: 0;
 }

@@ -78,7 +78,7 @@ describe('shell', () => {
     const html = render(createElement(App, { auth: signedIn }))
     expect(html).toContain('Kkeujeok')
     expect(html).toContain('설정')
-    expect(html).toContain('aria-label="서재"')
+    expect(html).toContain('aria-label="Notes"')
   })
   test('settings has language, privacy, logout and disconnect, in the current language', () => {
     const html = render(createElement(Settings, { onClose: () => {}, auth: signedIn }), 'fr-FR')
