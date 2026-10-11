@@ -3,6 +3,8 @@ import { useI18n } from '../i18n'
 import { PrivacyPolicy, isPrivacyPath } from './PrivacyPolicy'
 import { Settings } from './Settings'
 import { SignIn } from './SignIn'
+import { Library } from './library/Library'
+import { NoteEditorStub, parseNoteRoute } from './library/NoteEditorStub'
 import { auth as defaultAuth, type Auth } from '../drive/auth'
 
 export const SIDEBAR_EXPANDED_MIN_WIDTH = 840
@@ -19,6 +21,17 @@ function useSidebarExpanded(): boolean {
   )
 }
 
+function useHash(): string {
+  return useSyncExternalStore(
+    (fn) => {
+      window.addEventListener('hashchange', fn)
+      return () => window.removeEventListener('hashchange', fn)
+    },
+    () => window.location.hash,
+    () => '',
+  )
+}
+
 // No router library: the path alone picks the static policy page or the shell.
 export function App({ auth = defaultAuth }: { auth?: Auth }) {
   const { token, notice } = useSyncExternalStore(auth.subscribe, auth.getState, auth.getState)
@@ -29,6 +42,7 @@ export function App({ auth = defaultAuth }: { auth?: Auth }) {
 function Shell({ auth }: { auth: Auth }) {
   const { t } = useI18n()
   const expanded = useSidebarExpanded()
+  const noteId = parseNoteRoute(useHash())
   const [settingsOpen, setSettingsOpen] = useState(false)
   const settingsButton = useRef<HTMLButtonElement>(null)
   const wasOpen = useRef(false)
@@ -62,8 +76,10 @@ function Shell({ auth }: { auth: Auth }) {
       <main className="content">
         {settingsOpen ? (
           <Settings auth={auth} onClose={() => setSettingsOpen(false)} />
+        ) : noteId ? (
+          <NoteEditorStub key={noteId} noteId={noteId} />
         ) : (
-          <section className="library" aria-label={t('library.label')} />
+          <Library />
         )}
       </main>
     </div>

@@ -212,6 +212,7 @@ h1 {
   justify-content: center;
   padding: var(--spacing-4);
   background: var(--color-scrim);
+  z-index: 3;
 }
 
 .dialog {
@@ -230,6 +231,10 @@ h1 {
   margin: 0;
 }
 
+.dialog-error {
+  color: var(--color-status-error);
+}
+
 .dialog-error:empty {
   display: none;
 }
@@ -239,4 +244,262 @@ h1 {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--spacing-2);
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: var(--typography-title-font-size);
+  font-weight: var(--typography-title-font-weight);
+  line-height: var(--typography-title-line-height);
+}
+
+.new-note {
+  width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.field label {
+  color: var(--color-ink-secondary);
+  font-size: var(--typography-label-font-size);
+  font-weight: var(--typography-label-font-weight);
+  line-height: var(--typography-label-line-height);
+}
+
+.field-input {
+  box-sizing: border-box;
+  min-height: var(--spacing-control-height-web);
+  padding: 0 var(--spacing-3);
+  border: 1px solid var(--components-input-border);
+  border-radius: var(--components-input-rounded);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-primary);
+  font: inherit;
+}
+
+.field-input::placeholder {
+  color: var(--components-input-placeholder);
+}
+
+.btn-primary {
+  border-color: transparent;
+  border-radius: var(--components-button-primary-rounded);
+  background: var(--components-button-primary-background);
+  color: var(--components-button-primary-text);
+}
+
+.btn[aria-disabled='true'] {
+  color: var(--color-ink-disabled);
+  cursor: progress;
+}
+
+.btn-primary[aria-disabled='true'] {
+  background: var(--color-ink-disabled);
+  color: var(--components-button-primary-text);
+}
+
+.cover-card:focus-visible,
+.fab-item:focus-visible,
+.fab-button:focus-visible {
+  outline: var(--components-focus-ring-width) solid var(--components-focus-ring-color);
+  outline-offset: var(--components-focus-ring-offset);
+}
+
+.cover-card[aria-disabled='true'],
+.fab-item[aria-disabled='true'],
+.fab-button[aria-disabled='true'] {
+  color: var(--color-ink-disabled);
+  cursor: default;
+}
+
+.editor {
+  min-height: 100%;
+}
+
+/* Library */
+.library {
+  padding-bottom: calc(var(--components-fab-size) + var(--components-fab-inset) * 2);
+}
+
+.cover-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--spacing-cover-column-min), 1fr));
+  gap: var(--spacing-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cover-grid > li {
+  min-width: 0;
+}
+
+.cover-card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.cover-thumb {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: var(--components-cover-card-aspect-ratio);
+  border: 1px solid var(--components-cover-card-fallback-border);
+  border-radius: var(--components-cover-card-rounded);
+  background: var(--components-cover-card-fallback-background);
+  box-shadow: var(--components-cover-card-shadow);
+}
+
+.cover-thumb-new {
+  color: var(--color-ink-secondary);
+}
+
+.cover-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-family: var(--components-cover-card-title-font-family);
+  font-size: var(--components-cover-card-title-font-size);
+  font-weight: var(--components-cover-card-title-font-weight);
+  line-height: var(--components-cover-card-title-line-height);
+}
+
+.cover-date {
+  color: var(--color-ink-secondary);
+  font-size: var(--typography-caption-font-size);
+  font-weight: var(--typography-caption-font-weight);
+  line-height: var(--typography-caption-line-height);
+}
+
+.cover-card-disabled {
+  color: var(--color-ink-disabled);
+  cursor: default;
+}
+
+.cover-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-2);
+  grid-column: 1 / -1;
+}
+
+.fab-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: var(--components-fab-veil);
+  opacity: var(--components-fab-veil-opacity);
+}
+
+.fab {
+  position: fixed;
+  right: var(--components-fab-inset);
+  bottom: var(--components-fab-inset);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--components-fab-item-gap);
+}
+
+.fab-menu {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--components-fab-item-gap);
+}
+
+.fab-item {
+  display: flex;
+  align-items: center;
+  gap: var(--components-fab-item-gap);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--components-fab-label-color);
+  font-family: var(--components-fab-label-font-family);
+  font-size: var(--components-fab-label-font-size);
+  font-weight: var(--components-fab-label-font-weight);
+  line-height: var(--components-fab-label-line-height);
+  cursor: pointer;
+}
+
+.fab-item-icon,
+.fab-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--rounded-full);
+  box-shadow: var(--components-fab-shadow);
+}
+
+.fab-item-icon {
+  width: var(--components-fab-item-size);
+  height: var(--components-fab-item-size);
+  background: var(--components-fab-item-background);
+  color: var(--components-fab-item-icon);
+}
+
+.fab-button {
+  width: var(--components-fab-size);
+  height: var(--components-fab-size);
+  padding: 0;
+  border: 0;
+  background: var(--components-fab-background);
+  color: var(--components-fab-icon);
+  cursor: pointer;
+}
+
+.fab-button[aria-expanded='true'] .icon {
+  transform: rotate(45deg);
+}
+
+/* Editor entry point (replaced by the writing screen in story 2.10) */
+.editor-corner {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  max-width: 100%;
+  padding: var(--spacing-1) var(--spacing-3) var(--spacing-1) var(--spacing-1);
+  border: 1px solid var(--components-editor-corner-border);
+  border-radius: var(--components-editor-corner-rounded);
+  background: var(--components-editor-corner-background);
+}
+
+.editor-back {
+  justify-content: center;
+  border-color: transparent;
+  border-radius: var(--rounded-full);
+  background: transparent;
+}
+
+.editor-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--typography-label-font-size);
+  font-weight: var(--typography-label-font-weight);
+  line-height: var(--typography-label-line-height);
 }
