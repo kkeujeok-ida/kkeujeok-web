@@ -4,13 +4,19 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, test } from 'vitest'
+import { afterAll, describe, expect, test } from 'vitest'
+import { gzipSync } from 'node:zlib'
+import { decodeKkj, encodeKkj } from '../src/model/kkjCodec'
+import { normalizeTitle } from '../src/model/noteTitle'
+import type { Note } from '../src/model/note'
 import { round2 } from '../src/model/number'
+import { History } from '../src/ops/history'
+import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
 
 type Case = { name: string; input: unknown; expected: unknown }
 
 // Rule id -> how to judge one case. A new spec rule adds one line here.
-const runners: Record<string, (c: Case) => void> = {
+const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'number.round2': ({ input, expected }) => {
     // Number(x) would turn null into 0 and let NaN pass against NaN.
     if (typeof input !== 'number' || typeof expected !== 'number') {
@@ -20,11 +26,56 @@ const runners: Record<string, (c: Case) => void> = {
     expect(Object.is(out, -0), 'output is negative zero').toBe(false)
     expect(out).toBe(expected)
   },
+  'note.roundTrip': async ({ input, expected }) => {
+    const r = await decodeKkj(await encodeKkj((input as { note: Note }).note))
+    expect(r.result).toBe('ok')
+    expect({ note: r.note }).toEqual(expected)
+  },
+  'note.unknownFields': async ({ input, expected }) => {
+    const r = await decodeKkj(await encodeKkj((input as { note: Note }).note))
+    expect(r.result).toBe('ok')
+    expect({ note: r.note }).toEqual(expected)
+  },
+  'note.formatVersion': async ({ input, expected }) => {
+    const i = input as { json?: unknown; text?: string; gzipBase64?: string }
+    const bytes =
+      i.gzipBase64 !== undefined
+        ? Buffer.from(i.gzipBase64, 'base64')
+        : gzipSync(Buffer.from(i.text ?? JSON.stringify(i.json), 'utf8'))
+    expect(await decodeKkj(new Uint8Array(bytes))).toEqual(expected)
+  },
+  'note.title': ({ input, expected }) => {
+    const i = input as { title: string; existingTitles: string[] }
+    const t = normalizeTitle(i.title, i.existingTitles)
+    expect(t === null ? { ok: false, reason: 'tooLong' } : { ok: true, title: t }).toEqual(expected)
+  },
+  'ops.createNote': ({ input, expected }) => {
+    expect(createNote(input as Parameters<typeof createNote>[0])).toEqual(expected)
+  },
+  'ops.addStroke': opRunner,
+  'ops.removeStroke': opRunner,
+  'ops.undoRedo': ({ input, expected }) => {
+    type Step = { kind: 'do' | 'undo' | 'redo'; op?: Op; ctx: Ctx }
+    const i = input as { note: Note; steps: Step[] }
+    const h = new History(i.note)
+    const errors = i.steps.map((s) =>
+      s.kind === 'do' ? h.doOp(s.op!, s.ctx) : s.kind === 'undo' ? h.undo(s.ctx) : h.redo(s.ctx),
+    )
+    expect({ note: h.note, undoDepth: h.undoDepth, redoDepth: h.redoDepth, errors }).toEqual(expected)
+  },
+}
+
+// Rules whose fixture must exist and be valid but have no runner yet (Story 2.10).
+const PENDING = ['stroke.outline.pen', 'page.background']
+
+function opRunner({ input, expected }: Case) {
+  const i = input as { note: Note; op: Op; ctx: Ctx }
+  expect(applyOp(i.note, i.op, i.ctx)).toEqual(expected)
 }
 
 const sharedDir = fileURLToPath(new URL('../../test/', import.meta.url))
 
-function loadFixtures(dir: string): Map<string, Case[]> {
+function loadFixtures(dir: string, pending: string[] = PENDING): Map<string, Case[]> {
   if (!existsSync(dir)) {
     throw new Error(
       `Fixture folder not found: ${dir}\n` +
@@ -33,8 +84,10 @@ function loadFixtures(dir: string): Map<string, Case[]> {
     )
   }
   const fixtures = new Map<string, Case[]>()
+  const seen = new Set<string>()
   for (const file of readdirSync(dir)) {
-    if (file === 'README.md') continue
+    // Generator scripts, not fixtures.
+    if (file === 'README.md' || file === 'tools') continue
     const bad = (why: string) => new Error(`Bad fixture ${file}: ${why}`)
     // Anything else in the folder (a subfolder, "x.JSON", "x.json.bak") would
     // otherwise be skipped without a word.
@@ -42,7 +95,7 @@ function loadFixtures(dir: string): Map<string, Case[]> {
     const id = file.slice(0, -'.json'.length)
     // The id pattern from spec/README.md. Also keeps ids like "constructor"
     // from finding an inherited property in `runners`.
-    if (!/^[a-z][a-z0-9]*\.[a-z][A-Za-z0-9]*$/.test(id)) throw bad('file name is not a rule id')
+    if (!/^[a-z][a-z0-9]*\.[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)?$/.test(id)) throw bad('file name is not a rule id')
     let data: { rule?: unknown; cases?: unknown }
     try {
       data = JSON.parse(readFileSync(join(dir, file), 'utf8'))
@@ -65,7 +118,9 @@ function loadFixtures(dir: string): Map<string, Case[]> {
         throw bad(`case "${c.name}" needs both "input" and "expected"`)
       }
     }
+    seen.add(id)
     const run = runners[id]
+    if (!run && pending.includes(id)) continue
     if (!run) {
       throw new Error(
         `Fixture ${file} has no test: rule "${id}" is not implemented in the web client. ` +
@@ -77,31 +132,38 @@ function loadFixtures(dir: string): Map<string, Case[]> {
   for (const id of Object.keys(runners)) {
     if (!fixtures.has(id)) throw new Error(`Fixture file missing: ${join(dir, `${id}.json`)}`)
   }
+  for (const id of pending) {
+    if (!seen.has(id)) throw new Error(`Fixture file missing: ${join(dir, `${id}.json`)}`)
+  }
   return fixtures
 }
 
 // Thrown at collection time on purpose: a broken setup fails the run, never skips.
 for (const [id, cases] of loadFixtures(sharedDir)) {
   describe(id, () => {
-    for (const c of cases) test(c.name, () => runners[id]!(c))
+    for (const c of cases) test(c.name, async () => void (await runners[id]!(c)))
   })
 }
 
 describe('harness refuses a broken setup', () => {
   const good = readFileSync(join(sharedDir, 'number.round2.json'), 'utf8')
-  // Loads a temp folder holding exactly the given files.
-  const loadOnly = (files: Record<string, string>) => {
+  // A temp folder holding exactly the given files (removed on exit).
+  const made: string[] = []
+  const mkOnly = (files: Record<string, string>) => {
     const dir = mkdtempSync(join(tmpdir(), 'kkj-fixtures-'))
-    try {
-      for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text)
-      return loadFixtures(dir)
-    } finally {
-      rmSync(dir, { recursive: true })
-    }
+    made.push(dir)
+    for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text)
+    return dir
   }
+  afterAll(() => made.forEach((d) => rmSync(d, { recursive: true })))
+  const loadOnly = (files: Record<string, string>) => loadFixtures(mkOnly(files))
   // The real fixture plus the given extra files.
-  const loadWith = (files: Record<string, string>) =>
-    loadOnly({ 'number.round2.json': good, ...files })
+  const real = Object.fromEntries(
+    readdirSync(sharedDir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => [f, readFileSync(join(sharedDir, f), 'utf8')]),
+  )
+  const loadWith = (files: Record<string, string>) => loadOnly({ ...real, ...files })
 
   test('fixture folder missing', () => {
     const missing = join(tmpdir(), 'kkj-fixtures-does-not-exist')
@@ -136,6 +198,14 @@ describe('harness refuses a broken setup', () => {
   test('entry that is not a rule id .json file', () => {
     expect(() => loadWith({ 'stroke.hitTest.JSON': good })).toThrow('stroke.hitTest.JSON')
     expect(() => loadWith({ 'constructor.json': good })).toThrow('not a rule id')
+  })
+
+  test('two-dot rule id accepted; pending rule needs no runner; unlisted still fails', () => {
+    const fx = (rule: string) => JSON.stringify({ rule, cases: [{ name: 'a', input: 1, expected: 1 }] })
+    // The real folder already holds the pending fixtures.
+    expect(loadFixtures(sharedDir).has('stroke.outline.pen')).toBe(false)
+    expect(() => loadFixtures(sharedDir, [])).toThrow('is not implemented')
+    expect(() => loadWith({ 'stroke.hitTest.json': fx('stroke.hitTest') })).toThrow('"stroke.hitTest"')
   })
 
   test('number.round2 case with non-number values', () => {
