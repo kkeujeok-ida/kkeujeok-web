@@ -69,5 +69,14 @@
   "editor.redo": "다시 실행",
   "editor.undoTip": "실행 취소 (Ctrl+Z)",
   "editor.redoTip": "다시 실행 (Ctrl+Y)",
-  "editor.historyNotApplied": "되돌리지 못했어요."
+  "editor.historyNotApplied": "되돌리지 못했어요.",
+  "editor.more": "더 보기",
+  "editor.zoomOut": "축소",
+  "editor.zoomIn": "확대",
+  "editor.zoomLevel": "배율 {percent}%",
+  "editor.fitWidth": "너비 맞춤",
+  "editor.fitPage": "페이지 맞춤",
+  "editor.zoomOutTip": "축소 (Ctrl+-)",
+  "editor.zoomInTip": "확대 (Ctrl++)",
+  "editor.fitWidthTip": "너비 맞춤 (Ctrl+0)"
 }

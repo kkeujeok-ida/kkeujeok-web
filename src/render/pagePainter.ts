@@ -19,6 +19,92 @@ export function fitViewport(width: number, height: number, pageW: number, pageH:
   return { scale, offsetX: (width - pageW * scale) / 2, offsetY: (height - pageH * scale) / 2 }
 }
 
+export const ZOOM_MIN = 0.5
+export const ZOOM_MAX = 4
+
+/** `gap` around the visible area; `extraBottom` more room under a page that is scrolled to its end. */
+export type ViewInsets = { gap: number; extraBottom: number }
+/** A scrollbar thumb as fractions (0..1) of its track. */
+export type Thumb = { start: number; size: number }
+
+export const clampScale = (s: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, s))
+const IDENTITY: PageViewport = { scale: 1, offsetX: 0, offsetY: 0 }
+
+/** The padded area (left, top, width, height without extraBottom), or null when nothing fits. */
+function area(w: number, h: number, pageW: number, pageH: number, ins: ViewInsets) {
+  const gap = Number.isFinite(ins.gap) && ins.gap > 0 ? ins.gap : 0
+  const extra = Number.isFinite(ins.extraBottom) && ins.extraBottom > 0 ? ins.extraBottom : 0
+  if (![w, h, pageW, pageH].every(finitePositive)) return null
+  const aw = w - gap * 2
+  const ah = h - gap * 2 - extra
+  if (aw <= 0 || ah <= 0) return null
+  return { gap, extra, aw, ah }
+}
+
+/** Page point under the local position (x, y). */
+export function toPage(vp: PageViewport, x: number, y: number): [number, number] {
+  return [(x - vp.offsetX) / vp.scale, (y - vp.offsetY) / vp.scale]
+}
+
+/**
+ * `vp` moved into range: an axis where the page fits is centered in the padded
+ * area; on a larger one the page may not leave a gap at either edge. The area
+ * excludes `extraBottom`, so the end of the page can rise above the toolbar.
+ */
+export function clampViewport(vp: PageViewport, w: number, h: number, pageW: number, pageH: number, ins: ViewInsets): PageViewport {
+  const a = area(w, h, pageW, pageH, ins)
+  if (!a || !finitePositive(vp.scale)) return vp
+  const axis = (o: number, len: number, avail: number) => {
+    if (len <= avail) return a.gap + (avail - len) / 2
+    return Math.min(a.gap, Math.max(a.gap + avail - len, Number.isFinite(o) ? o : a.gap))
+  }
+  return {
+    scale: vp.scale,
+    offsetX: axis(vp.offsetX, pageW * vp.scale, a.aw),
+    offsetY: axis(vp.offsetY, pageH * vp.scale, a.ah),
+  }
+}
+
+/** The page as wide as the padded area (scale kept in the zoom range), top aligned. */
+export function fitWidthViewport(w: number, h: number, pageW: number, pageH: number, ins: ViewInsets): PageViewport {
+  const a = area(w, h, pageW, pageH, ins)
+  if (!a) return IDENTITY
+  const scale = clampScale(a.aw / pageW)
+  return clampViewport({ scale, offsetX: a.gap, offsetY: a.gap }, w, h, pageW, pageH, ins)
+}
+
+/** The whole page inside the padded area, centered. */
+export function fitPageViewport(w: number, h: number, pageW: number, pageH: number, ins: ViewInsets): PageViewport {
+  const a = area(w, h, pageW, pageH, ins)
+  if (!a) return IDENTITY
+  const scale = clampScale(Math.min(a.aw / pageW, a.ah / pageH))
+  return clampViewport({ scale, offsetX: 0, offsetY: 0 }, w, h, pageW, pageH, ins)
+}
+
+/** `scale` (in range) with the page point under (fx, fy) staying under it. Not clamped to the page. */
+export function zoomAbout(vp: PageViewport, fx: number, fy: number, scale: number): PageViewport {
+  const s = clampScale(scale)
+  const [px, py] = toPage(vp, fx, fy)
+  return { scale: s, offsetX: fx - px * s, offsetY: fy - py * s }
+}
+
+/** Scrollbar thumbs of `vp`; an axis whose page is not larger than the area has none. */
+export function scrollMetrics(vp: PageViewport, w: number, h: number, pageW: number, pageH: number, ins: ViewInsets) {
+  const a = area(w, h, pageW, pageH, ins)
+  const none = { x: null as Thumb | null, y: null as Thumb | null }
+  if (!a) return none
+  const thumb = (o: number, len: number, avail: number, extra: number): Thumb | null => {
+    if (len <= avail) return null
+    const total = len + extra
+    const view = avail + extra
+    return { start: Math.min(1, Math.max(0, (a.gap - o) / total)), size: Math.min(1, view / total) }
+  }
+  return {
+    x: thumb(vp.offsetX, pageW * vp.scale, a.aw, 0),
+    y: thumb(vp.offsetY, pageH * vp.scale, a.ah, a.extra),
+  }
+}
+
 /** What an edit could change in a finished stroke's outline. */
 function cacheKey(s: Stroke): string {
   const pts = s.points

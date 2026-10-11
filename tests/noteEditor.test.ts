@@ -189,7 +189,7 @@ describe('semantics', () => {
   test('editor strings exist in ko and en', () => {
     const keys = Object.keys(resources.ko).filter((k) => k.startsWith('editor.'))
     expect(keys).toEqual(
-      expect.arrayContaining(['editor.undo', 'editor.redo', 'editor.undoTip', 'editor.redoTip', 'editor.historyNotApplied', 'editor.penSlot', 'editor.colorBlack', 'editor.page', 'editor.handwriting', 'editor.saveFailed', 'editor.strokeNotAdded', 'editor.toolbar', 'editor.canvas']),
+      expect.arrayContaining(['editor.undo', 'editor.redo', 'editor.undoTip', 'editor.redoTip', 'editor.historyNotApplied', 'editor.penSlot', 'editor.colorBlack', 'editor.page', 'editor.handwriting', 'editor.saveFailed', 'editor.strokeNotAdded', 'editor.toolbar', 'editor.canvas', 'editor.more', 'editor.zoomOut', 'editor.zoomIn', 'editor.zoomLevel', 'editor.fitWidth', 'editor.fitPage', 'editor.zoomOutTip', 'editor.zoomInTip', 'editor.fitWidthTip']),
     )
     expect(Object.keys(resources.en).filter((k) => k.startsWith('editor.'))).toEqual(keys)
   })
@@ -329,8 +329,9 @@ describe('input', () => {
 
   test('only the first pointer draws', async () => {
     await mountEditor()
-    fire('pointerdown', { type: 'touch', id: 1, x: 10, y: 10 })
-    fire('pointerdown', { type: 'touch', id: 2, x: 200, y: 200 })
+    // The second finger comes after the 150 ms window: it is ignored.
+    fire('pointerdown', { type: 'touch', id: 1, x: 10, y: 10, t: 1000 })
+    fire('pointerdown', { type: 'touch', id: 2, x: 200, y: 200, t: 1200 })
     fire('pointermove', { type: 'touch', id: 2, x: 220, y: 200 })
     fire('pointerup', { type: 'touch', id: 2, x: 220, y: 200 })
     fire('pointermove', { type: 'touch', id: 1, x: 30, y: 10 })
@@ -974,5 +975,439 @@ describe('undo and redo (story 2.11)', () => {
     const h = sessionHistory(a)
     expect(sessionHistory(structuredClone(a))).toBe(h)
     expect(sessionHistory({ ...a, metaRev: 'x' })).not.toBe(h)
+  })
+})
+
+describe('zoom and pan', () => {
+  // 800 x 600 canvas; --spacing-3 is unset in jsdom so the gap is 12, no toolbar height.
+  const GAP = 12
+  let size = { w: 800, h: 600 }
+  const proto = HTMLCanvasElement.prototype
+  const origRect = proto.getBoundingClientRect
+  const fit = () => (size.w - GAP * 2) / 595
+  beforeEach(() => {
+    size = { w: 800, h: 600 }
+    proto.getBoundingClientRect = () =>
+      ({ width: size.w, height: size.h, left: 0, top: 0, right: size.w, bottom: size.h, x: 0, y: 0, toJSON() {} }) as DOMRect
+  })
+  afterEach(() => {
+    proto.getBoundingClientRect = origRect
+    delete (globalThis as { matchMedia?: unknown }).matchMedia
+    vi.unstubAllGlobals()
+  })
+
+  const tap = (x: number, y: number, type = 'pen') => {
+    fire('pointerdown', { type, x, y })
+    fire('pointerup', { type, x, y })
+  }
+  /** Where a tap at the client position lands on the page, via the saved stroke. */
+  async function pageAt(x: number, y: number): Promise<[number, number] | null> {
+    const before = strokesOf(await saved()).length
+    tap(x, y)
+    await flush()
+    const all = strokesOf(await saved())
+    if (all.length === before) return null
+    const p = all[all.length - 1]!.points[0]!
+    return [p[0]!, p[1]!]
+  }
+  const wheel = (init: WheelEventInit) => {
+    const e = new WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: 400, clientY: 300, ...init })
+    act(() => void canvas().dispatchEvent(e))
+    return e
+  }
+  const press = (target: Element, k: string, init: KeyboardEventInit = {}) =>
+    act(() => void target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init })))
+  const space = (type: 'keydown' | 'keyup', target: Element = canvas()) => {
+    const e = new KeyboardEvent(type, { key: ' ', code: 'Space', bubbles: true, cancelable: true })
+    act(() => void target.dispatchEvent(e))
+    return e
+  }
+  const openMenu = async () => {
+    click(q('.editor-more button')!)
+    await settle()
+  }
+  const level = () => q('.editor-zoom-level')!.textContent
+  const closeTo = (a: [number, number] | null, x: number, y: number) => {
+    expect(a).not.toBeNull()
+    expect(a![0]).toBeCloseTo(x, 1)
+    expect(a![1]).toBeCloseTo(y, 1)
+  }
+
+  test('opens fitted to the width', async () => {
+    await mountEditor()
+    const s = fit()
+    closeTo(await pageAt(GAP + 100 * s, GAP + 50 * s), 100, 50)
+    await openMenu()
+    expect(level()).toBe(`${Math.round(s * 100)}%`)
+  })
+
+  test('wheel and Shift+wheel scroll; line units become pixels; the end stops above the toolbar room', async () => {
+    await mountEditor()
+    const s = fit()
+    const e = wheel({ deltaY: 100 })
+    expect(e.defaultPrevented).toBe(true)
+    closeTo(await pageAt(GAP, GAP), 0, 100 / s)
+    wheel({ deltaY: 2, deltaMode: 1 }) // two lines = 32 px
+    closeTo(await pageAt(GAP, GAP), 0, 132 / s)
+    // Shift moves along x; the page is no wider than the area, so nothing moves.
+    wheel({ deltaY: 50, shiftKey: true })
+    closeTo(await pageAt(GAP, GAP), 0, 132 / s)
+    wheel({ deltaY: 100000 })
+    const end = size.h - GAP - GAP // the page bottom on screen: gap + room under (gap, no toolbar)
+    closeTo(await pageAt(300, end - 0.5), (300 - GAP) / s, 842 - 0.5 / s)
+    expect(await pageAt(300, end + 3)).toBeNull()
+  })
+
+  test('Ctrl+wheel keeps the page point under the pointer, 50-400%, default prevented', async () => {
+    await mountEditor()
+    const s = fit()
+    const px = (400 - GAP) / s
+    const py = (300 - GAP) / s
+    const e = wheel({ deltaY: -230, ctrlKey: true })
+    expect(e.defaultPrevented).toBe(true)
+    closeTo(await pageAt(400, 300), px, py)
+    await openMenu()
+    expect(Number.parseInt(level()!)).toBe(Math.round(s * Math.exp(0.46) * 100))
+    for (let i = 0; i < 5; i++) wheel({ deltaY: -2000, ctrlKey: true })
+    expect(level()).toBe('400%')
+    for (let i = 0; i < 5; i++) wheel({ deltaY: 5000, ctrlKey: true })
+    expect(level()).toBe('50%')
+  })
+
+  test('Space+drag moves without a stroke; releasing Space returns to the pen', async () => {
+    await mountEditor()
+    const s = fit()
+    canvas().focus()
+    expect(space('keydown').defaultPrevented).toBe(true)
+    expect(canvas().classList.contains('is-hand')).toBe(true)
+    fire('pointerdown', { type: 'mouse', x: 300, y: 300 })
+    fire('pointermove', { type: 'mouse', x: 300, y: 200 })
+    fire('pointerup', { type: 'mouse', x: 300, y: 200 })
+    space('keyup')
+    expect(canvas().classList.contains('is-hand')).toBe(false)
+    expect(strokesOf(await saved())).toHaveLength(0)
+    closeTo(await pageAt(GAP, GAP), 0, 100 / s) // dragged up 100: the content moved up
+  })
+
+  test('Space is not the hand in a text field or on a focused button', async () => {
+    await mountEditor()
+    const input = document.createElement('input')
+    host.append(input)
+    input.focus()
+    space('keydown', input)
+    expect(canvas().classList.contains('is-hand')).toBe(false)
+    input.remove()
+    const slot = q('[role="radio"]')!
+    ;(slot as HTMLElement).focus()
+    expect(space('keydown', slot).defaultPrevented).toBe(false) // a plain press still works
+    expect(canvas().classList.contains('is-hand')).toBe(false)
+    space('keyup', slot)
+    // With the hand on, a mouse drag over the canvas is a pan and the Space release is swallowed.
+    canvas().focus()
+    space('keydown')
+    fire('pointerdown', { type: 'mouse', x: 300, y: 300 })
+    fire('pointermove', { type: 'mouse', x: 300, y: 250 })
+    fire('pointerup', { type: 'mouse', x: 300, y: 250 })
+    expect(space('keyup', slot).defaultPrevented).toBe(true)
+  })
+
+  test('blur during Space, a drag or a pinch clears the hand and the next pointer draws', async () => {
+    await mountEditor()
+    canvas().focus()
+    space('keydown')
+    fire('pointerdown', { type: 'mouse', x: 300, y: 300 })
+    expect(canvas().classList.contains('is-panning')).toBe(true)
+    act(() => void globalThis.dispatchEvent(new Event('blur')))
+    expect(canvas().classList.contains('is-hand')).toBe(false)
+    expect(canvas().classList.contains('is-panning')).toBe(false)
+    expect(await pageAt(300, 300)).not.toBeNull() // the pen again
+    // A pinch cut by the blur leaves nothing owning input.
+    fire('pointerdown', { type: 'touch', id: 1, x: 300, y: 300, t: 5000 })
+    fire('pointerdown', { type: 'touch', id: 2, x: 400, y: 300, t: 5050 })
+    act(() => void globalThis.dispatchEvent(new Event('blur')))
+    expect(await pageAt(200, 200)).not.toBeNull()
+  })
+
+  test('middle button drags the view and blocks autoscroll and paste', async () => {
+    await mountEditor()
+    const s = fit()
+    const md = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 1 })
+    const ax = new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 })
+    act(() => void canvas().dispatchEvent(md))
+    act(() => void canvas().dispatchEvent(ax))
+    expect(md.defaultPrevented).toBe(true)
+    expect(ax.defaultPrevented).toBe(true)
+    fire('pointerdown', { type: 'mouse', x: 300, y: 300, button: 1, buttons: 4 })
+    fire('pointermove', { type: 'mouse', x: 300, y: 260, button: 1, buttons: 4 })
+    fire('pointerup', { type: 'mouse', x: 300, y: 260, button: 1, buttons: 0 })
+    expect(strokesOf(await saved())).toHaveLength(0)
+    closeTo(await pageAt(GAP, GAP), 0, 40 / s)
+  })
+
+  test('keyboard: Ctrl+= / Ctrl+- / Ctrl+0 and arrows on the canvas only', async () => {
+    await mountEditor()
+    const s = fit()
+    canvas().focus()
+    press(canvas(), '=', { ctrlKey: true, code: 'Equal' })
+    await openMenu()
+    expect(level()).toBe(`${Math.round(s * 1.25 * 100)}%`)
+    key(document, 'Escape')
+    canvas().focus()
+    press(canvas(), '0', { ctrlKey: true, code: 'Digit0' })
+    press(canvas(), 'ArrowDown')
+    closeTo(await pageAt(GAP, GAP), 0, 40 / s)
+    press(canvas(), '-', { ctrlKey: true, code: 'Minus' })
+    await openMenu()
+    expect(level()).toBe(`${Math.round(s * 0.8 * 100)}%`)
+    key(document, 'Escape')
+    // Off the canvas nothing is handled.
+    ;(q('.editor-back') as HTMLElement).focus()
+    const e = new KeyboardEvent('keydown', { key: '=', ctrlKey: true, bubbles: true, cancelable: true })
+    act(() => void document.activeElement!.dispatchEvent(e))
+    expect(e.defaultPrevented).toBe(false)
+  })
+
+  test('menu: rows, stays open on +/-, aria-disabled at the limits, focus returns to the button', async () => {
+    await mountEditor({ lang: 'en-US' })
+    const more = q<HTMLButtonElement>('.editor-more button')!
+    expect(more.getAttribute('aria-label')).toBe('More')
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    await openMenu()
+    expect(more.getAttribute('aria-expanded')).toBe('true')
+    const items = [...q('[role="menu"]')!.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    expect(items.map((i) => i.getAttribute('aria-label') ?? i.textContent)).toEqual([
+      'Zoom out',
+      'Zoom in',
+      'Fit width',
+      'Fit page',
+    ])
+    expect(q('[role="status"][aria-live="polite"]')!.textContent).toBe(`Zoom ${Math.round(fit() * 100)}%`)
+    expect(document.activeElement).toBe(items[0])
+    key(items[0]!, 'ArrowUp')
+    expect(document.activeElement).toBe(items[3])
+    key(items[3]!, 'ArrowDown')
+    expect(document.activeElement).toBe(items[0])
+    key(items[0]!, 'End')
+    expect(document.activeElement).toBe(items[3])
+    key(items[3]!, 'Home')
+    expect(document.activeElement).toBe(items[0])
+
+    const plus = items[1]!
+    click(plus)
+    expect(q('[role="menu"]')).not.toBeNull()
+    expect(level()).toBe(`${Math.round(fit() * 125)}%`)
+    for (let i = 0; i < 8; i++) click(plus)
+    expect(level()).toBe('400%')
+    expect(plus.getAttribute('aria-disabled')).toBe('true')
+    expect(items[0]!.getAttribute('aria-disabled')).toBe('false')
+
+    key(document, 'Escape')
+    expect(q('[role="menu"]')).toBeNull()
+    expect(document.activeElement).toBe(more)
+
+    await openMenu()
+    click(qa('[role="menu"] .editor-menu-item')[0]!) // fit width
+    expect(q('[role="menu"]')).toBeNull()
+    expect(document.activeElement).toBe(more)
+    await openMenu()
+    expect(level()).toBe(`${Math.round(fit() * 100)}%`)
+    // Tab out of the menu closes it.
+    const outside = q('.editor-back')!
+    act(() => void q('[role="menu"] .editor-menu-item')!.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: outside })))
+    expect(q('[role="menu"]')).toBeNull()
+    await openMenu()
+    // A press outside closes it too.
+    act(() => void canvas().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', button: 0 })))
+    expect(q('[role="menu"]')).toBeNull()
+  })
+
+  test('the zoom level reads "배율 N%"; fit page shows the whole page', async () => {
+    await mountEditor()
+    await openMenu()
+    expect(q('[role="status"][aria-live="polite"]')!.textContent).toBe(`배율 ${Math.round(fit() * 100)}%`)
+    click(qa('[role="menuitem"]')[3]!)
+    const sp = Math.min((800 - 24) / 595, (600 - 24 - 12) / 842)
+    const x0 = GAP + (800 - 24 - 595 * sp) / 2
+    const y0 = GAP + (600 - 24 - 12 - 842 * sp) / 2
+    closeTo(await pageAt(x0 + 10 * sp, y0 + 10 * sp), 10, 10)
+  })
+
+  test('a window resize keeps the fit mode; a free view keeps the center page point', async () => {
+    await mountEditor()
+    size = { w: 1000, h: 700 }
+    act(() => void globalThis.dispatchEvent(new Event('resize')))
+    const s = (1000 - 24) / 595
+    closeTo(await pageAt(GAP + 100 * s, GAP + 50 * s), 100, 50)
+
+    wheel({ deltaY: -230, ctrlKey: true, clientX: 500, clientY: 350 })
+    const center = await pageAt(500, 350)
+    size = { w: 700, h: 500 }
+    act(() => void globalThis.dispatchEvent(new Event('resize')))
+    closeTo(await pageAt(350, 250), center![0], center![1])
+  })
+
+  test('reduced motion changes at once', async () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (f: FrameRequestCallback) => frames.push(f))
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+    ;(globalThis as { matchMedia?: unknown }).matchMedia = () => ({ matches: true })
+    await mountEditor()
+    canvas().focus()
+    press(canvas(), '=', { ctrlKey: true, code: 'Equal' })
+    expect(frames).toHaveLength(0)
+    const s = fit() * 1.25
+    // The view itself is already at the target: the focus (center) is fixed.
+    closeTo(await pageAt(400, 300), (400 - GAP) / fit(), (300 - GAP) / fit())
+    await openMenu()
+    expect(level()).toBe(`${Math.round(s * 100)}%`)
+  })
+
+  test('frames carry the zoom to the target; a late frame ends it; input mid-animation snaps', async () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (f: FrameRequestCallback) => frames.push(f))
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+    ;(globalThis as { matchMedia?: unknown }).matchMedia = () => ({ matches: false })
+    await mountEditor()
+    canvas().focus()
+    press(canvas(), '=', { ctrlKey: true, code: 'Equal' })
+    press(canvas(), '=', { ctrlKey: true, code: 'Equal' }) // builds on the target: x1.5625
+    expect(frames.length).toBeGreaterThan(0)
+    const s2 = fit() * 1.25 * 1.25
+    // An early frame (before the start) is clamped and does not end the animation.
+    act(() => void frames.shift()!(0))
+    await openMenu()
+    expect(level()).toBe(`${Math.round(s2 * 100)}%`)
+    key(document, 'Escape')
+    // A frame far past the end lands exactly on the target.
+    while (frames.length > 0) act(() => void frames.shift()!(performance.now() + 10000))
+    closeTo(await pageAt(400, 300), (400 - GAP) / fit(), (300 - GAP) / fit())
+
+    // Mid-animation, a pointerdown ends it at the target before the point is mapped.
+    press(canvas(), '=', { ctrlKey: true, code: 'Equal' })
+    expect(frames.length).toBeGreaterThan(0)
+    closeTo(await pageAt(400, 300), (400 - GAP) / fit(), (300 - GAP) / fit())
+    expect(canvas().classList.contains('is-panning')).toBe(false)
+  })
+
+  test('fit page survives a resize', async () => {
+    await mountEditor()
+    await openMenu()
+    click(qa('[role="menuitem"]')[3]!)
+    size = { w: 1000, h: 800 }
+    act(() => void globalThis.dispatchEvent(new Event('resize')))
+    const sp = Math.min((1000 - 24) / 595, (800 - 24 - 12) / 842)
+    const x0 = GAP + (1000 - 24 - 595 * sp) / 2
+    const y0 = GAP + (800 - 24 - 12 - 842 * sp) / 2
+    closeTo(await pageAt(x0 + 10 * sp, y0 + 10 * sp), 10, 10)
+  })
+
+  test('scrollbar thumbs follow the zoom; Shift+wheel pans sideways when zoomed', async () => {
+    await mountEditor()
+    expect(qa('.editor-scroll-x')).toHaveLength(0)
+    wheel({ deltaY: -2000, ctrlKey: true }) // zoom in: both axes overflow
+    const x = q('.editor-scroll-x > span')!
+    const y = q('.editor-scroll-y > span')!
+    expect(x).not.toBeNull()
+    expect(y.style.height).not.toBe('')
+    const before = Number.parseFloat(x.style.left)
+    wheel({ deltaY: 100, shiftKey: true })
+    expect(Number.parseFloat(q('.editor-scroll-x > span')!.style.left)).toBeGreaterThan(before)
+    wheel({ deltaY: 100000 })
+    const ys = q('.editor-scroll-y > span')!
+    expect(Number.parseFloat(ys.style.top) + Number.parseFloat(ys.style.height)).toBeCloseTo(100, 3)
+  })
+
+  test('the toolbar height adds to the room under the page end', async () => {
+    const spy = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(60)
+    try {
+      await mountEditor()
+      const s = fit()
+      wheel({ deltaY: 100000 })
+      const end = size.h - GAP - (60 + GAP) // page bottom on screen
+      closeTo(await pageAt(300, end - 0.5), (300 - GAP) / s, 842 - 0.5 / s)
+      expect(await pageAt(300, end + 3)).toBeNull()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  test('wheel and arrows do nothing under a stroke', async () => {
+    await mountEditor()
+    fire('pointerdown', { type: 'pen', x: 300, y: 300 })
+    wheel({ deltaY: 200 })
+    canvas().focus()
+    press(canvas(), 'ArrowDown')
+    fire('pointerup', { type: 'pen', x: 300, y: 300 })
+    closeTo(await pageAt(GAP, GAP), 0, 0)
+  })
+})
+
+describe('touch arbitration', () => {
+  const proto = HTMLCanvasElement.prototype
+  const origRect = proto.getBoundingClientRect
+  beforeEach(() => {
+    proto.getBoundingClientRect = () =>
+      ({ width: 800, height: 600, left: 0, top: 0, right: 800, bottom: 600, x: 0, y: 0, toJSON() {} }) as DOMRect
+  })
+  afterEach(() => {
+    proto.getBoundingClientRect = origRect
+  })
+  const t = (name: string, id: number, x: number, y: number, at: number) => fire(name, { type: 'touch', id, x, y, t: at })
+
+  test('a second finger within 150 ms discards the stroke; after it, the stroke is kept', async () => {
+    let writes = 0
+    await mountEditor({ opts: { afterPut: () => void writes++ } })
+    t('pointerdown', 1, 100, 100, 1000)
+    t('pointermove', 1, 130, 100, 1050)
+    t('pointerdown', 2, 300, 300, 1150) // exactly 150 ms
+    t('pointermove', 2, 320, 300, 1160)
+    t('pointerup', 2, 320, 300, 1170)
+    t('pointermove', 1, 160, 100, 1180)
+    t('pointerup', 1, 160, 100, 1190)
+    await flush()
+    expect(writes).toBe(0)
+    expect(strokesOf(await saved())).toHaveLength(0)
+
+    // 151 ms: ignored, the stroke goes on and is saved.
+    t('pointerdown', 1, 100, 100, 2000)
+    t('pointerdown', 2, 300, 300, 2151)
+    t('pointerup', 2, 300, 300, 2160)
+    t('pointermove', 1, 130, 100, 2170)
+    t('pointerup', 1, 130, 100, 2180)
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(1)
+  })
+
+  test('pinch keeps the page point under the fingers; a finger left over never draws', async () => {
+    await mountEditor()
+    const s = (800 - 24) / 595
+    const p0 = [(350 - 12) / s, (300 - 12) / s]
+    t('pointerdown', 1, 300, 300, 1000)
+    t('pointerdown', 2, 400, 300, 1050)
+    t('pointermove', 2, 500, 300, 1100) // distance 100 -> 200, focus (350,300) -> (400,300)
+    t('pointerup', 2, 500, 300, 1110)
+    t('pointermove', 1, 320, 320, 1120) // the one left moves: nothing
+    t('pointerup', 1, 320, 320, 1130)
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(0)
+    fire('pointerdown', { type: 'mouse', x: 400, y: 300 })
+    fire('pointerup', { type: 'mouse', x: 400, y: 300 })
+    await flush()
+    const [pt] = strokesOf(await saved())
+    expect(pt!.points[0]![0]).toBeCloseTo(p0[0]!, 1)
+    expect(pt!.points[0]![1]).toBeCloseTo(p0[1]!, 1)
+  })
+
+  test('a pen takes over from a finger stroke at once', async () => {
+    await mountEditor()
+    t('pointerdown', 1, 100, 100, 1000)
+    t('pointermove', 1, 120, 100, 1500)
+    fire('pointerdown', { type: 'pen', id: 5, x: 200, y: 200, t: 1600 })
+    fire('pointerup', { type: 'pen', id: 5, x: 220, y: 200, t: 1650 })
+    t('pointerup', 1, 120, 100, 1700)
+    await flush()
+    const strokes = strokesOf(await saved())
+    expect(strokes).toHaveLength(1)
+    expect(strokes[0]!.points[0]![0]).toBeCloseTo((200 - 12) / ((800 - 24) / 595), 1)
   })
 })

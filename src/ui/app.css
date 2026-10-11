@@ -651,6 +651,97 @@ h1 {
   -webkit-user-select: none;
 }
 
+.editor-canvas.is-hand {
+  cursor: grab;
+}
+
+.editor-canvas.is-panning {
+  cursor: grabbing;
+}
+
+/* Display only: no dragging or clicking. */
+.editor-scroll {
+  position: absolute;
+  pointer-events: none;
+}
+
+.editor-scroll > span {
+  position: absolute;
+  border-radius: var(--rounded-full);
+  background: var(--color-ink-disabled);
+}
+
+.editor-scroll-y {
+  top: var(--spacing-3);
+  right: var(--spacing-1);
+  bottom: calc(var(--spacing-3) * 2);
+  width: var(--spacing-1);
+}
+
+.editor-scroll-y > span {
+  right: 0;
+  left: 0;
+}
+
+.editor-scroll-x {
+  right: calc(var(--spacing-3) * 2);
+  bottom: var(--spacing-1);
+  left: calc(var(--spacing-3) * 2);
+  height: var(--spacing-1);
+}
+
+.editor-scroll-x > span {
+  top: 0;
+  bottom: 0;
+}
+
+.editor-more {
+  position: relative;
+  grid-column: 3;
+  justify-self: end;
+}
+
+.editor-menu {
+  position: absolute;
+  top: calc(100% + var(--spacing-2));
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  padding: var(--components-popover-padding);
+  border-radius: var(--components-popover-rounded);
+  background: var(--components-popover-background);
+  box-shadow: var(--components-popover-shadow);
+}
+
+.editor-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.editor-zoom-level {
+  min-width: calc(var(--spacing-hit-min-web) * 2);
+  text-align: center;
+  font-size: var(--typography-label-font-size);
+  font-weight: var(--typography-label-font-weight);
+}
+
+.editor-menu-item {
+  box-sizing: border-box;
+  min-height: var(--spacing-hit-min-web);
+  padding: 0 var(--spacing-3);
+  border: 0;
+  border-radius: var(--rounded-sm);
+  background: none;
+  color: var(--color-ink-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
 .snackbar {
   position: fixed;
   bottom: var(--spacing-5);
