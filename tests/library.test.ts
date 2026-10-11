@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Library: grid, fab menu, new-note sheet, editor entry point (story 2.9).
+// Library: grid, fab menu, new-note sheet, writing screen route (story 2.9).
 import 'fake-indexeddb/auto'
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -12,7 +12,7 @@ import { NOTE_DB_NAME, deleteNoteDatabase } from '../src/storage/noteDb'
 import { type NoteStore, openNoteStore } from '../src/storage/noteStore'
 import { App } from '../src/ui/App'
 import { Library } from '../src/ui/library/Library'
-import { NoteEditorStub, parseNoteRoute } from '../src/ui/library/NoteEditorStub'
+import { NoteEditor, parseNoteRoute } from '../src/ui/library/NoteEditor'
 import { detectEditedBy, latestEditedMs, sortItems, toItem } from '../src/ui/library/useLibrary'
 import { signedIn } from './helpers'
 
@@ -489,7 +489,7 @@ describe('sorting and dates', () => {
   })
 })
 
-describe('editor entry point', () => {
+describe('writing screen route', () => {
   test('route parsing', () => {
     expect(parseNoteRoute('#/notes/abc')).toBe('abc')
     expect(parseNoteRoute('#/notes/a%2Fb')).toBe('a/b')
@@ -498,7 +498,7 @@ describe('editor entry point', () => {
     expect(parseNoteRoute('')).toBeNull()
   })
 
-  test('app: create opens the stub with the title; back returns to the library with the note listed', async () => {
+  test('app: create opens the editor with the title; back returns to the library with the note listed', async () => {
     act(() => root.render(createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(App, { auth: signedIn }))))
     await flush()
     click(q('.cover-card')!)
@@ -533,9 +533,9 @@ describe('editor entry point', () => {
     expect(q('.library')).not.toBeNull()
   })
 
-  test('stub component on its own shows nothing for a missing note', async () => {
+  test('the editor on its own shows nothing for a missing note', async () => {
     location.hash = '#/notes/zzz'
-    act(() => root.render(createElement(NoteEditorStub, { noteId: 'zzz', openStore: makeOpen() })))
+    act(() => root.render(createElement(NoteEditor, { noteId: 'zzz', openStore: makeOpen() })))
     await flush()
     expect(q('.editor-corner')).toBeNull()
   })
@@ -681,7 +681,7 @@ describe('review fixes', () => {
     expect(document.activeElement).toBe(fabButton())
   })
 
-  test('connections are closed when Library unmounts and after the stub loads', async () => {
+  test('connections are closed when Library unmounts and after the editor loads', async () => {
     const closed = { n: 0 }
     mountWith(withList(() => Promise.resolve([]), closed))
     await flush()
@@ -689,10 +689,10 @@ describe('review fixes', () => {
     act(() => root.render(createElement('div')))
     expect(closed.n).toBe(1)
 
-    const stubClosed = { n: 0 }
-    const open = withList(() => Promise.resolve([]), stubClosed)
-    act(() => root.render(createElement(NoteEditorStub, { noteId: 'nope', openStore: open })))
+    const editorClosed = { n: 0 }
+    const open = withList(() => Promise.resolve([]), editorClosed)
+    act(() => root.render(createElement(NoteEditor, { noteId: 'nope', openStore: open })))
     await flush()
-    expect(stubClosed.n).toBe(1)
+    expect(editorClosed.n).toBe(1)
   })
 })

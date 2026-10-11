@@ -318,8 +318,14 @@ h1 {
   cursor: default;
 }
 
+/* The writing screen covers the window: toolbar and corner only (DESIGN.md). */
 .editor {
-  min-height: 100%;
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-sunken);
 }
 
 /* Library */
@@ -476,7 +482,7 @@ h1 {
   transform: rotate(45deg);
 }
 
-/* Editor entry point (replaced by the writing screen in story 2.10) */
+/* Writing screen */
 .editor-corner {
   display: inline-flex;
   align-items: center;
@@ -502,4 +508,146 @@ h1 {
   font-size: var(--typography-label-font-size);
   font-weight: var(--typography-label-font-weight);
   line-height: var(--typography-label-line-height);
+}
+
+.editor-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--spacing-3);
+  padding: var(--spacing-3);
+}
+
+.pen-toolbar {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--components-toolbar-group-gap);
+  padding: var(--components-toolbar-padding-block) var(--components-toolbar-padding-inline);
+  border-radius: var(--components-toolbar-rounded);
+  background: var(--components-toolbar-background);
+  box-shadow: var(--components-toolbar-shadow);
+}
+
+.toolbar-grip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--components-toolbar-grip-size);
+  height: var(--components-toolbar-grip-size);
+  color: var(--components-toolbar-grip-glyph);
+}
+
+.pen-slots {
+  display: flex;
+  gap: var(--components-toolbar-item-gap);
+}
+
+/* The nib hangs from the toolbar's top edge: its top is cut off. */
+.pen-slot {
+  position: relative;
+  box-sizing: border-box;
+  width: var(--components-pen-slot-hit-size);
+  height: var(--components-pen-slot-hit-size);
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: none;
+  color: var(--components-pen-slot-caret);
+  cursor: pointer;
+}
+
+.pen-nib {
+  position: absolute;
+  top: calc(var(--spacing-2) * -1);
+  left: 50%;
+  width: var(--components-pen-slot-glyph-width);
+  height: var(--components-pen-slot-glyph-height);
+  transform: translateX(-50%);
+  transition: top var(--components-pen-slot-selected-duration) var(--components-pen-slot-selected-easing);
+}
+
+.pen-slot-selected .pen-nib {
+  top: calc(var(--spacing-2) * -1 + var(--components-pen-slot-selected-offset));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pen-nib {
+    transition: none;
+  }
+}
+
+.pen-dot {
+  position: absolute;
+  bottom: var(--spacing-2);
+  left: 50%;
+  box-sizing: border-box;
+  width: var(--spacing-2);
+  height: var(--spacing-2);
+  border: 1px solid var(--components-pen-slot-thickness-dot-outline);
+  border-radius: var(--rounded-full);
+  transform: translateX(-50%);
+}
+
+.pen-caret {
+  position: absolute;
+  top: var(--spacing-5);
+  right: var(--spacing-1);
+  width: var(--spacing-2);
+  height: var(--spacing-1);
+}
+
+.pen-underline {
+  position: absolute;
+  bottom: 1px;
+  left: 50%;
+  width: var(--components-pen-slot-selected-width);
+  height: var(--components-pen-slot-selected-height);
+  border-radius: var(--components-pen-slot-selected-rounded);
+  background: var(--components-pen-slot-selected-indicator);
+  transform: translateX(-50%);
+}
+
+.editor-page-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--spacing-3) var(--spacing-3);
+}
+
+.editor-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.snackbar {
+  position: fixed;
+  bottom: var(--spacing-5);
+  left: 50%;
+  max-width: calc(100% - var(--spacing-5) * 2);
+  padding: var(--spacing-3) var(--spacing-4);
+  border-radius: var(--rounded-sm);
+  background: var(--components-snackbar-background);
+  color: var(--components-snackbar-text);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.snackbar:empty {
+  display: none;
+}
+
+.cover-thumb {
+  overflow: hidden;
+}
+
+.cover-thumb-canvas {
+  display: block;
+  align-self: stretch;
+  width: 100%;
+  min-height: 0;
 }

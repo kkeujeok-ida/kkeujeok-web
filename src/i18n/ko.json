@@ -56,5 +56,13 @@
   "signin.denied.retry": "다시 요청",
   "signin.network": "연결을 확인하고 다시 시도해 주세요",
   "signin.network.retry": "다시 시도",
-  "signin.unconfigured": "로그인을 설정하지 않았어요"
+  "signin.unconfigured": "로그인을 설정하지 않았어요",
+  "editor.penSlot": "펜, {color}, 두께 {width} ({n})",
+  "editor.colorBlack": "검정",
+  "editor.page": "{n}페이지 / {total}, {orientation}",
+  "editor.handwriting": "손글씨",
+  "editor.saveFailed": "이 브라우저에 저장하지 못했어요.",
+  "editor.strokeNotAdded": "획을 추가하지 못했어요.",
+  "editor.toolbar": "툴바",
+  "editor.canvas": "필기 영역"
 }

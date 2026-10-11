@@ -76,6 +76,10 @@ export const i18n = createI18n({
 
 export const I18nContext = createContext(i18n)
 
+/** Fills `{name}` placeholders of a UI string. */
+export const fmt = (s: string, vars: Record<string, string | number>) =>
+  s.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m))
+
 export function useI18n() {
   const store = useContext(I18nContext)
   const { choice, locale } = useSyncExternalStore(store.subscribe, store.getState, store.getState)

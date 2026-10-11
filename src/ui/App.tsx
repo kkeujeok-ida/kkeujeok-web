@@ -4,7 +4,7 @@ import { PrivacyPolicy, isPrivacyPath } from './PrivacyPolicy'
 import { Settings } from './Settings'
 import { SignIn } from './SignIn'
 import { Library } from './library/Library'
-import { NoteEditorStub, parseNoteRoute } from './library/NoteEditorStub'
+import { NoteEditor, parseNoteRoute } from './library/NoteEditor'
 import { auth as defaultAuth, type Auth } from '../drive/auth'
 
 export const SIDEBAR_EXPANDED_MIN_WIDTH = 840
@@ -57,7 +57,12 @@ function Shell({ auth }: { auth: Auth }) {
 
   return (
     <div className="shell">
-      <nav className={expanded ? 'sidebar' : 'sidebar collapsed'} aria-label={t('sidebar.label')}>
+      {/* The writing screen covers the window; the sidebar is not reachable behind it. */}
+      <nav
+        className={expanded ? 'sidebar' : 'sidebar collapsed'}
+        aria-label={t('sidebar.label')}
+        inert={noteId !== null && !settingsOpen}
+      >
         <div className={hidden ? `brand ${hidden}` : 'brand'}>{t('app.name')}</div>
         <div className="library-slot" />
         <button
@@ -77,7 +82,7 @@ function Shell({ auth }: { auth: Auth }) {
         {settingsOpen ? (
           <Settings auth={auth} onClose={() => setSettingsOpen(false)} />
         ) : noteId ? (
-          <NoteEditorStub key={noteId} noteId={noteId} />
+          <NoteEditor key={noteId} noteId={noteId} />
         ) : (
           <Library />
         )}

@@ -2,13 +2,17 @@
 // through createNote (ops) and noteStore.writeNote.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { newId } from '../../model/ids'
-import type { Note } from '../../model/note'
+import type { Note, Page } from '../../model/note'
 import { createNote } from '../../ops/ops'
 import type { Background, NewNoteDefaults, Orientation } from '../../storage/newNoteDefaults'
 import type { NoteStore } from '../../storage/noteStore'
+import { savesSettled } from '../../storage/saveQueue'
 
-/** `title` is null for a note this client cannot open. `editedMs` is null when no valid date. */
-export type LibraryItem = { noteId: string; title: string | null; editedMs: number | null }
+/**
+ * `title` is null for a note this client cannot open. `editedMs` is null when
+ * no valid date. `page` is the first page, for the card thumbnail.
+ */
+export type LibraryItem = { noteId: string; title: string | null; editedMs: number | null; page?: Page }
 type Entry = Awaited<ReturnType<NoteStore['listNotes']>>[number]
 
 /** The newest page `editedAt` as epoch ms; unusable values are skipped. */
@@ -29,7 +33,10 @@ export function toItem({ noteId, result }: Entry): LibraryItem {
   const note = result.result === 'ok' ? result.note : undefined
   const title: unknown = note?.meta?.title
   if (!note || typeof title !== 'string') return { noteId, title: null, editedMs: null }
-  return { noteId, title, editedMs: latestEditedMs(note) }
+  const first: unknown = Array.isArray(note.pages) ? note.pages[0] : undefined
+  const item: LibraryItem = { noteId, title, editedMs: latestEditedMs(note) }
+  if (typeof first === 'object' && first !== null) item.page = first as Page
+  return item
 }
 
 const rank = (i: LibraryItem) => (i.title === null ? 2 : i.editedMs === null ? 1 : 0)
@@ -96,6 +103,8 @@ export function useLibrary(
     const mine = ++seq.current
     setState((p) => (p.status === 'error' ? { status: 'loading', items: [], failed: false } : p))
     try {
+      // An editor that was just left may still be saving: list after it.
+      await savesSettled(3000)
       const list = await s.listNotes()
       if (mine !== seq.current || storeRef.current !== s) return
       setState({ status: 'ready', items: sortItems(list.map(toItem)), failed: false })

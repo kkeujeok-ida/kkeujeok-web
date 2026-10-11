@@ -12,8 +12,11 @@ import type { Note } from '../src/model/note'
 import { round2 } from '../src/model/number'
 import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
+import { pageBackground } from '../src/render/pageBackground'
+import { strokeOutline } from '../src/render/strokeOutline'
 
-type Case = { name: string; input: unknown; expected: unknown }
+// `tolerance` is the fixture file's top-level value, copied onto each case.
+type Case = { name: string; input: unknown; expected: unknown; tolerance?: number }
 
 // Rule id -> how to judge one case. A new spec rule adds one line here.
 const runners: Record<string, (c: Case) => void | Promise<void>> = {
@@ -63,10 +66,27 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     )
     expect({ note: h.note, undoDepth: h.undoDepth, redoDepth: h.redoDepth, errors }).toEqual(expected)
   },
+  'stroke.outline.pen': ({ input, expected, tolerance }) => {
+    const i = input as { width: number; usePressure: boolean; points: number[][] }
+    const want = (expected as { polygon: number[][] }).polygon
+    const got = strokeOutline(i.width, i.usePressure, i.points)
+    expect(got).toHaveLength(want.length)
+    expect(typeof tolerance, 'fixture has no tolerance').toBe('number')
+    for (const [k, p] of got.entries()) {
+      for (const axis of [0, 1]) {
+        // 2-decimal outputs: an exact 0.02 step shows up as 0.020000000000000018.
+        expect(Math.abs(p[axis]! - want[k]![axis]!)).toBeLessThanOrEqual(tolerance! + 1e-9)
+      }
+    }
+  },
+  'page.background': ({ input, expected }) => {
+    const i = input as { background: string; width: number; height: number }
+    expect(pageBackground(i.background, i.width, i.height)).toEqual(expected)
+  },
 }
 
-// Rules whose fixture must exist and be valid but have no runner yet (Story 2.10).
-const PENDING = ['stroke.outline.pen', 'page.background']
+// Rules whose fixture must exist and be valid but have no runner yet.
+const PENDING: string[] = []
 
 function opRunner({ input, expected }: Case) {
   const i = input as { note: Note; op: Op; ctx: Ctx }
@@ -127,7 +147,11 @@ function loadFixtures(dir: string, pending: string[] = PENDING): Map<string, Cas
           'Add it to `runners` in tests/fixtures.test.ts.',
       )
     }
-    fixtures.set(id, cases as Case[])
+    const tolerance = (data as { tolerance?: unknown }).tolerance
+    fixtures.set(
+      id,
+      (cases as Case[]).map((c) => (typeof tolerance === 'number' ? { ...c, tolerance } : c)),
+    )
   }
   for (const id of Object.keys(runners)) {
     if (!fixtures.has(id)) throw new Error(`Fixture file missing: ${join(dir, `${id}.json`)}`)
@@ -200,11 +224,13 @@ describe('harness refuses a broken setup', () => {
     expect(() => loadWith({ 'constructor.json': good })).toThrow('not a rule id')
   })
 
-  test('two-dot rule id accepted; pending rule needs no runner; unlisted still fails', () => {
+  test('two-dot rule id accepted; listed pending rule needs no runner; unlisted still fails', () => {
     const fx = (rule: string) => JSON.stringify({ rule, cases: [{ name: 'a', input: 1, expected: 1 }] })
-    // The real folder already holds the pending fixtures.
-    expect(loadFixtures(sharedDir).has('stroke.outline.pen')).toBe(false)
-    expect(() => loadFixtures(sharedDir, [])).toThrow('is not implemented')
+    expect(loadFixtures(sharedDir).has('stroke.outline.pen')).toBe(true)
+    expect(PENDING).toEqual([]) // every fixture has a runner
+    expect(loadFixtures(sharedDir).get('stroke.outline.pen')![0]!.tolerance).toBe(0.02)
+    const only = ['stroke.hitTest']
+    expect(loadFixtures(mkOnly({ ...real, 'stroke.hitTest.json': fx('stroke.hitTest') }), only).has('stroke.hitTest')).toBe(false)
     expect(() => loadWith({ 'stroke.hitTest.json': fx('stroke.hitTest') })).toThrow('"stroke.hitTest"')
   })
 

@@ -56,5 +56,13 @@
   "signin.denied.retry": "Request again",
   "signin.network": "Check your connection and try again",
   "signin.network.retry": "Try again",
-  "signin.unconfigured": "Sign-in has not been set up"
+  "signin.unconfigured": "Sign-in has not been set up",
+  "editor.penSlot": "Pen, {color}, width {width} ({n})",
+  "editor.colorBlack": "Black",
+  "editor.page": "Page {n} of {total}, {orientation}",
+  "editor.handwriting": "Handwriting",
+  "editor.saveFailed": "Could not save to this browser.",
+  "editor.strokeNotAdded": "Could not add the stroke.",
+  "editor.toolbar": "Toolbar",
+  "editor.canvas": "Writing area"
 }
