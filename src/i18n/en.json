@@ -64,5 +64,10 @@
   "editor.saveFailed": "Could not save to this browser.",
   "editor.strokeNotAdded": "Could not add the stroke.",
   "editor.toolbar": "Toolbar",
-  "editor.canvas": "Writing area"
+  "editor.canvas": "Writing area",
+  "editor.undo": "Undo",
+  "editor.redo": "Redo",
+  "editor.undoTip": "Undo (Ctrl+Z)",
+  "editor.redoTip": "Redo (Ctrl+Y)",
+  "editor.historyNotApplied": "Couldn't apply that change."
 }

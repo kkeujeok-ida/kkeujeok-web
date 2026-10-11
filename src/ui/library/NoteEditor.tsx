@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { fmt, useI18n, type Key } from '../../i18n'
 import { penSlots } from '../../model/pen'
+import { sessionHistory } from '../../ops/sessionHistories'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
 import { savesSettled } from '../../storage/saveQueue'
 import { PenToolbar } from './PenToolbar'
@@ -41,6 +42,7 @@ const LEAVE_WAIT_MS = 5000
 const MESSAGE_KEY: Record<WriterMessage, Key> = {
   saveFailed: 'editor.saveFailed',
   strokeNotAdded: 'editor.strokeNotAdded',
+  historyNotApplied: 'editor.historyNotApplied',
 }
 
 type Loaded = { title: string; writer: Writer }
@@ -62,6 +64,8 @@ export function NoteEditor({
   const [selected, setSelected] = useState(0)
   const selectedRef = useRef(0)
   selectedRef.current = selected
+  // Bumped when the history changes so the undo/redo buttons re-read their state.
+  const [, setRevision] = useState(0)
 
   const back = useRef<HTMLButtonElement>(null)
   const toolbar = useRef<HTMLDivElement>(null)
@@ -88,11 +92,12 @@ export function NoteEditor({
           return
         }
         writer = new Writer(
-          note,
+          sessionHistory(note),
           store,
           () => penSlots[selectedRef.current] ?? penSlots[0]!,
           (key) => live && setMessage((p) => ({ key, n: (p?.n ?? 0) + 1 })),
           detectEditedBy,
+          () => live && setRevision((n) => n + 1),
         )
         setLoaded({ title, writer })
       })
@@ -157,6 +162,31 @@ export function NoteEditor({
     return () => document.removeEventListener('keydown', onKey, true)
   }, [ready])
 
+  // Ctrl/Cmd+Z undoes, Ctrl+Y and Ctrl/Cmd+Shift+Z redo, wherever focus is
+  // except in a text field (which keeps its own undo).
+  useEffect(() => {
+    if (!loaded) return
+    const { writer } = loaded
+    const typing = (n: EventTarget | null) => {
+      const el = n as HTMLElement | null
+      return !!el?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+    }
+    const onKey = (e: KeyboardEvent) => {
+      // A held key or an IME composition must not undo again and again.
+      if (e.repeat || e.isComposing || !(e.ctrlKey || e.metaKey) || e.altKey) return
+      // The physical key first: other layouts (Hangul) report 'ㅋ' or 'Process'.
+      const k = e.code === 'KeyZ' ? 'z' : e.code === 'KeyY' ? 'y' : e.key.toLowerCase()
+      if (k !== 'z' && k !== 'y') return
+      if (k === 'y' && (!e.ctrlKey || e.shiftKey)) return // no Cmd+Y
+      if (typing(e.target) || typing(document.activeElement)) return
+      if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return
+      const redo = k === 'y' || e.shiftKey
+      if (redo ? writer.redo() : writer.undo()) e.preventDefault()
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [loaded])
+
   const onBack = () => {
     if (!loaded || leaving.current) return
     leaving.current = true
@@ -195,7 +225,16 @@ export function NoteEditor({
               </button>
               <span className="editor-title">{loaded.title}</span>
             </div>
-            <PenToolbar ref={toolbar} pens={penSlots} selected={selected} onSelect={setSelected} />
+            <PenToolbar
+              ref={toolbar}
+              pens={penSlots}
+              selected={selected}
+              onSelect={setSelected}
+              canUndo={loaded.writer.canUndo}
+              canRedo={loaded.writer.canRedo}
+              onUndo={() => loaded.writer.undo()}
+              onRedo={() => loaded.writer.redo()}
+            />
           </div>
           <div className="editor-page-area" role="group" aria-label={`${t('editor.canvas')}: ${pageLabel ?? ''}`}>
             <canvas

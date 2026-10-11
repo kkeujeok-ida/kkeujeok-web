@@ -1,14 +1,14 @@
 // The writing surface of one open note: pointer input -> addStroke ops on a
 // History -> serial saves, and the canvas that shows the page. No React here.
 import { newId } from '../../model/ids'
-import type { Note, Page, Stroke } from '../../model/note'
+import type { Page, Stroke } from '../../model/note'
 import type { Pen } from '../../model/pen'
-import { History } from '../../ops/history'
+import type { History } from '../../ops/history'
 import { fitViewport, paintPage, StrokePathCache, type PageViewport } from '../../render/pagePainter'
 import type { NoteStore } from '../../storage/noteStore'
 import { SaveQueue, markUnsaved, trackSave } from '../../storage/saveQueue'
 
-export type WriterMessage = 'saveFailed' | 'strokeNotAdded'
+export type WriterMessage = 'saveFailed' | 'strokeNotAdded' | 'historyNotApplied'
 
 type Drawing = { id: number; strokeId: string; type: string; t0: number; points: number[][] }
 const POINTER_TYPES = ['pen', 'mouse', 'touch']
@@ -16,7 +16,6 @@ const POINTER_TYPES = ['pen', 'mouse', 'touch']
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n))
 
 export class Writer {
-  readonly history: History
   readonly cache = new StrokePathCache()
   private queue: SaveQueue
   private canvas: HTMLCanvasElement | null = null
@@ -29,13 +28,13 @@ export class Writer {
   private finalizing: Promise<void> | null = null
 
   constructor(
-    note: Note,
+    readonly history: History,
     private store: NoteStore,
     private pen: () => Pen,
     private message: (m: WriterMessage) => void,
     private editedBy: () => string,
+    private onChange: () => void = () => {},
   ) {
-    this.history = new History(note)
     this.queue = new SaveQueue(store, () => message('saveFailed'))
   }
 
@@ -210,13 +209,51 @@ export class Writer {
     const page = this.page
     this.drawing = null
     if (!d || !page) return
-    const err = this.history.doOp(
-      { op: 'addStroke', pageId: page.id, stroke: this.build(d.points, d.strokeId) },
-      { rev: newId(), now: new Date().toISOString(), editedBy: this.editedBy(), lastSeenRemoteSeq: 0 },
-    )
+    const err = this.history.doOp({ op: 'addStroke', pageId: page.id, stroke: this.build(d.points, d.strokeId) }, this.ctx())
     this.redraw()
     if (err) this.message('strokeNotAdded')
-    else this.queue.commit(this.history.note)
+    else {
+      this.queue.commit(this.history.note)
+      this.onChange()
+    }
+  }
+
+  private ctx() {
+    return { rev: newId(), now: new Date().toISOString(), editedBy: this.editedBy(), lastSeenRemoteSeq: 0 }
+  }
+
+  get canUndo() {
+    return this.history.undoDepth > 0
+  }
+  get canRedo() {
+    return this.history.redoDepth > 0
+  }
+
+  /** Undoes the last edit; false when nothing happened. */
+  undo(): boolean {
+    return this.replay('undo')
+  }
+  redo(): boolean {
+    return this.replay('redo')
+  }
+
+  private replay(kind: 'undo' | 'redo'): boolean {
+    const depth = kind === 'undo' ? this.history.undoDepth : this.history.redoDepth
+    if (this.leaving || this.drawing || this.down.size > 0 || depth === 0) return false
+    const err = this.history[kind](this.ctx())
+    if (err) {
+      this.message('historyNotApplied')
+      return false
+    }
+    // The history has advanced: the save must happen even if drawing throws.
+    try {
+      this.redraw()
+    } catch {
+      // the next layout repaints
+    }
+    this.queue.commit(this.history.note)
+    this.onChange()
+    return true
   }
 
   /**

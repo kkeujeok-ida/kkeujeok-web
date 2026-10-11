@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useI18n, type Choice, type Key } from '../i18n'
 import type { Auth } from '../drive/auth'
+import { clearSessionHistories } from '../ops/sessionHistories'
 import { deleteNoteDatabase } from '../storage/noteDb'
 import { ConfirmDialog } from './ConfirmDialog'
 
@@ -39,6 +40,7 @@ export function Settings({ onClose, auth }: { onClose: () => void; auth: Auth })
       } catch {
         return setError('settings.deleteFailed')
       }
+      clearSessionHistories() // undo history must not outlive the notes
       auth.signOut() // the gate shows the sign-in screen
     } finally {
       setBusy(false)

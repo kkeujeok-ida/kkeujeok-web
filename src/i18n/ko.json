@@ -64,5 +64,10 @@
   "editor.saveFailed": "이 브라우저에 저장하지 못했어요.",
   "editor.strokeNotAdded": "획을 추가하지 못했어요.",
   "editor.toolbar": "툴바",
-  "editor.canvas": "필기 영역"
+  "editor.canvas": "필기 영역",
+  "editor.undo": "실행 취소",
+  "editor.redo": "다시 실행",
+  "editor.undoTip": "실행 취소 (Ctrl+Z)",
+  "editor.redoTip": "다시 실행 (Ctrl+Y)",
+  "editor.historyNotApplied": "되돌리지 못했어요."
 }

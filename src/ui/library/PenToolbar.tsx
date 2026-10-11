@@ -5,14 +5,19 @@ import { fmt, useI18n, type Key } from '../../i18n'
 const COLOR_NAME: Record<Pen['colorName'], Key> = { black: 'editor.colorBlack' }
 
 /**
- * The floating toolbar: grip (inert, hidden from the a11y tree) | pen slots.
- * Slots are one radiogroup; tapping the selected one does nothing yet (the
- * pen popover is Story 2.14). The slot buttons carry data-slot for the owner.
+ * The floating toolbar: grip (inert, hidden from the a11y tree) | pen slots |
+ * divider | undo, redo. Slots are one radiogroup; tapping the selected one
+ * does nothing yet (the pen popover is Story 2.14). The slot buttons carry
+ * data-slot for the owner.
  */
-export function PenToolbar({ pens, selected, onSelect, ref }: {
+export function PenToolbar({ pens, selected, onSelect, canUndo, canRedo, onUndo, onRedo, ref }: {
   pens: readonly Pen[]
   selected: number
   onSelect: (i: number) => void
+  canUndo: boolean
+  canRedo: boolean
+  onUndo: () => void
+  onRedo: () => void
   ref?: Ref<HTMLDivElement>
 }) {
   const { t } = useI18n()
@@ -61,6 +66,28 @@ export function PenToolbar({ pens, selected, onSelect, ref }: {
           )
         })}
       </div>
+      <span className="toolbar-divider" aria-hidden="true" />
+      {(
+        [
+          ['undo', canUndo, onUndo, 'M6 3L2 7l4 4M2 7h7a4 4 0 010 8H6'],
+          ['redo', canRedo, onRedo, 'M10 3l4 4-4 4M14 7H7a4 4 0 000 8h3'],
+        ] as const
+      ).map(([name, enabled, run, d]) => (
+        <button
+          key={name}
+          type="button"
+          // aria-disabled, not disabled: focus stays on the button.
+          aria-disabled={!enabled}
+          aria-label={t(`editor.${name}`)}
+          title={t(`editor.${name}Tip`)}
+          className={enabled ? 'toolbar-action' : 'toolbar-action toolbar-action-disabled'}
+          onClick={() => enabled && run()}
+        >
+          <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d={d} stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      ))}
     </div>
   )
 }

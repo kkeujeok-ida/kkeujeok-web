@@ -8,6 +8,7 @@ import { I18nContext, createI18n, resources } from '../src/i18n'
 import type { Note, Page, Stroke } from '../src/model/note'
 import { History } from '../src/ops/history'
 import { createNote } from '../src/ops/ops'
+import { clearSessionHistories, sessionHistory } from '../src/ops/sessionHistories'
 import { StrokePathCache, fitViewport, paintPage } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
 import { deleteNoteDatabase } from '../src/storage/noteDb'
@@ -97,7 +98,7 @@ async function saved(id = 'n1'): Promise<Note> {
 }
 const strokesOf = (n: Note) => n.pages[0]!.elements as Stroke[]
 
-async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note } = {}) {
+async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note | null } = {}) {
   const id = o.id ?? 'n1'
   if (o.note !== null) await seed(o.note ?? newNote(id))
   act(() =>
@@ -149,6 +150,7 @@ beforeEach(() => {
   root = createRoot(host)
   location.hash = ''
   fills = []
+  clearSessionHistories()
 })
 afterEach(async () => {
   act(() => root.unmount())
@@ -187,7 +189,7 @@ describe('semantics', () => {
   test('editor strings exist in ko and en', () => {
     const keys = Object.keys(resources.ko).filter((k) => k.startsWith('editor.'))
     expect(keys).toEqual(
-      expect.arrayContaining(['editor.penSlot', 'editor.colorBlack', 'editor.page', 'editor.handwriting', 'editor.saveFailed', 'editor.strokeNotAdded', 'editor.toolbar', 'editor.canvas']),
+      expect.arrayContaining(['editor.undo', 'editor.redo', 'editor.undoTip', 'editor.redoTip', 'editor.historyNotApplied', 'editor.penSlot', 'editor.colorBlack', 'editor.page', 'editor.handwriting', 'editor.saveFailed', 'editor.strokeNotAdded', 'editor.toolbar', 'editor.canvas']),
     )
     expect(Object.keys(resources.en).filter((k) => k.startsWith('editor.'))).toEqual(keys)
   })
@@ -676,5 +678,301 @@ describe('render', () => {
     expect(pageBackground('grid', 595, 842)).toBe(pageBackground('grid', 595, 842))
     expect(pageBackground('grid', 595, 842)).not.toBe(pageBackground('grid', 842, 595))
     expect(pageBackground('mystery', 100, 100).lines).toEqual([])
+  })
+})
+
+describe('undo and redo (story 2.11)', () => {
+  const undoBtn = () => q<HTMLButtonElement>('button[aria-label="실행 취소"]')!
+  const redoBtn = () => q<HTMLButtonElement>('button[aria-label="다시 실행"]')!
+  const off = (b: Element) => b.getAttribute('aria-disabled') === 'true'
+  const ctrl = (k: string, init: KeyboardEventInit = {}, el: Element | Document = document) =>
+    key(el, k, { ctrlKey: true, ...init })
+  const draw = (y: number) => {
+    fire('pointerdown', { x: 20, y })
+    fire('pointermove', { x: 60, y })
+    fire('pointerup', { x: 100, y })
+  }
+  const lastEvent = (k: string, init: KeyboardEventInit) => {
+    const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init })
+    act(() => void document.dispatchEvent(e))
+    return e
+  }
+
+  test('buttons: after the grip and slot, divider, names, tooltips, disabled without focus loss', async () => {
+    await mountEditor()
+    const tb = q('[role="toolbar"]')!
+    const kids = [...tb.children]
+    expect(kids[2]!.className).toBe('toolbar-divider')
+    expect(kids[2]!.getAttribute('aria-hidden')).toBe('true')
+    expect(kids[3]).toBe(undoBtn())
+    expect(kids[4]).toBe(redoBtn())
+    expect(undoBtn().title).toBe('실행 취소 (Ctrl+Z)')
+    expect(redoBtn().title).toBe('다시 실행 (Ctrl+Y)')
+    expect(off(undoBtn()) && off(redoBtn())).toBe(true)
+    expect(undoBtn().hasAttribute('disabled')).toBe(false)
+    draw(100)
+    await flush()
+    expect(off(undoBtn())).toBe(false)
+    expect(off(redoBtn())).toBe(true)
+  })
+
+  test('undo and redo by button save a new rev and seq; ids and points come back', async () => {
+    await mountEditor()
+    draw(100)
+    draw(200)
+    await flush()
+    const before = await saved()
+    const [first, second] = strokesOf(before)
+    click(undoBtn())
+    await flush()
+    const undone = await saved()
+    expect(strokesOf(undone).map((s) => s.id)).toEqual([first!.id])
+    expect(undone.pages[0]!.seq).toBe(before.pages[0]!.seq + 1)
+    expect(undone.pages[0]!.rev).not.toBe(before.pages[0]!.rev)
+    expect(off(redoBtn())).toBe(false)
+    click(redoBtn())
+    await flush()
+    const redone = await saved()
+    expect(strokesOf(redone)).toEqual([first, second])
+    expect(redone.pages[0]!.seq).toBe(before.pages[0]!.seq + 2)
+  })
+
+  test('Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z and the Cmd variants; preventDefault only when handled', async () => {
+    await mountEditor()
+    draw(100)
+    await flush()
+    expect(lastEvent('y', { ctrlKey: true }).defaultPrevented).toBe(false) // nothing to redo
+    let e = lastEvent('z', { ctrlKey: true })
+    expect(e.defaultPrevented).toBe(true)
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(0)
+    e = lastEvent('y', { ctrlKey: true })
+    expect(e.defaultPrevented).toBe(true)
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(1)
+    lastEvent('z', { metaKey: true })
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(0)
+    lastEvent('Z', { ctrlKey: true, shiftKey: true })
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(1)
+    lastEvent('z', { metaKey: true })
+    lastEvent('Z', { metaKey: true, shiftKey: true })
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(1)
+    expect(lastEvent('z', { ctrlKey: true, altKey: true }).defaultPrevented).toBe(false)
+    expect(lastEvent('z', {}).defaultPrevented).toBe(false)
+  })
+
+  test('a press that starts outside the page still blocks undo until release', async () => {
+    await mountEditor()
+    draw(100)
+    await flush()
+    fire('pointerdown', { x: -5, y: 100 })
+    click(undoBtn())
+    ctrl('z')
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(1)
+    fire('pointerup', { x: -5, y: 100 })
+  })
+
+  test('a held key undoes once; IME composition is ignored', async () => {
+    await mountEditor()
+    draw(100)
+    draw(200)
+    draw(300)
+    await flush()
+    ctrl('z')
+    ctrl('z', { repeat: true })
+    ctrl('z', { repeat: true })
+    ctrl('z', { isComposing: true })
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(2)
+  })
+
+  test('another layout: the physical key decides; Cmd+Y does not redo; a modal blocks the keys', async () => {
+    await mountEditor()
+    draw(100)
+    await flush()
+    key(document, 'ㅋ', { ctrlKey: true, code: 'KeyZ' }) // Hangul layout
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(0)
+    expect(lastEvent('y', { metaKey: true }).defaultPrevented).toBe(false)
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(0)
+    key(document, 'ㅛ', { ctrlKey: true, code: 'KeyY' })
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(1)
+
+    const dlg = document.createElement('div')
+    dlg.setAttribute('role', 'dialog')
+    document.body.append(dlg)
+    ctrl('z')
+    await flush()
+    dlg.remove()
+    expect(strokesOf(await saved())).toHaveLength(1)
+  })
+
+  test('sessionHistory: NaN and undefined-valued keys do not break equality', () => {
+    const a = newNote('s2')
+    const withNaN = { ...a, extra: { v: Number.NaN, u: undefined } } as unknown as Note
+    const h = sessionHistory(withNaN)
+    expect(sessionHistory({ ...a, extra: { v: Number.NaN } } as unknown as Note)).toBe(h)
+  })
+
+  test('a new stroke empties redo', async () => {
+    await mountEditor()
+    draw(100)
+    await flush()
+    click(undoBtn())
+    expect(off(redoBtn())).toBe(false)
+    draw(200)
+    await flush()
+    expect(off(redoBtn())).toBe(true)
+    expect(strokesOf(await saved())).toHaveLength(1)
+  })
+
+  test('empty stacks: button and keys do nothing and nothing is saved', async () => {
+    let writes = 0
+    await mountEditor({ opts: { afterPut: () => void writes++ } })
+    click(undoBtn())
+    click(redoBtn())
+    ctrl('z')
+    ctrl('y')
+    await flush()
+    expect(writes).toBe(0)
+  })
+
+  test('a text field keeps its own undo', async () => {
+    await mountEditor()
+    draw(100)
+    await flush()
+    const input = document.createElement('input')
+    host.append(input)
+    input.focus()
+    const e = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true })
+    act(() => void input.dispatchEvent(e))
+    expect(e.defaultPrevented).toBe(false)
+    lastEvent('z', { ctrlKey: true }) // target is document, focus is still in the input
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(1)
+    input.blur()
+    input.remove()
+  })
+
+  test('mid-stroke: no effect, the stroke goes on', async () => {
+    await mountEditor()
+    draw(100)
+    await flush()
+    fire('pointerdown', { x: 20, y: 200 })
+    fire('pointermove', { x: 60, y: 200 })
+    click(undoBtn())
+    ctrl('z')
+    fire('pointerup', { x: 100, y: 200 })
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(2)
+  })
+
+  test('leaving: undo is ignored', async () => {
+    await mountEditor()
+    draw(100)
+    await flush()
+    location.hash = '#/notes/n1'
+    click(q('.editor-back')!)
+    ctrl('z')
+    await flush()
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(1)
+  })
+
+  test('serial: undo, undo, redo in a row leave the last state in the database', async () => {
+    await mountEditor()
+    draw(100)
+    draw(200)
+    await flush()
+    const seq = (await saved()).pages[0]!.seq
+    click(undoBtn())
+    click(undoBtn())
+    click(redoBtn())
+    await flush()
+    const n = await saved()
+    expect(strokesOf(n)).toHaveLength(1)
+    expect(n.pages[0]!.seq).toBe(seq + 3)
+  })
+
+  test('history survives library and back; a different saved note starts a new one; reload empties', async () => {
+    await mountEditor()
+    draw(100)
+    await flush()
+    act(() => root.render(createElement('div')))
+    await savesSettled()
+    await mountEditor({ note: null })
+    expect(off(undoBtn())).toBe(false)
+    ctrl('z')
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(0)
+
+    act(() => root.render(createElement('div')))
+    await savesSettled()
+    // the stored note changed behind the history's back (e.g. a failed save)
+    const n = await saved()
+    await seed({ ...n, metaRev: 'other' })
+    await mountEditor({ note: null })
+    expect(off(undoBtn())).toBe(true)
+
+    draw(100)
+    await flush()
+    act(() => root.render(createElement('div')))
+    await savesSettled()
+    clearSessionHistories() // a reload
+    await mountEditor({ note: null })
+    expect(off(undoBtn())).toBe(true)
+  })
+
+  test('History error: snackbar, nothing changes', async () => {
+    await mountEditor()
+    draw(100)
+    await flush()
+    const spy = vi.spyOn(History.prototype, 'undo').mockReturnValue('strokeNotFound')
+    click(undoBtn())
+    spy.mockRestore()
+    expect(q('[role="status"]')!.textContent).toBe('되돌리지 못했어요.')
+    expect(off(undoBtn())).toBe(false)
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(1)
+  })
+
+  test('save failure after undo: snackbar, screen stays undone, the next commit saves everything', async () => {
+    let fail = false
+    await mountEditor({
+      opts: {
+        afterPut: () => {
+          if (fail) throw new Error('quota')
+        },
+      },
+    })
+    draw(100)
+    draw(200)
+    await flush()
+    fail = true
+    click(undoBtn())
+    await flush()
+    expect(q('[role="status"]')!.textContent).toBe('이 브라우저에 저장하지 못했어요.')
+    expect(off(redoBtn())).toBe(false)
+    expect(strokesOf(await saved())).toHaveLength(2)
+    fail = false
+    click(undoBtn())
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(0)
+  })
+
+  test('English names and tips; sessionHistory reuses an equal note only', async () => {
+    await mountEditor({ lang: 'en-US' })
+    expect(q('button[aria-label="Undo"]')!.title).toBe('Undo (Ctrl+Z)')
+    expect(q('button[aria-label="Redo"]')!.title).toBe('Redo (Ctrl+Y)')
+    const a = newNote('s1')
+    const h = sessionHistory(a)
+    expect(sessionHistory(structuredClone(a))).toBe(h)
+    expect(sessionHistory({ ...a, metaRev: 'x' })).not.toBe(h)
   })
 })

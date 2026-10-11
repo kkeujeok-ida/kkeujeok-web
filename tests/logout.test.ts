@@ -5,6 +5,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createAuth } from '../src/drive/auth'
 import { I18nContext, STORAGE_KEY, createI18n } from '../src/i18n'
+import { createNote } from '../src/ops/ops'
+import { clearSessionHistories, sessionHistory } from '../src/ops/sessionHistories'
 import { NOTE_DB_NAME, deleteNoteDatabase } from '../src/storage/noteDb'
 import { App } from '../src/ui/App'
 
@@ -273,5 +275,67 @@ describe('dialog', () => {
     expect(dialog()).toBeNull()
     expect(revoke).not.toHaveBeenCalled()
     expect(host.querySelector('nav')).not.toBeNull()
+  })
+})
+
+describe('session undo history', () => {
+  const note = () => {
+    const r = createNote({
+      title: 't',
+      existingTitles: [],
+      background: 'plain',
+      orientation: 'portrait',
+      noteId: 'n1',
+      pageId: 'p',
+      pageRev: 'r',
+      metaRev: 'm',
+      orderRev: 'o',
+      now: '2026-10-11T00:00:00.000Z',
+      editedBy: 'x',
+    })
+    if ('error' in r) throw new Error(r.error)
+    return r.note
+  }
+  afterEach(() => clearSessionHistories())
+
+  test('logout clears the histories', async () => {
+    const h = sessionHistory(note())
+    await signedInApp()
+    openSettings()
+    await click('Log out')
+    await confirm()
+    expect(host.querySelector('nav')).toBeNull()
+    expect(sessionHistory(note())).not.toBe(h)
+  })
+
+  test('a failed delete keeps them', async () => {
+    const h = sessionHistory(note())
+    await signedInApp()
+    openSettings()
+    await click('Log out')
+    const spy = vi.spyOn(indexedDB, 'deleteDatabase').mockImplementation(() => {
+      const req = {} as IDBOpenDBRequest
+      setTimeout(() => req.onerror?.(new Event('error')))
+      return req
+    })
+    await confirm()
+    // poll for the error instead of guessing a delay
+    for (let i = 0; i < 100 && !dialog()?.textContent?.includes('Could not delete'); i++) {
+      await act(async () => void (await new Promise((r) => setTimeout(r, 10))))
+    }
+    spy.mockRestore()
+    expect(dialog()!.textContent).toContain('Could not delete')
+    expect(sessionHistory(note())).toBe(h)
+  })
+
+  test('disconnect clears the histories too', async () => {
+    const h = sessionHistory(note())
+    await signedInApp()
+    openSettings()
+    await click('Disconnect')
+    await confirm()
+    expect(revoke).toHaveBeenCalled()
+    expect(host.querySelector('nav')).toBeNull()
+    expect(sessionHistory(note())).not.toBe(h)
   })
 })

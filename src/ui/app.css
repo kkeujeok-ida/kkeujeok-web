@@ -538,6 +538,33 @@ h1 {
   color: var(--components-toolbar-grip-glyph);
 }
 
+.toolbar-divider {
+  align-self: stretch;
+  width: 1px;
+  margin: var(--spacing-2) 0;
+  background: var(--color-border-hairline);
+}
+
+.toolbar-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: var(--spacing-hit-min-web);
+  min-height: var(--spacing-hit-min-web);
+  padding: 0;
+  border: 0;
+  border-radius: var(--rounded-sm);
+  background: none;
+  color: var(--color-ink-primary);
+  cursor: pointer;
+}
+
+.toolbar-action-disabled {
+  color: var(--color-ink-disabled);
+  cursor: default;
+}
+
 .pen-slots {
   display: flex;
   gap: var(--components-toolbar-item-gap);
