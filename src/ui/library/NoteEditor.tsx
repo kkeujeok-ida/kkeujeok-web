@@ -3,6 +3,7 @@ import { fmt, useI18n, type Key } from '../../i18n'
 import { penSlots } from '../../model/pen'
 import { sessionHistory } from '../../ops/sessionHistories'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
+import { acquireNoteLock } from '../../storage/noteLock'
 import { savesSettled } from '../../storage/saveQueue'
 import { PenToolbar } from './PenToolbar'
 import { detectEditedBy } from './useLibrary'
@@ -46,7 +47,10 @@ const MESSAGE_KEY: Record<WriterMessage, Key> = {
   historyNotApplied: 'editor.historyNotApplied',
 }
 
-type Loaded = { title: string; writer: Writer }
+// Per note: the release of the lock a left editor still holds.
+const releasing = new Map<string, Promise<void>>()
+
+type Loaded = { title: string; writer: Writer; readOnly: boolean }
 
 /**
  * The writing screen: the page on a canvas, the pen toolbar and the top-left
@@ -79,56 +83,101 @@ export function NoteEditor({
   const mounted = useRef(true)
   const descId = useId()
 
-  // Loads the note and owns its store until the editor is left.
+  // Takes the note's lock, loads the note and owns its store until the editor is
+  // left. Without the lock the note opens read-only and is reloaded when the
+  // other tab lets go.
   useEffect(() => {
     mounted.current = true
     let live = true
     let writer: Writer | null = null
-    const store = openStore()
+
     // A save of this note that is still running must land before it is read.
-    const loading = savesSettled(3000)
-      .then(() => (live ? store.loadNote(noteId) : null))
-      .then((r) => {
-        if (!live) return
-        const note = r?.result === 'ok' ? r.note : undefined
-        const title: unknown = note?.meta?.title
-        if (!note || typeof title !== 'string' || !Array.isArray(note.pages) || note.pages.length === 0) {
-          goToLibrary()
-          return
+    const load = async (readOnly: boolean): Promise<Loaded | null> => {
+      const store = openStore()
+      try {
+        await savesSettled(3000)
+        const r = live ? await store.loadNote(noteId) : null
+        if (live) {
+          const note = r?.result === 'ok' ? r.note : undefined
+          const title: unknown = note?.meta?.title
+          if (!note || typeof title !== 'string' || !Array.isArray(note.pages) || note.pages.length === 0) {
+            goToLibrary()
+          } else {
+            const w = new Writer(
+              sessionHistory(note),
+              store,
+              () => penSlots[selectedRef.current] ?? penSlots[0]!,
+              (key) => live && setMessage((p) => ({ key, n: (p?.n ?? 0) + 1 })),
+              detectEditedBy,
+              () => live && setRevision((n) => n + 1),
+            )
+            w.readOnly = readOnly
+            // The toolbar and the gap are measured when the view is laid out.
+            w.insets = () => {
+              // The token may be rem: measure it as a length instead of reading its text.
+              const probe = document.createElement('div')
+              probe.style.cssText = 'position:absolute;visibility:hidden;width:var(--spacing-3)'
+              document.body.append(probe)
+              const px = probe.getBoundingClientRect().width
+              probe.remove()
+              const g = px > 0 ? px : 12
+              return { gap: g, extraBottom: (toolbar.current?.offsetHeight ?? 0) + g }
+            }
+            w.onView = (v) => live && setView(v)
+            writer = w // owned from here: the cleanup finalizes it
+            return { title, writer: w, readOnly }
+          }
         }
-        writer = new Writer(
-          sessionHistory(note),
-          store,
-          () => penSlots[selectedRef.current] ?? penSlots[0]!,
-          (key) => live && setMessage((p) => ({ key, n: (p?.n ?? 0) + 1 })),
-          detectEditedBy,
-          () => live && setRevision((n) => n + 1),
-        )
-        // The toolbar and the gap are measured when the view is laid out.
-        writer.insets = () => {
-          // The token may be rem: measure it as a length instead of reading its text.
-          const probe = document.createElement('div')
-          probe.style.cssText = 'position:absolute;visibility:hidden;width:var(--spacing-3)'
-          document.body.append(probe)
-          const px = probe.getBoundingClientRect().width
-          probe.remove()
-          const g = px > 0 ? px : 12
-          return { gap: g, extraBottom: (toolbar.current?.offsetHeight ?? 0) + g }
-        }
-        writer.onView = (v) => live && setView(v)
-        setLoaded({ title, writer })
-      })
-      .catch(() => live && goToLibrary())
-    // Without a writer nobody else will close the connection.
-    void loading.finally(() => {
-      if (!writer) store.close()
-    })
+      } catch {
+        if (live) goToLibrary()
+      }
+      // Without a writer nobody else will close the connection.
+      store.close()
+      return null
+    }
+
+    // A lock this tab's own earlier effect is still giving up (StrictMode, fast
+    // leave and reopen) must be gone first, or the new load would open read-only.
+    const lockP = (async () => {
+      await releasing.get(noteId)
+      return acquireNoteLock(noteId)
+    })()
+
+    void (async () => {
+      const l = await lockP
+      if (!live) return // the cleanup releases it
+      const cur = await load(l.state === 'waiting')
+      if (!cur) return void l.release()
+      // A lock granted while the first load ran: do not show the stale read-only note.
+      if (live && !(cur.readOnly && l.state === 'held')) setLoaded(cur)
+      if (!cur.readOnly) return
+      await l.whenHeld
+      if (!live) return
+      // The other tab's final save has landed: read what it wrote, as the writer.
+      await cur.writer.finalize().catch(() => {})
+      const next = live ? await load(false) : null
+      if (!live) return
+      if (next) setLoaded(next)
+      else {
+        setLoaded(null) // no banner over a note that is gone
+        void l.release()
+      }
+    })()
+
     return () => {
       live = false
       mounted.current = false
       // Leaving by the browser's back button ends here: finish and save in the
-      // background; the library waits for it before it lists the notes.
-      void writer?.finalize().catch(() => {})
+      // background; the library waits for it before it lists the notes. The
+      // lock goes last, so the next tab reads the final save.
+      const done: Promise<void> = (writer?.finalize().catch(() => {}) ?? Promise.resolve())
+        .then(() => lockP)
+        .then((l) => l.release())
+        .catch(() => {})
+        .finally(() => {
+          if (releasing.get(noteId) === done) releasing.delete(noteId)
+        })
+      releasing.set(noteId, done)
     }
     // openStore is read once per note.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,6 +201,7 @@ export function NoteEditor({
     return () => clearTimeout(id)
   }, [message])
 
+  const readOnly = loaded?.readOnly ?? false
   // F6 / Shift+F6 cycle corner -> toolbar -> canvas; 1 picks the first slot.
   useEffect(() => {
     if (!ready) return
@@ -171,13 +221,13 @@ export function NoteEditor({
       } else if (e.key === '1' && !e.shiftKey) {
         const target = e.target as Node | null
         const inside = [toolbar.current, canvas.current].some((r) => r && (r.contains(target) || r.contains(active)))
-        if (inside) setSelected(0)
+        if (inside && !readOnly) setSelected(0)
       }
     }
     // Capture, so a handler lower down cannot hide the key.
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
-  }, [ready])
+  }, [ready, readOnly])
 
   // Ctrl/Cmd+Z undoes, Ctrl+Y and Ctrl/Cmd+Shift+Z redo, wherever focus is
   // except in a text field (which keeps its own undo).
@@ -197,6 +247,7 @@ export function NoteEditor({
       if (k === 'y' && (!e.ctrlKey || e.shiftKey)) return // no Cmd+Y
       if (typing(e.target) || typing(document.activeElement)) return
       if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return
+      if (writer.readOnly) return
       const redo = k === 'y' || e.shiftKey
       if (redo ? writer.redo() : writer.undo()) e.preventDefault()
     }
@@ -346,6 +397,11 @@ export function NoteEditor({
           {t('library.loading')}
         </p>
       )}
+      {loaded?.readOnly && (
+        <p role="status" aria-live="polite" className="editor-banner">
+          {t('editor.otherTab')}
+        </p>
+      )}
       {loaded && (
         <>
           <div className="editor-top">
@@ -361,11 +417,12 @@ export function NoteEditor({
               ref={toolbar}
               pens={penSlots}
               selected={selected}
-              onSelect={setSelected}
+              onSelect={(i) => !loaded.readOnly && setSelected(i)}
               canUndo={loaded.writer.canUndo}
               canRedo={loaded.writer.canRedo}
               onUndo={() => loaded.writer.undo()}
               onRedo={() => loaded.writer.redo()}
+              readOnly={loaded.readOnly}
             />
             <div
               className="editor-more"

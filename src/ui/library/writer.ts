@@ -67,6 +67,8 @@ export class Writer {
   private finalizing: Promise<void> | null = null
   /** Padding and the room under the page's end; the editor knows the toolbar. */
   insets: () => ViewInsets = () => ({ gap: 0, extraBottom: 0 })
+  /** Another tab holds the note: view, zoom and pan only (spec 2.13). */
+  readOnly = false
   /** Called whenever the view (scale, scrollbars) changed. */
   onView: (v: ViewInfo) => void = () => {}
 
@@ -381,6 +383,7 @@ export class Writer {
 
   /** Starts a stroke at `e` when it is on the page. */
   private begin(e: PointerEvent): void {
+    if (this.readOnly) return
     const p = this.point(e, e.timeStamp)
     if (!p || !this.inPage(p)) return
     e.preventDefault()
@@ -417,7 +420,8 @@ export class Writer {
     this.discardStroke()
     this.gesture = null
     this.capture(e)
-    if (middle || (this.hand && e.pointerType === 'mouse')) {
+    // Read-only: pen and mouse drags pan (touch took its own path above).
+    if (middle || this.readOnly || (this.hand && e.pointerType === 'mouse')) {
       this.mode = 'pan'
       this.pan = { id: e.pointerId, x: e.clientX, y: e.clientY }
       this.handUsed = true
@@ -550,7 +554,7 @@ export class Writer {
     const d = this.drawing
     const page = this.page
     this.drawing = null
-    if (!d || !page) return
+    if (this.readOnly || !d || !page) return
     const err = this.history.doOp({ op: 'addStroke', pageId: page.id, stroke: this.build(d.points, d.strokeId) }, this.ctx())
     this.redraw()
     if (err) this.message('strokeNotAdded')
@@ -565,10 +569,10 @@ export class Writer {
   }
 
   get canUndo() {
-    return this.history.undoDepth > 0
+    return !this.readOnly && this.history.undoDepth > 0
   }
   get canRedo() {
-    return this.history.redoDepth > 0
+    return !this.readOnly && this.history.redoDepth > 0
   }
 
   /** Undoes the last edit; false when nothing happened. */
@@ -581,7 +585,7 @@ export class Writer {
 
   private replay(kind: 'undo' | 'redo'): boolean {
     const depth = kind === 'undo' ? this.history.undoDepth : this.history.redoDepth
-    if (this.leaving || this.drawing || this.touches.size > 0 || this.mode !== 'none' || depth === 0) return false
+    if (this.readOnly || this.leaving || this.drawing || this.touches.size > 0 || this.mode !== 'none' || depth === 0) return false
     const err = this.history[kind](this.ctx())
     if (err) {
       this.message('historyNotApplied')
@@ -611,7 +615,8 @@ export class Writer {
   private async finishAndClose(): Promise<void> {
     try {
       this.finishStroke()
-      if (!(await this.queue.flush())) {
+      // A read-only writer has nothing of its own to save.
+      if (!this.readOnly && !(await this.queue.flush())) {
         markUnsaved() // the library tells the user
         this.message('saveFailed')
       }

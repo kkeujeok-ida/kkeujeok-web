@@ -6,17 +6,19 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { I18nContext, createI18n, resources } from '../src/i18n'
 import type { Note, Page, Stroke } from '../src/model/note'
+import { penSlots, type Pen } from '../src/model/pen'
 import { History } from '../src/ops/history'
 import { createNote } from '../src/ops/ops'
 import { clearSessionHistories, sessionHistory } from '../src/ops/sessionHistories'
 import { StrokePathCache, fitViewport, paintPage } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
 import { deleteNoteDatabase } from '../src/storage/noteDb'
+import { acquireNoteLock } from '../src/storage/noteLock'
 import { type NoteStore, openNoteStore } from '../src/storage/noteStore'
 import { SaveQueue, savesSettled, trackSave } from '../src/storage/saveQueue'
 import { App } from '../src/ui/App'
 import { NoteEditor } from '../src/ui/library/NoteEditor'
-import { signedIn } from './helpers'
+import { fakeLocks, signedIn } from './helpers'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -1409,5 +1411,229 @@ describe('touch arbitration', () => {
     const strokes = strokesOf(await saved())
     expect(strokes).toHaveLength(1)
     expect(strokes[0]!.points[0]![0]).toBeCloseTo((200 - 12) / ((800 - 24) / 595), 1)
+  })
+})
+
+describe('same note in two tabs (story 2.13)', () => {
+  beforeEach(() => {
+    Object.defineProperty(navigator, 'locks', { value: fakeLocks(), configurable: true })
+  })
+  afterEach(() => {
+    delete (navigator as { locks?: unknown }).locks
+  })
+
+  // A second editor in its own root, on the same note.
+  async function second(id = 'n1', opts: Opts = {}) {
+    const h = document.createElement('div')
+    document.body.append(h)
+    const r = createRoot(h)
+    act(() =>
+      r.render(
+        createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: id, openStore: makeOpen(opts) })),
+      ),
+    )
+    await flush()
+    return { h, r }
+  }
+  const fireIn = (c: HTMLElement, name: string, o: PInit) => {
+    const e = pev(name, o)
+    act(() => void c.dispatchEvent(e))
+  }
+  const close = (t: { h: HTMLElement; r: Root }) => {
+    act(() => t.r.unmount())
+    t.h.remove()
+  }
+
+  test('the second tab is read-only: banner first, no stroke, no save, tips, zoom works', async () => {
+    await mountEditor()
+    fire('pointerdown', { x: 20, y: 20 })
+    fire('pointerup', { x: 60, y: 20 })
+    await flush()
+    const t = await second()
+    // The holder is mid-stroke, so only a loose guard in the read-only tab could undo the first stroke.
+    fire('pointerdown', { x: 20, y: 80 })
+    fire('pointermove', { x: 40, y: 80 })
+    try {
+      const { h } = t
+      const banner = h.querySelector('.editor')!.firstElementChild as HTMLElement
+      expect(banner.className).toBe('editor-banner')
+      expect(banner.textContent).toBe('다른 탭에서 이 노트를 편집 중이에요. 여기서 편집하려면 그 탭을 닫아 주세요.')
+      expect(banner.getAttribute('role')).toBe('status')
+      expect(banner.getAttribute('aria-live')).toBe('polite')
+      expect(banner.querySelector('button')).toBeNull()
+      expect(q('.editor-banner')).toBeNull() // the first tab is untouched
+
+      const c = h.querySelector<HTMLCanvasElement>('canvas')!
+      fireIn(c, 'pointerdown', { x: 100, y: 100 })
+      fireIn(c, 'pointermove', { x: 140, y: 100 })
+      fireIn(c, 'pointerup', { x: 180, y: 100 })
+      act(() => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true })))
+      await flush()
+      fire('pointerup', { x: 60, y: 80 })
+      await flush()
+      expect(strokesOf(await saved())).toHaveLength(2) // the holder's two strokes only
+
+      const slot = h.querySelector('[role="radio"]')!
+      expect(slot.getAttribute('aria-disabled')).toBe('true')
+      expect(slot.getAttribute('title')).toBe('읽기 전용이에요')
+      for (const name of ['실행 취소', '다시 실행']) {
+        const b = h.querySelector(`button[aria-label="${name}"]`)!
+        expect(b.getAttribute('aria-disabled')).toBe('true')
+        expect(b.getAttribute('title')).toBe('읽기 전용이에요')
+      }
+
+      // zoom still works
+      act(() => h.querySelector<HTMLElement>('.editor-more button')!.click())
+      await settle()
+      const before = h.querySelector('.editor-zoom-level')!.textContent
+      act(() => h.querySelector<HTMLElement>('button[aria-label="확대"]')!.click())
+      expect(h.querySelector('.editor-zoom-level')!.textContent).not.toBe(before)
+    } finally {
+      close(t)
+    }
+  })
+
+  test('the first tab can still draw while the second waits', async () => {
+    await mountEditor()
+    const t = await second()
+    try {
+      fire('pointerdown', { x: 20, y: 20 })
+      fire('pointerup', { x: 60, y: 20 })
+      await flush()
+      expect(strokesOf(await saved())).toHaveLength(1)
+    } finally {
+      close(t)
+    }
+  })
+
+  test('closing the first tab: the second reloads its stroke, drops the banner and can draw', async () => {
+    await mountEditor()
+    const t = await second()
+    try {
+      fire('pointerdown', { x: 20, y: 20 })
+      fire('pointerup', { x: 60, y: 20 })
+      act(() => root.render(createElement('div'))) // the first tab closes; its final save lands, then the lock goes
+      await flush()
+      await flush()
+      const { h } = t
+      expect(h.querySelector('.editor-banner')).toBeNull()
+      expect(h.querySelector('[role="radio"]')!.getAttribute('aria-disabled')).toBeNull()
+      const c = h.querySelector<HTMLCanvasElement>('canvas')!
+      fireIn(c, 'pointerdown', { x: 20, y: 200 })
+      fireIn(c, 'pointerup', { x: 60, y: 200 })
+      await flush()
+      expect(strokesOf(await saved())).toHaveLength(2)
+    } finally {
+      close(t)
+    }
+  })
+
+  test('leaving while waiting aborts the request: a later tab gets the lock', async () => {
+    await mountEditor()
+    close(await second())
+    act(() => root.render(createElement('div')))
+    await flush()
+    await mountEditor({ note: null })
+    expect(q('.editor-banner')).toBeNull()
+  })
+
+  test('another note has its own lock', async () => {
+    await seed(newNote('n2'))
+    await mountEditor()
+    const t = await second('n2')
+    try {
+      expect(t.h.querySelector('.editor-banner')).toBeNull()
+    } finally {
+      close(t)
+    }
+  })
+
+  test('no navigator.locks: editable without a banner even when two tabs open', async () => {
+    delete (navigator as { locks?: unknown }).locks
+    await mountEditor()
+    const t = await second()
+    try {
+      expect(q('.editor-banner')).toBeNull()
+      expect(t.h.querySelector('.editor-banner')).toBeNull()
+    } finally {
+      close(t)
+    }
+  })
+
+  test('read-only: mouse and pen drags pan and save nothing; another slot cannot be picked; teardown writes nothing', async () => {
+    const proto = HTMLCanvasElement.prototype
+    const orig = proto.getBoundingClientRect
+    proto.getBoundingClientRect = () => ({ width: 800, height: 600, left: 0, top: 0, right: 800, bottom: 600, x: 0, y: 0, toJSON() {} }) as DOMRect
+    ;(penSlots as Pen[]).push({ ...penSlots[0]!, width: 3 })
+    let writes = 0
+    try {
+      await mountEditor()
+      const t = await second('n1', { afterCheck: () => void writes++ })
+      try {
+        const { h } = t
+        const c = h.querySelector<HTMLCanvasElement>('canvas')!
+        const top = () => h.querySelector<HTMLElement>('.editor-scroll-y span')!.style.top
+        for (const type of ['mouse', 'pen']) {
+          const t0 = top()
+          fireIn(c, 'pointerdown', { type, x: 300, y: 300 })
+          expect(c.classList.contains('is-panning')).toBe(true)
+          fireIn(c, 'pointermove', { type, x: 300, y: 200 })
+          fireIn(c, 'pointerup', { type, x: 300, y: 200 })
+          expect(c.classList.contains('is-panning')).toBe(false)
+          expect(top()).not.toBe(t0)
+        }
+        const radios = [...h.querySelectorAll<HTMLElement>('[role="radio"]')]
+        expect(radios).toHaveLength(2)
+        act(() => radios[1]!.click())
+        key(c, '1')
+        expect(h.querySelectorAll('[role="radio"]')[0]!.getAttribute('aria-checked')).toBe('true')
+        expect(h.querySelectorAll('[role="radio"]')[1]!.getAttribute('aria-checked')).toBe('false')
+      } finally {
+        close(t)
+      }
+      await flush()
+      expect(writes).toBe(0)
+      expect(strokesOf(await saved())).toHaveLength(0)
+    } finally {
+      ;(penSlots as Pen[]).pop()
+      proto.getBoundingClientRect = orig
+    }
+  })
+
+  test('the lock granted while the first load runs: the tab ends writable', async () => {
+    await seed(newNote('n1'))
+    const holder = await acquireNoteLock('n1')
+    let open!: () => void
+    const gate = new Promise<void>((r) => (open = r))
+    let first = true
+    const openStore = () => {
+      const s = openNoteStore()
+      stores.push(s)
+      if (!first) return s
+      first = false
+      return { ...s, loadNote: async (id: string) => (await gate, s.loadNote(id)) } as NoteStore
+    }
+    act(() =>
+      root.render(createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: 'n1', openStore }))),
+    )
+    await flush() // waiting for the lock, first load held at the gate
+    await holder.release()
+    await flush() // granted mid-load
+    open()
+    await flush()
+    await flush()
+    expect(q('.editor-banner')).toBeNull()
+    expect(q('[role="radio"]')!.getAttribute('aria-disabled')).toBeNull()
+    fire('pointerdown', { x: 20, y: 20 })
+    fire('pointerup', { x: 60, y: 20 })
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(1)
+  })
+
+  test('ko and en strings exist', () => {
+    for (const lang of [resources.ko, resources.en]) {
+      expect(lang['editor.otherTab']).toBeTruthy()
+      expect(lang['editor.readOnlyTip']).toBeTruthy()
+    }
   })
 })

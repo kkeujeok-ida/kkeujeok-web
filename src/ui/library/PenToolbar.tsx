@@ -10,7 +10,7 @@ const COLOR_NAME: Record<Pen['colorName'], Key> = { black: 'editor.colorBlack' }
  * does nothing yet (the pen popover is Story 2.14). The slot buttons carry
  * data-slot for the owner.
  */
-export function PenToolbar({ pens, selected, onSelect, canUndo, canRedo, onUndo, onRedo, ref }: {
+export function PenToolbar({ pens, selected, onSelect, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
   pens: readonly Pen[]
   selected: number
   onSelect: (i: number) => void
@@ -18,6 +18,8 @@ export function PenToolbar({ pens, selected, onSelect, canUndo, canRedo, onUndo,
   canRedo: boolean
   onUndo: () => void
   onRedo: () => void
+  /** Another tab is editing: slots and history are shown but off. */
+  readOnly?: boolean
   ref?: Ref<HTMLDivElement>
 }) {
   const { t } = useI18n()
@@ -41,10 +43,11 @@ export function PenToolbar({ pens, selected, onSelect, canUndo, canRedo, onUndo,
               role="radio"
               aria-checked={on}
               aria-label={label}
-              title={label}
+              aria-disabled={readOnly || undefined}
+              title={readOnly ? t('editor.readOnlyTip') : label}
               data-slot={i}
               className={on ? 'pen-slot pen-slot-selected' : 'pen-slot'}
-              onClick={() => onSelect(i)}
+              onClick={() => !readOnly && onSelect(i)}
             >
               <svg className="pen-nib" viewBox="0 0 20 36" aria-hidden="true">
                 <path
@@ -79,7 +82,7 @@ export function PenToolbar({ pens, selected, onSelect, canUndo, canRedo, onUndo,
           // aria-disabled, not disabled: focus stays on the button.
           aria-disabled={!enabled}
           aria-label={t(`editor.${name}`)}
-          title={t(`editor.${name}Tip`)}
+          title={readOnly ? t('editor.readOnlyTip') : t(`editor.${name}Tip`)}
           className={enabled ? 'toolbar-action' : 'toolbar-action toolbar-action-disabled'}
           onClick={() => enabled && run()}
         >

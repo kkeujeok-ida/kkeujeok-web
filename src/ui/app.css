@@ -510,6 +510,16 @@ h1 {
   line-height: var(--typography-label-line-height);
 }
 
+.editor-banner {
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--components-banner-padding);
+  background: var(--components-banner-background);
+  color: var(--components-banner-text);
+  box-shadow: none;
+  border-radius: 0;
+}
+
 .editor-top {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);

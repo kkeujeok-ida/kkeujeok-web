@@ -69,6 +69,8 @@
   "editor.redo": "Redo",
   "editor.undoTip": "Undo (Ctrl+Z)",
   "editor.redoTip": "Redo (Ctrl+Y)",
+  "editor.otherTab": "This note is being edited in another tab. Close that tab to edit here.",
+  "editor.readOnlyTip": "Read only",
   "editor.historyNotApplied": "Couldn't apply that change.",
   "editor.more": "More",
   "editor.zoomOut": "Zoom out",
