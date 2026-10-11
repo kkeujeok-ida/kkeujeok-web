@@ -86,7 +86,20 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 }
 
 // Rules whose fixture must exist and be valid but have no runner yet.
-const PENDING: string[] = []
+// Sync rules (Story 3.2) arrive with the web sync stories (3.4, 3.6, 3.10, ...);
+// each story removes its rule here when it adds the runner.
+const PENDING: string[] = [
+  'drive.duplicates',
+  'drive.fileName',
+  'drive.listSummary',
+  'sync.backoff',
+  'sync.errorClass',
+  'sync.hasUnsent',
+  'sync.stateMachine',
+  'sync.uploadKind',
+  'sync.verifyPlan',
+  'synclog.entry',
+]
 
 function opRunner({ input, expected }: Case) {
   const i = input as { note: Note; op: Op; ctx: Ctx }
@@ -227,9 +240,9 @@ describe('harness refuses a broken setup', () => {
   test('two-dot rule id accepted; listed pending rule needs no runner; unlisted still fails', () => {
     const fx = (rule: string) => JSON.stringify({ rule, cases: [{ name: 'a', input: 1, expected: 1 }] })
     expect(loadFixtures(sharedDir).has('stroke.outline.pen')).toBe(true)
-    expect(PENDING).toEqual([]) // every fixture has a runner
+    expect(PENDING.every((id) => loadFixtures(sharedDir).has(id))).toBe(false) // pending rules have no runner
     expect(loadFixtures(sharedDir).get('stroke.outline.pen')![0]!.tolerance).toBe(0.02)
-    const only = ['stroke.hitTest']
+    const only = [...PENDING, 'stroke.hitTest']
     expect(loadFixtures(mkOnly({ ...real, 'stroke.hitTest.json': fx('stroke.hitTest') }), only).has('stroke.hitTest')).toBe(false)
     expect(() => loadWith({ 'stroke.hitTest.json': fx('stroke.hitTest') })).toThrow('"stroke.hitTest"')
   })
