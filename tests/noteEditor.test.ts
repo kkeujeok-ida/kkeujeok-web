@@ -6,7 +6,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { I18nContext, createI18n, resources } from '../src/i18n'
 import type { Note, Page, Stroke } from '../src/model/note'
-import { penSlots, type Pen } from '../src/model/pen'
+import { defaultPen } from '../src/model/pen'
 import { History } from '../src/ops/history'
 import { createNote } from '../src/ops/ops'
 import { clearSessionHistories, sessionHistory } from '../src/ops/sessionHistories'
@@ -14,6 +14,7 @@ import { StrokePathCache, fitViewport, paintPage } from '../src/render/pagePaint
 import { pageBackground } from '../src/render/pageBackground'
 import { deleteNoteDatabase } from '../src/storage/noteDb'
 import { acquireNoteLock } from '../src/storage/noteLock'
+import { PEN_SLOTS_KEY, createPenSlots, sharedPenSlots, type PenSlotsStore } from '../src/storage/penSlots'
 import { type NoteStore, openNoteStore } from '../src/storage/noteStore'
 import { SaveQueue, savesSettled, trackSave } from '../src/storage/saveQueue'
 import { App } from '../src/ui/App'
@@ -100,7 +101,7 @@ async function saved(id = 'n1'): Promise<Note> {
 }
 const strokesOf = (n: Note) => n.pages[0]!.elements as Stroke[]
 
-async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note | null } = {}) {
+async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note | null; pens?: PenSlotsStore } = {}) {
   const id = o.id ?? 'n1'
   if (o.note !== null) await seed(o.note ?? newNote(id))
   act(() =>
@@ -108,7 +109,7 @@ async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: 
       createElement(
         I18nContext.Provider,
         { value: i18nFor(o.lang ?? 'ko-KR') },
-        createElement(NoteEditor, { noteId: id, openStore: makeOpen(o.opts) }),
+        createElement(NoteEditor, { noteId: id, openStore: makeOpen(o.opts), penStore: o.pens }),
       ),
     ),
   )
@@ -1564,7 +1565,7 @@ describe('same note in two tabs (story 2.13)', () => {
     const proto = HTMLCanvasElement.prototype
     const orig = proto.getBoundingClientRect
     proto.getBoundingClientRect = () => ({ width: 800, height: 600, left: 0, top: 0, right: 800, bottom: 600, x: 0, y: 0, toJSON() {} }) as DOMRect
-    ;(penSlots as Pen[]).push({ ...penSlots[0]!, width: 3 })
+    sharedPenSlots().write([defaultPen, { ...defaultPen, width: 3 }])
     let writes = 0
     try {
       await mountEditor()
@@ -1595,7 +1596,7 @@ describe('same note in two tabs (story 2.13)', () => {
       expect(writes).toBe(0)
       expect(strokesOf(await saved())).toHaveLength(0)
     } finally {
-      ;(penSlots as Pen[]).pop()
+      sharedPenSlots().write([defaultPen])
       proto.getBoundingClientRect = orig
     }
   })
@@ -1635,5 +1636,187 @@ describe('same note in two tabs (story 2.13)', () => {
       expect(lang['editor.otherTab']).toBeTruthy()
       expect(lang['editor.readOnlyTip']).toBeTruthy()
     }
+  })
+})
+
+describe('pen pressure toggle', () => {
+  const memStore = (initial?: string) => {
+    const m = new Map<string, string>(initial === undefined ? [] : [[PEN_SLOTS_KEY, initial]])
+    return { m, storage: { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) } }
+  }
+  const slot = () => q('[role="radio"]')!
+  const dialog = () => q('[role="dialog"].pen-popover')
+  const sw = () => q('[role="switch"]')!
+  const storedUp = (m: Map<string, string>) => (JSON.parse(m.get(PEN_SLOTS_KEY)!) as { usePressure: boolean }[])[0]!.usePressure
+  const stroke = (pressure: number) => {
+    fire('pointerdown', { x: 100, y: 100, pressure })
+    fire('pointermove', { x: 130, y: 100, pressure: 0.9 })
+    fire('pointerup', { x: 160, y: 100, pressure: 0.9 })
+  }
+
+  test('click on the selected slot opens the popover: title, switch on, preview only', async () => {
+    const { storage } = memStore()
+    await mountEditor({ pens: createPenSlots(storage) })
+    expect(dialog()).toBeNull()
+    click(slot())
+    const d = dialog()!
+    expect(d.getAttribute('aria-modal')).toBe('true')
+    expect(d.getAttribute('aria-labelledby')).toBeTruthy()
+    expect(d.querySelector('h2')!.textContent).toBe('펜')
+    expect(sw().getAttribute('aria-checked')).toBe('true')
+    const labelId = sw().getAttribute('aria-labelledby')!
+    expect(document.getElementById(labelId)!.textContent).toBe('필압 반영')
+    expect(d.querySelector('svg.pen-preview path')!.getAttribute('d')).toMatch(/^M/)
+    expect(document.activeElement).toBe(sw())
+  })
+
+  test('off: stored at once, flat preview, next stroke false with raw pressure; old stroke unchanged', async () => {
+    const { m, storage } = memStore()
+    await mountEditor({ pens: createPenSlots(storage) })
+    stroke(0.2)
+    await flush()
+    click(slot())
+    const onPath = q('.pen-preview path')!.getAttribute('d')
+    click(sw())
+    expect(storedUp(m)).toBe(false)
+    expect(sw().getAttribute('aria-checked')).toBe('false')
+    expect(q('.pen-preview path')!.getAttribute('d')).not.toBe(onPath)
+    key(sw(), 'Escape')
+    expect(dialog()).toBeNull()
+    stroke(0.2)
+    await flush()
+    const [a, b] = strokesOf(await saved())
+    expect(a!.usePressure).toBe(true)
+    expect(b!.usePressure).toBe(false)
+    expect(b!.points.map((p) => p[2])).toEqual([0.2, 0.9, 0.9])
+  })
+
+  test('a stored false applies to a new session; a corrupt value falls back', async () => {
+    const off = JSON.stringify([{ color: '#000000', width: 2, usePressure: false }])
+    await mountEditor({ pens: createPenSlots(memStore(off).storage) })
+    click(slot())
+    expect(sw().getAttribute('aria-checked')).toBe('false')
+    act(() => root.unmount())
+    root = createRoot(host)
+    await mountEditor({ pens: createPenSlots(memStore('{"x":1}').storage), note: null })
+    click(slot())
+    expect(sw().getAttribute('aria-checked')).toBe('true')
+  })
+
+  test('Tab stays on the switch; outside press and Esc close, keep the change, focus the slot', async () => {
+    const { m, storage } = memStore()
+    await mountEditor({ pens: createPenSlots(storage) })
+    // Enter/Space on a button is a click, so the keyboard route is this handler.
+    click(slot())
+    click(sw())
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    act(() => void sw().dispatchEvent(tab))
+    expect(tab.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(sw())
+    act(() => void q('.pen-popover-scrim')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
+    expect(dialog()).toBeNull()
+    expect(storedUp(m)).toBe(false)
+    expect(document.activeElement).toBe(slot())
+    click(slot())
+    key(sw(), 'Escape')
+    expect(dialog()).toBeNull()
+    expect(document.activeElement).toBe(slot())
+  })
+
+  test('another slot is selected first, not edited', async () => {
+    const { storage } = memStore(
+      JSON.stringify([
+        { color: '#000000', width: 2, usePressure: true },
+        { color: '#000000', width: 3, usePressure: true },
+      ]),
+    )
+    await mountEditor({ pens: createPenSlots(storage) })
+    click(qa('[role="radio"]')[1]!)
+    expect(dialog()).toBeNull()
+    expect(qa('[role="radio"]')[1]!.getAttribute('aria-checked')).toBe('true')
+    click(qa('[role="radio"]')[1]!)
+    expect(dialog()).not.toBeNull()
+  })
+
+  test('English strings and the keys exist in both languages', async () => {
+    await mountEditor({ lang: 'en-US', pens: createPenSlots(memStore().storage) })
+    click(slot())
+    expect(q('.pen-popover h2')!.textContent).toBe('Pen')
+    expect(q('[role="switch"] span')!.textContent).toBe('Use pressure')
+    for (const lang of [resources.ko, resources.en]) {
+      expect(lang['editor.penEditTitle']).toBeTruthy()
+      expect(lang['editor.usePressure']).toBeTruthy()
+    }
+  })
+
+  test('read-only tab: clicking the selected slot shows no dialog and stores nothing', async () => {
+    const off = JSON.stringify([{ color: '#000000', width: 2, usePressure: false }])
+    const { m, storage } = memStore(off)
+    Object.defineProperty(navigator, 'locks', { value: fakeLocks(), configurable: true })
+    await mountEditor()
+    const h = document.createElement('div')
+    document.body.append(h)
+    const r = createRoot(h)
+    act(() =>
+      r.render(
+        createElement(
+          I18nContext.Provider,
+          { value: i18nFor('ko-KR') },
+          createElement(NoteEditor, { noteId: 'n1', openStore: makeOpen(), penStore: createPenSlots(storage) }),
+        ),
+      ),
+    )
+    await flush()
+    try {
+      expect(h.querySelector('.editor-banner')).not.toBeNull()
+      const radio = h.querySelector<HTMLElement>('[role="radio"]')!
+      expect(radio.getAttribute('aria-checked')).toBe('true')
+      act(() => radio.click())
+      expect(h.querySelector('[role="dialog"]')).toBeNull()
+      expect(m.get(PEN_SLOTS_KEY)).toBe(off)
+    } finally {
+      act(() => r.unmount())
+      h.remove()
+      delete (navigator as { locks?: unknown }).locks
+    }
+  })
+
+  test('F6 and 1 do nothing while the popover is open', async () => {
+    const { storage } = memStore(
+      JSON.stringify([
+        { color: '#000000', width: 2, usePressure: true },
+        { color: '#000000', width: 3, usePressure: true },
+      ]),
+    )
+    await mountEditor({ pens: createPenSlots(storage) })
+    click(qa('[role="radio"]')[1]!)
+    click(qa('[role="radio"]')[1]!)
+    expect(dialog()).not.toBeNull()
+    key(sw(), 'F6')
+    expect(document.activeElement).toBe(sw())
+    key(sw(), '1')
+    key(canvas(), '1')
+    expect(qa('[role="radio"]')[0]!.getAttribute('aria-checked')).toBe('false')
+    expect(qa('[role="radio"]')[1]!.getAttribute('aria-checked')).toBe('true')
+  })
+
+  test('the slot is ignored in the middle of a stroke', async () => {
+    const { storage } = memStore()
+    await mountEditor({ pens: createPenSlots(storage) })
+    fire('pointerdown', { x: 100, y: 100 })
+    fire('pointermove', { x: 120, y: 100 })
+    click(slot())
+    expect(dialog()).toBeNull()
+    fire('pointerup', { x: 140, y: 100 })
+    click(slot())
+    expect(dialog()).not.toBeNull()
+  })
+
+  test('a pen changed by another tab is shown when the popover opens', async () => {
+    const { m, storage } = memStore()
+    await mountEditor({ pens: createPenSlots(storage) })
+    m.set(PEN_SLOTS_KEY, JSON.stringify([{ color: '#000000', width: 2, usePressure: false }]))
+    click(slot())
+    expect(sw().getAttribute('aria-checked')).toBe('false')
   })
 })

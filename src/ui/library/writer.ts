@@ -223,7 +223,8 @@ export class Writer {
     this.setView(a.to, this.fitMode)
   }
 
-  private busy(): boolean {
+  /** A stroke, a gesture or a pan is going on. */
+  busy(): boolean {
     return this.drawing !== null || this.mode === 'gesture' || this.mode === 'pan'
   }
 

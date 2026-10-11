@@ -8,5 +8,5 @@ export type Pen = {
 
 export const defaultPen: Pen = { color: '#000000', width: 2.0, usePressure: true, colorName: 'black' }
 
-// The slot list: one slot now; Story 2.14 and Epic 5 extend it.
-export const penSlots: readonly Pen[] = [defaultPen]
+// The slot list a device starts with: one slot now; Epic 5 extends it.
+export const defaultPenSlots: readonly Pen[] = [defaultPen]

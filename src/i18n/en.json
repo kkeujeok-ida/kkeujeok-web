@@ -59,6 +59,8 @@
   "signin.unconfigured": "Sign-in has not been set up",
   "editor.penSlot": "Pen, {color}, width {width} ({n})",
   "editor.colorBlack": "Black",
+  "editor.penEditTitle": "Pen",
+  "editor.usePressure": "Use pressure",
   "editor.page": "Page {n} of {total}, {orientation}",
   "editor.handwriting": "Handwriting",
   "editor.saveFailed": "Could not save to this browser.",

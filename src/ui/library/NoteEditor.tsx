@@ -1,10 +1,12 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyEvent } from 'react'
 import { fmt, useI18n, type Key } from '../../i18n'
-import { penSlots } from '../../model/pen'
+import type { Pen } from '../../model/pen'
 import { sessionHistory } from '../../ops/sessionHistories'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
 import { acquireNoteLock } from '../../storage/noteLock'
+import { sharedPenSlots, type PenSlotsStore } from '../../storage/penSlots'
 import { savesSettled } from '../../storage/saveQueue'
+import { PenPopover } from './PenPopover'
 import { PenToolbar } from './PenToolbar'
 import { detectEditedBy } from './useLibrary'
 import { ZOOM_MAX, ZOOM_MIN } from '../../render/pagePainter'
@@ -59,13 +61,19 @@ type Loaded = { title: string; writer: Writer; readOnly: boolean }
 export function NoteEditor({
   noteId,
   openStore = () => openNoteStore(),
+  penStore = sharedPenSlots(),
 }: {
   noteId: string
   openStore?: () => NoteStore
+  penStore?: PenSlotsStore
 }) {
   const { t } = useI18n()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [message, setMessage] = useState<{ key: WriterMessage; n: number } | null>(null)
+  const [pens, setPens] = useState<Pen[]>(() => penStore.read())
+  const [popover, setPopover] = useState<number | null>(null)
+  const popoverOpen = useRef(false)
+  popoverOpen.current = popover !== null
   const [selected, setSelected] = useState(0)
   const selectedRef = useRef(0)
   selectedRef.current = selected
@@ -106,7 +114,11 @@ export function NoteEditor({
             const w = new Writer(
               sessionHistory(note),
               store,
-              () => penSlots[selectedRef.current] ?? penSlots[0]!,
+              // Read at each stroke, so a toggle applies from the next one.
+              () => {
+                const l = penStore.read()
+                return l[selectedRef.current] ?? l[0]!
+              },
               (key) => live && setMessage((p) => ({ key, n: (p?.n ?? 0) + 1 })),
               detectEditedBy,
               () => live && setRevision((n) => n + 1),
@@ -202,11 +214,15 @@ export function NoteEditor({
   }, [message])
 
   const readOnly = loaded?.readOnly ?? false
+  // Read-only began while the popover was open: close it.
+  useEffect(() => {
+    if (readOnly) setPopover(null)
+  }, [readOnly])
   // F6 / Shift+F6 cycle corner -> toolbar -> canvas; 1 picks the first slot.
   useEffect(() => {
     if (!ready) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.altKey || e.metaKey) return
+      if (e.ctrlKey || e.altKey || e.metaKey || popoverOpen.current) return
       const regions = [back.current?.parentElement, toolbar.current, canvas.current].filter((r): r is HTMLElement => !!r)
       const active = document.activeElement
       if (e.key === 'F6') {
@@ -415,9 +431,14 @@ export function NoteEditor({
             </div>
             <PenToolbar
               ref={toolbar}
-              pens={penSlots}
+              pens={pens}
               selected={selected}
               onSelect={(i) => !loaded.readOnly && setSelected(i)}
+              onEdit={(i) => {
+                if (loaded.readOnly || loaded.writer.busy()) return
+                setPens(penStore.read()) // another tab may have changed it
+                setPopover(i)
+              }}
               canUndo={loaded.writer.canUndo}
               canRedo={loaded.writer.canRedo}
               onUndo={() => loaded.writer.undo()}
@@ -521,6 +542,21 @@ export function NoteEditor({
           <div role="status" aria-live="polite" className="sr-only">
             {announce}
           </div>
+          {popover !== null && !loaded.readOnly && pens[popover] && (
+            <PenPopover
+              pen={pens[popover]}
+              anchor={toolbar.current?.querySelector<HTMLElement>(`[data-slot="${popover}"]`) ?? null}
+              onUsePressure={(usePressure) => {
+                const next = pens.map((p, i) => (i === popover ? { ...p, usePressure } : p))
+                penStore.write(next)
+                setPens(next)
+              }}
+              onClose={() => {
+                setPopover(null)
+                toolbar.current?.querySelector<HTMLElement>(`[data-slot="${popover}"]`)?.focus()
+              }}
+            />
+          )}
         </>
       )}
     </section>

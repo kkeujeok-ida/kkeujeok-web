@@ -6,14 +6,14 @@ const COLOR_NAME: Record<Pen['colorName'], Key> = { black: 'editor.colorBlack' }
 
 /**
  * The floating toolbar: grip (inert, hidden from the a11y tree) | pen slots |
- * divider | undo, redo. Slots are one radiogroup; tapping the selected one
- * does nothing yet (the pen popover is Story 2.14). The slot buttons carry
- * data-slot for the owner.
+ * divider | undo, redo. Slots are one radiogroup; activating the selected one
+ * opens the pen popover (onEdit). The slot buttons carry data-slot for the owner.
  */
-export function PenToolbar({ pens, selected, onSelect, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
+export function PenToolbar({ pens, selected, onSelect, onEdit, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
   pens: readonly Pen[]
   selected: number
   onSelect: (i: number) => void
+  onEdit: (i: number) => void
   canUndo: boolean
   canRedo: boolean
   onUndo: () => void
@@ -47,7 +47,7 @@ export function PenToolbar({ pens, selected, onSelect, canUndo, canRedo, onUndo,
               title={readOnly ? t('editor.readOnlyTip') : label}
               data-slot={i}
               className={on ? 'pen-slot pen-slot-selected' : 'pen-slot'}
-              onClick={() => !readOnly && onSelect(i)}
+              onClick={() => !readOnly && (on ? onEdit(i) : onSelect(i))}
             >
               <svg className="pen-nib" viewBox="0 0 20 36" aria-hidden="true">
                 <path
