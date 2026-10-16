@@ -65,7 +65,7 @@ const dbExists = async () => (await indexedDB.databases()).some((d) => d.name ==
 function mountApp() {
   const auth = createAuth({ clientId: 'cid', loadScript: async () => {} })
   const i18n = createI18n({ storage: localStorage, navigatorLanguage: 'ko-KR' })
-  act(() => root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(App, { auth }))))
+  act(() => root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(App, { auth, unsentIds: async () => [] }))))
   return auth
 }
 async function signedInApp() {
@@ -74,7 +74,12 @@ async function signedInApp() {
   return auth
 }
 const btn = (label: string) => [...host.querySelectorAll('button')].find((b) => b.textContent === label)!
-const click = (label: string) => act(async () => btn(label).click())
+// Logout and disconnect first count the unsent notes (IndexedDB answers on later macrotasks).
+const click = (label: string) =>
+  act(async () => {
+    btn(label).click()
+    await new Promise((r) => setTimeout(r, 30))
+  })
 const dialog = () => host.querySelector('[role="dialog"]')
 const dialogButtons = () => [...host.querySelectorAll<HTMLButtonElement>('.dialog button')]
 // The fake IndexedDB answers on later macrotasks, so give the flow time to settle.

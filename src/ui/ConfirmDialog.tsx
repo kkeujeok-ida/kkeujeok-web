@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 interface Props {
   body: string
@@ -6,6 +6,8 @@ interface Props {
   cancelLabel: string
   destructive?: boolean
   busy?: boolean
+  /** The first press only changes the confirm label to this; the second press confirms (UX-DR47). */
+  armedLabel?: string
   error?: ReactNode
   onConfirm: () => void
   onCancel: () => void
@@ -13,10 +15,16 @@ interface Props {
 
 // Modal confirmation. Focus starts on Cancel, is trapped inside, Esc cancels.
 // The caller puts focus back on the button that opened it.
-export function ConfirmDialog({ body, confirmLabel, cancelLabel, destructive, busy, error, onConfirm, onCancel }: Props) {
+export function ConfirmDialog({ body, confirmLabel, cancelLabel, destructive, busy, armedLabel, error, onConfirm, onCancel }: Props) {
   const box = useRef<HTMLDivElement>(null)
   const cancel = useRef<HTMLButtonElement>(null)
   const bodyId = useId()
+  const [armed, setArmed] = useState(false)
+  const press = () => {
+    if (busy) return
+    if (armedLabel && !armed) setArmed(true)
+    else onConfirm()
+  }
   useEffect(() => cancel.current?.focus(), [])
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -47,10 +55,13 @@ export function ConfirmDialog({ body, confirmLabel, cancelLabel, destructive, bu
             className={destructive ? 'btn btn-destructive' : 'btn'}
             aria-disabled={busy}
             aria-busy={busy}
-            onClick={() => !busy && onConfirm()}
+            onClick={press}
           >
-            {confirmLabel}
+            {armedLabel && armed && !error ? armedLabel : confirmLabel}
           </button>
+          <span className="sr-only" role="status">
+            {armedLabel && armed && !error ? armedLabel : ''}
+          </span>
         </div>
       </div>
     </div>

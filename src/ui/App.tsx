@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { useI18n } from '../i18n'
 import { PrivacyPolicy, isPrivacyPath } from './PrivacyPolicy'
 import { Settings } from './Settings'
+import { AccountGate, type GateDeps } from './AccountGate'
 import { SignIn } from './SignIn'
 import { Library } from './library/Library'
 import { NoteEditor, parseNoteRoute } from './library/NoteEditor'
@@ -38,13 +39,20 @@ function useHash(): string {
 }
 
 // No router library: the path alone picks the static policy page or the shell.
-export function App({ auth = defaultAuth, root, uploads, receiver }: { auth?: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver }) {
-  const { token, notice } = useSyncExternalStore(auth.subscribe, auth.getState, auth.getState)
+export function App({ auth = defaultAuth, root, uploads, receiver, gate, unsentIds }: { auth?: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; gate?: GateDeps; unsentIds?: () => Promise<string[] | null> }) {
+  const { token, notice, busy } = useSyncExternalStore(auth.subscribe, auth.getState, auth.getState)
   if (isPrivacyPath(globalThis.location?.pathname ?? '/')) return <PrivacyPolicy />
-  return token ? <Shell auth={auth} root={root} uploads={uploads} receiver={receiver} /> : <SignIn auth={auth} notice={notice} />
+  // While the sign-in runs (busy) the account is not known yet: no shell, so nothing syncs before the gate decides.
+  return token && !busy ? (
+    <AccountGate auth={auth} {...(gate && { deps: gate })}>
+      <Shell auth={auth} root={root} uploads={uploads} receiver={receiver} {...(unsentIds && { unsentIds })} />
+    </AccountGate>
+  ) : (
+    <SignIn auth={auth} notice={notice} />
+  )
 }
 
-function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverProp }: { auth: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver }) {
+function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverProp, unsentIds }: { auth: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; unsentIds?: () => Promise<string[] | null> }) {
   const root = useMemo(() => rootProp ?? defaultRootFolder(auth), [rootProp, auth])
   // Uploads run on the real Drive only with the default root; a given root (tests) needs a given coordinator.
   const uploads = useMemo(
@@ -98,7 +106,7 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
       </nav>
       <main className="content">
         {settingsOpen ? (
-          <Settings auth={auth} onClose={() => setSettingsOpen(false)} />
+          <Settings auth={auth} onClose={() => setSettingsOpen(false)} {...(unsentIds && { unsentIds })} />
         ) : noteId ? (
           <NoteEditor key={noteId} noteId={noteId} uploads={uploads} receiver={receiver} />
         ) : (

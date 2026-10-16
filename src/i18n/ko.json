@@ -96,5 +96,21 @@
   "rootMissing.body": "폴더가 삭제되었거나 휴지통에 있어요. 새로 만들면 이 브라우저의 노트가 다시 올라가요. 그동안 노트는 계속 쓸 수 있어요.",
   "rootMissing.create": "새로 만들기",
   "rootMissing.later": "나중에",
-  "rootMissing.signOut": "로그아웃"
+  "rootMissing.signOut": "로그아웃",
+  "unsent.logout": "보내지 못한 변경 {n}개가 있어요. 로그아웃하면 이 변경이 사라져요.",
+  "unsent.logout.unknown": "보내지 못한 변경이 있는지 확인하지 못했어요. 로그아웃하면 이 브라우저의 노트 사본과 변경이 사라질 수 있어요.",
+  "unsent.logout.discard": "버리고 로그아웃",
+  "unsent.disconnect": "보내지 못한 변경 {n}개가 있어요. 연결을 해제하면 이 변경이 사라져요. 이 기기의 노트 사본과 로그인 정보가 지워져요. Drive의 노트 파일은 그대로 남아요.",
+  "unsent.disconnect.unknown": "보내지 못한 변경이 있는지 확인하지 못했어요. 연결을 해제하면 이 기기의 노트 사본과 변경이 사라질 수 있어요. Drive의 노트 파일은 그대로 남아요.",
+  "unsent.disconnect.discard": "버리고 연결 해제",
+  "unsent.armed": "한 번 더 누르면 버려져요",
+  "mismatch.title": "이전 계정{account}에서 보내지 못한 변경 {n}개가 있어요.",
+  "mismatch.titleUnknown": "이전 계정{account}에서 보내지 못한 변경이 있는지 확인하지 못했어요.",
+  "mismatch.back": "이전 계정으로 돌아가기",
+  "mismatch.download": "파일로 내려받기",
+  "mismatch.discard": "이전 계정 변경 {n}개 버리기",
+  "mismatch.discardUnknown": "이전 계정 변경 버리기",
+  "mismatch.downloadFailed": "일부 노트를 내려받지 못했어요.",
+  "mismatch.cleanFailed": "이전 계정의 노트 사본을 지우지 못했어요. 다시 시도해 주세요",
+  "mismatch.retry": "다시 시도"
 }

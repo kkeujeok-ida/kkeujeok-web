@@ -69,6 +69,8 @@ export const deviceToJson = (d: SyncDevice): JsonMap => ({
 export type SyncDeviceStore = {
   /** Never throws; no record or an unreadable one is an empty record. */
   read(): Promise<SyncDevice>
+  /** Never throws; tells an absent record from an unreadable one and from a failed read. */
+  readState(): Promise<{ kind: 'absent' | 'unreadable' | 'failed' } | { kind: 'ok'; device: SyncDevice }>
   /**
    * Tags the browser with this account. True when there was no record or it has
    * the same `sub` (the e-mail is refreshed); false, nothing written, for another
@@ -115,6 +117,16 @@ export function createSyncDeviceStore(ndb: Db): SyncDeviceStore {
         return await ndb.withDb(async (db) => load(await db.get(DEVICE_STORE, KEY)).device)
       } catch {
         return emptyDevice()
+      }
+    },
+    async readState() {
+      try {
+        const raw: unknown = await ndb.withDb((db) => db.get(DEVICE_STORE, KEY))
+        if (raw === undefined) return { kind: 'absent' as const }
+        const d = deviceFromJson(raw)
+        return d ? { kind: 'ok' as const, device: d } : { kind: 'unreadable' as const }
+      } catch {
+        return { kind: 'failed' as const }
       }
     },
     adoptAccount: (sub, email) =>

@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { syncLog } from '../sync/syncLog'
-import { useI18n, type Choice, type Key } from '../i18n'
+import { countUnsent, defaultUnsentStore } from '../sync/unsent'
+import { fmt, useI18n, type Choice, type Key } from '../i18n'
 import type { Auth } from '../drive/auth'
 import { clearSessionHistories } from '../ops/sessionHistories'
 import { deleteNoteDatabase } from '../storage/noteDb'
 import { ConfirmDialog } from './ConfirmDialog'
+import { downloadBlob } from './download'
 
 const CHOICES: { value: Choice; label: Key }[] = [
   { value: 'system', label: 'settings.language.system' },
@@ -16,24 +18,18 @@ type Action = 'logout' | 'disconnect'
 
 const defaultExport = () => syncLog().exportJsonl({ appVersion: __APP_VERSION__, now: new Date() })
 
-function download(name: string, text: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/x-ndjson' }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(url))
-}
-
 // Shown only behind the sign-in gate, so logout and disconnect are always valid.
 export function Settings({
   onClose,
   auth,
   exportLog = defaultExport,
+  unsentIds = () => countUnsent(defaultUnsentStore()),
 }: {
   onClose: () => void
   auth: Auth
   exportLog?: () => Promise<{ name: string; text: string }>
+  /** Ids of the notes with unsent changes; null = could not be checked. */
+  unsentIds?: () => Promise<string[] | null>
 }) {
   const { t, choice, setChoice } = useI18n()
   const [action, setAction] = useState<Action | null>(null)
@@ -42,10 +38,26 @@ export function Settings({
   // Once Google has revoked the grant, a retry must not revoke it again.
   const revoked = useRef(false)
   const buttons = { logout: useRef<HTMLButtonElement>(null), disconnect: useRef<HTMLButtonElement>(null) }
-  const open = (a: Action) => {
-    if (busy) return
-    setError(null)
-    setAction(a)
+  // Notes with unsent changes, counted when a button is pressed: 0 = the Story 1.12 dialog, null = unknown.
+  const [unsent, setUnsent] = useState<number | null>(0)
+  const checking = useRef(false) // a second press while counting is ignored
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => void (mounted.current = false)
+  }, [])
+  async function open(a: Action) {
+    if (busy || checking.current) return
+    checking.current = true
+    try {
+      const ids = await unsentIds().catch(() => null)
+      if (!mounted.current) return // Settings was closed meanwhile
+      setUnsent(ids === null ? null : ids.length)
+      setError(null)
+      setAction(a)
+    } finally {
+      checking.current = false
+    }
   }
   async function confirm() {
     setBusy(true)
@@ -68,18 +80,13 @@ export function Settings({
   }
   const [exportFailed, setExportFailed] = useState(false)
   const exporting = useRef(false) // a second press while one runs is ignored
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => void (mounted.current = false)
-  }, [])
   async function exportSyncLog() {
     if (exporting.current) return
     exporting.current = true
     setExportFailed(false)
     try {
       const { name, text } = await exportLog()
-      download(name, text)
+      downloadBlob(name, text, 'application/x-ndjson')
     } catch {
       if (mounted.current) setExportFailed(true)
     } finally {
@@ -125,19 +132,32 @@ export function Settings({
         {exportFailed && <p role="alert">{t('settings.syncLogExportFailed')}</p>}
       </div>
       <div className="settings-group">
-        <button ref={buttons.logout} type="button" className="btn" onClick={() => open('logout')}>
+        <button ref={buttons.logout} type="button" className="btn" onClick={() => void open('logout')}>
           {t('settings.logout')}
         </button>
-        <button ref={buttons.disconnect} type="button" className="btn" onClick={() => open('disconnect')}>
+        <button ref={buttons.disconnect} type="button" className="btn" onClick={() => void open('disconnect')}>
           {t('settings.disconnect')}
         </button>
       </div>
       {action && (
         <ConfirmDialog
-          body={t(action === 'logout' ? 'logout.confirm' : 'disconnect.confirm')}
-          confirmLabel={t(error ? 'signin.network.retry' : action === 'logout' ? 'settings.logout' : 'settings.disconnect')}
+          body={
+            unsent === 0
+              ? t(action === 'logout' ? 'logout.confirm' : 'disconnect.confirm')
+              : unsent === null
+                ? t(action === 'logout' ? 'unsent.logout.unknown' : 'unsent.disconnect.unknown')
+                : fmt(t(action === 'logout' ? 'unsent.logout' : 'unsent.disconnect'), { n: unsent })
+          }
+          confirmLabel={t(
+            error
+              ? 'signin.network.retry'
+              : unsent !== 0
+                ? action === 'logout' ? 'unsent.logout.discard' : 'unsent.disconnect.discard'
+                : action === 'logout' ? 'settings.logout' : 'settings.disconnect',
+          )}
+          {...(unsent !== 0 && { armedLabel: t('unsent.armed') })}
           cancelLabel={t('dialog.cancel')}
-          destructive={action === 'disconnect'}
+          destructive={action === 'disconnect' || unsent !== 0}
           busy={busy}
           error={error && t(error)}
           onConfirm={() => void confirm()}

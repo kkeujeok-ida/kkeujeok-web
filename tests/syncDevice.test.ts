@@ -85,6 +85,14 @@ describe('device record', () => {
     expect(await rawGet()).toMatchObject({ future: { x: 1 }, rootFolderId: 'root', sub: 's1' })
   })
 
+  test('readState tells absent, unreadable and ok apart', async () => {
+    expect(await dev.readState()).toEqual({ kind: 'absent' })
+    await rawPut('garbage')
+    expect(await dev.readState()).toEqual({ kind: 'unreadable' })
+    await rawPut({ sub: 's1', email: 'a@x.com' })
+    expect(await dev.readState()).toMatchObject({ kind: 'ok', device: { sub: 's1', email: 'a@x.com' } })
+  })
+
   test('clear on a missing record is fine', async () => {
     await expect(dev.clear()).resolves.toBeUndefined()
   })

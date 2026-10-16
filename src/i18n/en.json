@@ -96,5 +96,21 @@
   "rootMissing.body": "The folder was deleted or is in the trash. If you create a new one, the notes in this browser are uploaded again. You can keep writing in the meantime.",
   "rootMissing.create": "Create new",
   "rootMissing.later": "Later",
-  "rootMissing.signOut": "Log out"
+  "rootMissing.signOut": "Log out",
+  "unsent.logout": "{n} unsent changes. Logging out discards them.",
+  "unsent.logout.unknown": "Could not check for unsent changes. Logging out may discard the note copies and changes in this browser.",
+  "unsent.logout.discard": "Discard and log out",
+  "unsent.disconnect": "{n} unsent changes. Disconnecting discards them. The note copies and sign-in info on this device are deleted. The note files in your Drive stay as they are.",
+  "unsent.disconnect.unknown": "Could not check for unsent changes. Disconnecting may discard the note copies and changes on this device. The note files in your Drive stay as they are.",
+  "unsent.disconnect.discard": "Discard and disconnect",
+  "unsent.armed": "Press again to discard",
+  "mismatch.title": "The previous account{account} has {n} unsent changes.",
+  "mismatch.titleUnknown": "Could not check whether the previous account{account} has unsent changes.",
+  "mismatch.back": "Back to previous account",
+  "mismatch.download": "Download as files",
+  "mismatch.discard": "Discard {n} previous changes",
+  "mismatch.discardUnknown": "Discard previous changes",
+  "mismatch.downloadFailed": "Some notes could not be downloaded.",
+  "mismatch.cleanFailed": "Could not delete the previous account's note copies. Please try again",
+  "mismatch.retry": "Try again"
 }
