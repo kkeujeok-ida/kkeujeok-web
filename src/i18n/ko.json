@@ -35,6 +35,8 @@
   "disconnect.confirm": "이 기기의 노트 사본과 로그인 정보가 지워져요. Drive의 노트 파일은 그대로 남아요.",
   "settings.deleteFailed": "이 브라우저의 노트 사본을 지우지 못했어요. 다시 시도해 주세요",
   "settings.privacy": "개인정보처리방침",
+  "settings.syncLogExport": "동기화 로그 내보내기",
+  "settings.syncLogExportFailed": "로그를 내보내지 못했어요. 다시 시도해 주세요",
   "privacy.title": "Kkeujeok 개인정보처리방침",
   "privacy.storage.heading": "노트는 내 Google Drive에만 저장돼요",
   "privacy.storage.body": "노트는 사용자의 Google Drive에만 저장돼요. 운영자는 노트에 접근할 수 없어요.",

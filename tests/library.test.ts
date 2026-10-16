@@ -107,7 +107,7 @@ async function seed(notes: Note[]) {
 }
 function putRaw(key: string, value: unknown): Promise<void> {
   return new Promise((resolve, reject) => {
-    const r = indexedDB.open(NOTE_DB_NAME, 1)
+    const r = indexedDB.open(NOTE_DB_NAME)
     r.onupgradeneeded = () => r.result.createObjectStore('notes')
     r.onsuccess = () => {
       const db = r.result

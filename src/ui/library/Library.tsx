@@ -4,6 +4,7 @@ import { StrokePathCache, fitViewport, paintPage } from '../../render/pagePainte
 import { savesSettled, takeUnsaved } from '../../storage/saveQueue'
 import { useI18n } from '../../i18n'
 import { createNewNoteDefaults, type Background, type NewNoteDefaults, type Orientation } from '../../storage/newNoteDefaults'
+import { auth } from '../../drive/auth'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
 import { LibraryFab } from './LibraryFab'
 import { NewNoteDialog } from './NewNoteDialog'
@@ -13,7 +14,7 @@ import { useLibrary, type LibraryItem } from './useLibrary'
 // One per page session, so what was created last wins over a failed save.
 let shared: ReturnType<typeof createNewNoteDefaults> | undefined
 const sharedDefaults = () => (shared ??= createNewNoteDefaults())
-const defaultOpenStore = () => openNoteStore()
+const defaultOpenStore = () => openNoteStore(undefined, { getAccount: () => auth.getState().account })
 
 type Props = {
   openStore?: () => NoteStore

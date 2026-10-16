@@ -14,6 +14,8 @@ import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
 import { pageBackground } from '../src/render/pageBackground'
 import { strokeOutline } from '../src/render/strokeOutline'
+import { hasUnsentRule } from '../src/sync/hasUnsent'
+import { checkLogEntry } from '../src/sync/syncLogEntry'
 
 // `tolerance` is the fixture file's top-level value, copied onto each case.
 type Case = { name: string; input: unknown; expected: unknown; tolerance?: number }
@@ -83,6 +85,12 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     const i = input as { background: string; width: number; height: number }
     expect(pageBackground(i.background, i.width, i.height)).toEqual(expected)
   },
+  'sync.hasUnsent': ({ input, expected }) => {
+    expect(hasUnsentRule(input)).toEqual(expected)
+  },
+  'synclog.entry': ({ input, expected }) => {
+    expect(checkLogEntry((input as { entry: unknown }).entry)).toEqual(expected)
+  },
 }
 
 // Rules whose fixture must exist and be valid but have no runner yet.
@@ -94,11 +102,9 @@ const PENDING: string[] = [
   'drive.listSummary',
   'sync.backoff',
   'sync.errorClass',
-  'sync.hasUnsent',
   'sync.stateMachine',
   'sync.uploadKind',
   'sync.verifyPlan',
-  'synclog.entry',
 ]
 
 function opRunner({ input, expected }: Case) {
@@ -153,6 +159,9 @@ function loadFixtures(dir: string, pending: string[] = PENDING): Map<string, Cas
     }
     seen.add(id)
     const run = runners[id]
+    if (run && pending.includes(id)) {
+      throw new Error(`Rule "${id}" has a runner but is still listed in PENDING: remove it from PENDING.`)
+    }
     if (!run && pending.includes(id)) continue
     if (!run) {
       throw new Error(
@@ -245,6 +254,12 @@ describe('harness refuses a broken setup', () => {
     const only = [...PENDING, 'stroke.hitTest']
     expect(loadFixtures(mkOnly({ ...real, 'stroke.hitTest.json': fx('stroke.hitTest') }), only).has('stroke.hitTest')).toBe(false)
     expect(() => loadWith({ 'stroke.hitTest.json': fx('stroke.hitTest') })).toThrow('"stroke.hitTest"')
+  })
+
+  test('a PENDING rule that has a runner fails', () => {
+    expect(() => loadFixtures(sharedDir, [...PENDING, 'sync.hasUnsent'])).toThrow(/"sync\.hasUnsent".*PENDING/)
+    expect(PENDING).not.toContain('sync.hasUnsent')
+    expect(PENDING).not.toContain('synclog.entry')
   })
 
   test('number.round2 case with non-number values', () => {

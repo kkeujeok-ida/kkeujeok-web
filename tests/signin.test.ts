@@ -71,7 +71,7 @@ describe('sign-in gate', () => {
     popup = (c) => c.callback({ access_token: 'secret-token-123' })
     const auth = mount()
     await click('Google로 로그인')
-    expect(initTokenClient.mock.calls.at(-1)![0].scope).toBe(DRIVE_SCOPE)
+    expect(initTokenClient.mock.calls.at(-1)![0].scope).toBe(`${DRIVE_SCOPE} openid email`)
     expect(host!.querySelector('nav')).not.toBeNull()
     expect(auth.getAccessToken()).toBe('secret-token-123')
     const stores = [localStorage, sessionStorage].map((s) => JSON.stringify({ ...s }))

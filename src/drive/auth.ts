@@ -3,10 +3,34 @@
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
 const GIS_URL = 'https://accounts.google.com/gsi/client'
 
+// The token request also asks for the account identity (`sub`, e-mail); only
+// the Drive scope is checked as granted.
+const TOKEN_SCOPE = `${DRIVE_SCOPE} openid email`
+const USERINFO_URL = 'https://openidconnect.googleapis.com/v1/userinfo'
+
+export type Account = { sub: string; email: string }
+
+/** The signed-in account from Google's userinfo endpoint; null on any failure. */
+export async function fetchUserinfo(token: string): Promise<Account | null> {
+  try {
+    const r = await fetch(USERINFO_URL, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!r.ok) return null
+    const j = (await r.json()) as { sub?: unknown; email?: unknown }
+    return typeof j.sub === 'string' && j.sub !== '' ? { sub: j.sub, email: typeof j.email === 'string' ? j.email : '' } : null
+  } catch {
+    return null
+  }
+}
+
 export type Outcome = 'granted' | 'denied' | 'cancelled' | 'network' | 'unconfigured'
 export type Notice = 'denied' | 'network' | 'unconfigured' | null
 export interface AuthState {
   token: string | null
+  /** Who the token belongs to; null until known (or when the lookup failed). */
+  account: Account | null
   notice: Notice
   busy: boolean
 }
@@ -54,10 +78,12 @@ export interface Env {
   loadScript: () => Promise<void>
   /** How long to wait for Google to answer a revoke before calling it failed. */
   revokeTimeoutMs?: number
+  /** Looks the account up after a granted sign-in. Absent: the account stays unknown. */
+  fetchAccount?: (token: string) => Promise<Account | null>
 }
 
-export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000 }: Env) {
-  let state: AuthState = { token: null, notice: null, busy: false }
+export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000, fetchAccount }: Env) {
+  let state: AuthState = { token: null, account: null, notice: null, busy: false }
   const listeners = new Set<() => void>()
   // After a disconnect the next sign-in must show the consent screen again.
   let reconsent = false
@@ -66,12 +92,22 @@ export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000 }: E
     listeners.forEach((fn) => fn())
   }
 
+  // The account of the token just granted; sign-in waits for it, a failure only leaves it null.
+  async function lookUpAccount(token: string) {
+    try {
+      const account = (await fetchAccount?.(token)) ?? null
+      if (state.token === token) set({ account }) // not after a sign-out
+    } catch {
+      // unknown account: no tag, sign-in still works
+    }
+  }
+
   function request(oauth2: GoogleOAuth2): Promise<Outcome> {
     return new Promise((resolve) => {
       oauth2
         .initTokenClient({
           client_id: clientId!.trim(),
-          scope: DRIVE_SCOPE,
+          scope: TOKEN_SCOPE,
           ...(reconsent && { prompt: 'consent' }),
           callback: (r) => {
             if (r.error || !r.access_token) resolve(r.error === 'access_denied' ? 'denied' : 'network')
@@ -117,6 +153,7 @@ export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000 }: E
         await loadScript()
         const oauth2 = gis()
         outcome = oauth2 ? await request(oauth2) : 'network'
+        if (outcome === 'granted') await lookUpAccount(state.token!)
       } catch {
         outcome = 'network'
       }
@@ -124,7 +161,7 @@ export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000 }: E
       return outcome
     },
     // Drop the in-memory token; the gate then shows the sign-in screen.
-    signOut: () => set({ token: null, notice: null }),
+    signOut: () => set({ token: null, account: null, notice: null }),
     // Revoke the Drive grant at Google. Only 'revoked' means it is gone.
     async disconnect(): Promise<'revoked' | 'failed'> {
       const token = state.token
@@ -141,7 +178,10 @@ export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000 }: E
             res(r?.successful === true && !r.error)
           })
         })
-        if (ok) reconsent = true
+        if (ok) {
+          reconsent = true
+          set({ account: null })
+        }
         return ok ? 'revoked' : 'failed'
       } catch {
         return 'failed'
@@ -154,5 +194,6 @@ export type Auth = ReturnType<typeof createAuth>
 export const auth = createAuth({
   clientId: import.meta.env.VITE_GOOGLE_CLIENT_ID,
   loadScript: loadGisScript,
+  fetchAccount: fetchUserinfo,
 })
 export const getAccessToken = () => auth.getAccessToken()

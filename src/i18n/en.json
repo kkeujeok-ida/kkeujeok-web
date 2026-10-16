@@ -35,6 +35,8 @@
   "disconnect.confirm": "The note copies on this device and your sign-in will be deleted. The note files in your Drive stay as they are.",
   "settings.deleteFailed": "Could not delete the note copies in this browser. Please try again",
   "settings.privacy": "Privacy policy",
+  "settings.syncLogExport": "Export sync log",
+  "settings.syncLogExportFailed": "Could not export the log. Please try again",
   "privacy.title": "Kkeujeok Privacy Policy",
   "privacy.storage.heading": "Your notes stay in your Google Drive",
   "privacy.storage.body": "Notes are stored only in your own Google Drive. The operator cannot access your notes.",

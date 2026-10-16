@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { syncLog } from '../sync/syncLog'
 import { useI18n, type Choice, type Key } from '../i18n'
 import type { Auth } from '../drive/auth'
 import { clearSessionHistories } from '../ops/sessionHistories'
@@ -13,8 +14,27 @@ const CHOICES: { value: Choice; label: Key }[] = [
 
 type Action = 'logout' | 'disconnect'
 
+const defaultExport = () => syncLog().exportJsonl({ appVersion: __APP_VERSION__, now: new Date() })
+
+function download(name: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/x-ndjson' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url))
+}
+
 // Shown only behind the sign-in gate, so logout and disconnect are always valid.
-export function Settings({ onClose, auth }: { onClose: () => void; auth: Auth }) {
+export function Settings({
+  onClose,
+  auth,
+  exportLog = defaultExport,
+}: {
+  onClose: () => void
+  auth: Auth
+  exportLog?: () => Promise<{ name: string; text: string }>
+}) {
   const { t, choice, setChoice } = useI18n()
   const [action, setAction] = useState<Action | null>(null)
   const [busy, setBusy] = useState(false)
@@ -44,6 +64,26 @@ export function Settings({ onClose, auth }: { onClose: () => void; auth: Auth })
       auth.signOut() // the gate shows the sign-in screen
     } finally {
       setBusy(false)
+    }
+  }
+  const [exportFailed, setExportFailed] = useState(false)
+  const exporting = useRef(false) // a second press while one runs is ignored
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => void (mounted.current = false)
+  }, [])
+  async function exportSyncLog() {
+    if (exporting.current) return
+    exporting.current = true
+    setExportFailed(false)
+    try {
+      const { name, text } = await exportLog()
+      download(name, text)
+    } catch {
+      if (mounted.current) setExportFailed(true)
+    } finally {
+      exporting.current = false
     }
   }
   // The view replaced the library: move focus to its heading so the change is announced.
@@ -78,6 +118,12 @@ export function Settings({ onClose, auth }: { onClose: () => void; auth: Auth })
       <a className="btn" href="/privacy" target="_blank" rel="noopener noreferrer">
         {t('settings.privacy')}
       </a>
+      <div className="settings-group">
+        <button type="button" className="btn" onClick={() => void exportSyncLog()}>
+          {t('settings.syncLogExport')}
+        </button>
+        {exportFailed && <p role="alert">{t('settings.syncLogExportFailed')}</p>}
+      </div>
       <div className="settings-group">
         <button ref={buttons.logout} type="button" className="btn" onClick={() => open('logout')}>
           {t('settings.logout')}

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyEvent
 import { fmt, useI18n, type Key } from '../../i18n'
 import type { Pen } from '../../model/pen'
 import { sessionHistory } from '../../ops/sessionHistories'
+import { auth } from '../../drive/auth'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
 import { acquireNoteLock } from '../../storage/noteLock'
 import { sharedPenSlots, type PenSlotsStore } from '../../storage/penSlots'
@@ -60,7 +61,7 @@ type Loaded = { title: string; writer: Writer; readOnly: boolean }
  */
 export function NoteEditor({
   noteId,
-  openStore = () => openNoteStore(),
+  openStore = () => openNoteStore(undefined, { getAccount: () => auth.getState().account }),
   penStore = sharedPenSlots(),
 }: {
   noteId: string

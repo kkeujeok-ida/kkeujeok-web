@@ -8,6 +8,7 @@ import { I18nContext, STORAGE_KEY, createI18n } from '../src/i18n'
 import { createNote } from '../src/ops/ops'
 import { clearSessionHistories, sessionHistory } from '../src/ops/sessionHistories'
 import { NOTE_DB_NAME, deleteNoteDatabase } from '../src/storage/noteDb'
+import { SYNC_LOG_DB, createSyncLog } from '../src/sync/syncLog'
 import { App } from '../src/ui/App'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -155,6 +156,39 @@ describe('logout', () => {
     const caught = deleteNoteDatabase(indexedDB, 20).catch((e: Error) => e) as Promise<Error>
     expect((await caught).message).toBe('delete blocked')
     db.close()
+  })
+})
+
+describe('sync log survives', () => {
+  test.each(['Log out', 'Disconnect'])('%s deletes the note DB but not the log DB or its entries', async (action) => {
+    const log = createSyncLog()
+    await log.append('pageTokenRejected')
+    await seedDb()
+    await signedInApp()
+    openSettings()
+    await click(action)
+    await confirm()
+    expect(await dbExists()).toBe(false)
+    const names = (await indexedDB.databases()).map((d) => d.name)
+    expect(names).toContain(SYNC_LOG_DB)
+    expect(await log.entries()).toHaveLength(1)
+    log.close()
+    await new Promise<void>((res) => {
+      const r = indexedDB.deleteDatabase(SYNC_LOG_DB)
+      r.onsuccess = r.onerror = () => res()
+    })
+  })
+
+  test('the open log connection yields to its own DB being deleted', async () => {
+    const log = createSyncLog()
+    await log.append('pageTokenRejected')
+    await new Promise<void>((res, rej) => {
+      const r = indexedDB.deleteDatabase(SYNC_LOG_DB)
+      r.onsuccess = () => res()
+      r.onerror = () => rej(r.error)
+      r.onblocked = () => rej(new Error('blocked'))
+    })
+    log.close()
   })
 })
 
