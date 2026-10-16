@@ -402,6 +402,39 @@ h1 {
   line-height: var(--typography-caption-line-height);
 }
 
+.cover-thumb-wrap {
+  position: relative;
+  display: block;
+}
+
+.cover-thumb-wrap > .cover-thumb {
+  width: 100%;
+}
+
+.cover-badge {
+  position: absolute;
+  right: var(--spacing-2);
+  bottom: var(--spacing-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--rounded-full);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+  font-size: var(--typography-caption-font-size);
+  font-weight: var(--typography-caption-font-weight);
+  line-height: var(--typography-caption-line-height);
+}
+
+.cover-card-placeholder {
+  cursor: default;
+}
+
+.cover-card-placeholder .cover-thumb {
+  background: var(--color-surface-sunken);
+}
+
 .cover-card-disabled {
   color: var(--color-ink-disabled);
   cursor: default;

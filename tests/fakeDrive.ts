@@ -10,11 +10,11 @@ import {
 
 type Rev = { id: string; modifiedTime: string; bytes: Uint8Array }
 type Session = { fileId?: string; metadata: Record<string, unknown>; size: number; received: number; chunks: Uint8Array[] }
-type Item = DriveFile & { createdTime: string; foreign?: boolean; hidden?: boolean; revs: Rev[] }
+type Item = DriveFile & { createdTime: string; foreign?: boolean; hidden?: boolean; revs: Rev[]; thumb?: boolean }
 
 const unq = (s: string) => s.replace(/\\(.)/g, '$1')
 
-export function createFakeDrive(o: { pageSize?: number } = {}) {
+export function createFakeDrive(o: { pageSize?: number; changePageSize?: number } = {}) {
   const items = new Map<string, Item>()
   const calls: string[] = []
   const counts: Record<string, number> = {}
@@ -24,6 +24,10 @@ export function createFakeDrive(o: { pageSize?: number } = {}) {
   let lag = false
   const hooks: { beforeCall?: (method: string, nth: number) => void; afterUpload?: (fileId: string) => void; afterUploadAsync?: (fileId: string) => Promise<void> | void; corruptMd5?: boolean } = {}
   const finished = new Map<string, DriveFile>()
+  // the change log: entry k is change number k (the page token is a position in it)
+  const changeLog: string[] = []
+  let rejectStatus: number | null = null
+  const touch = (id: string) => void changeLog.push(id)
 
   function enter(method: string, detail = '') {
     calls.push(`${method}${detail ? ' ' + detail : ''}`)
@@ -39,6 +43,8 @@ export function createFakeDrive(o: { pageSize?: number } = {}) {
     appProperties: { ...i.appProperties },
     createdTime: i.createdTime,
     trashed: i.trashed,
+    ...(i.mimeType !== undefined && { mimeType: i.mimeType }),
+    ...(i.thumb && { thumbnailLink: `https://thumb.test/${i.id}` }),
     ...(i.revs.length > 0 && {
       headRevisionId: i.revs.at(-1)!.id,
       md5Checksum: createHash('md5').update(i.revs.at(-1)!.bytes).digest('hex'),
@@ -46,7 +52,7 @@ export function createFakeDrive(o: { pageSize?: number } = {}) {
     }),
   })
 
-  function add(meta: { name?: string; parents?: string[]; appProperties?: Record<string, string>; foreign?: boolean }): Item {
+  function add(meta: { name?: string; parents?: string[]; appProperties?: Record<string, string>; foreign?: boolean; mimeType?: string }): Item {
     clock += 60_000
     const item: Item = {
       id: `d${++n}`,
@@ -56,6 +62,7 @@ export function createFakeDrive(o: { pageSize?: number } = {}) {
       createdTime: new Date(clock).toISOString(),
       trashed: false,
       revs: [],
+      ...(meta.mimeType !== undefined && { mimeType: meta.mimeType }),
       ...(meta.foreign && { foreign: true }),
     }
     items.set(item.id, item)
@@ -67,12 +74,13 @@ export function createFakeDrive(o: { pageSize?: number } = {}) {
       enter('list', q)
       const kid = /value='((?:\\.|[^'\\])*)'/.exec(q)
       const par = /^'((?:\\.|[^'\\])*)' in parents/.exec(q)
+      const mime = /mimeType='([^']*)'/.exec(q)
       const all = [...items.values()].filter(
         (i) =>
           !i.trashed &&
           !i.foreign &&
           !i.hidden &&
-          (kid ? i.appProperties.kkeujeokId === unq(kid[1]!) : par ? i.parents.includes(unq(par[1]!)) : false),
+          (kid ? i.appProperties.kkeujeokId === unq(kid[1]!) : par ? i.parents.includes(unq(par[1]!)) : mime ? i.mimeType === mime[1] : false),
       )
       const size = o.pageSize ?? 1000
       const start = p.pageToken ? Number(p.pageToken) : 0
@@ -83,6 +91,7 @@ export function createFakeDrive(o: { pageSize?: number } = {}) {
       enter('create')
       const item = add(meta as Parameters<typeof add>[0])
       if (lag) item.hidden = true
+      touch(item.id)
       return view(item)
     },
     async get(id) {
@@ -98,6 +107,7 @@ export function createFakeDrive(o: { pageSize?: number } = {}) {
       if (p.addParents) i.parents = [...i.parents.filter((x) => x !== p.removeParents), p.addParents]
       else if (p.removeParents) i.parents = i.parents.filter((x) => x !== p.removeParents)
       if (p.trashed !== undefined) i.trashed = p.trashed
+      touch(i.id)
       return view(i)
     },
 
@@ -155,6 +165,25 @@ export function createFakeDrive(o: { pageSize?: number } = {}) {
       if (hiddenRevs > 0) hiddenRevs--
       return shown.map((r) => ({ id: r.id, modifiedTime: r.modifiedTime }))
     },
+    async getStartPageToken() {
+      enter('getStartPageToken')
+      return String(changeLog.length)
+    },
+    async listChanges(pageToken) {
+      enter('listChanges', pageToken)
+      const at = Number(pageToken)
+      if (rejectStatus !== null || !Number.isInteger(at) || at < 0 || at > changeLog.length) {
+        throw new DriveError('http', rejectStatus ?? 410, 'notFound')
+      }
+      const size = o.changePageSize ?? 1000
+      const end = Math.min(changeLog.length, at + size)
+      const ids = [...new Set(changeLog.slice(at, end))]
+      const changes = ids.map((id) => {
+        const i = items.get(id)
+        return !i || i.foreign ? { fileId: id, removed: true } : { fileId: id, removed: false, file: view(i) }
+      })
+      return end < changeLog.length ? { changes, nextPageToken: String(end) } : { changes, newStartPageToken: String(end) }
+    },
     async downloadRevision(fileId, revisionId) {
       enter('downloadRevision', `${fileId} ${revisionId}`)
       const r = items.get(fileId)?.revs.find((x) => x.id === revisionId)
@@ -180,6 +209,7 @@ export function createFakeDrive(o: { pageSize?: number } = {}) {
         name: metadata.name as string,
         parents: (metadata.parents as string[] | undefined) ?? ['root'],
         appProperties: {},
+        ...(typeof metadata.mimeType === 'string' && { mimeType: metadata.mimeType }),
       })
       if (lag) i.hidden = true
     } else {
@@ -193,7 +223,9 @@ export function createFakeDrive(o: { pageSize?: number } = {}) {
       if (v === null) delete i.appProperties[k]
       else i.appProperties[k] = v
     }
+    if (metadata.contentHints) i.thumb = true
     i.revs.push({ id: `rev${++rev}`, modifiedTime: new Date(clock).toISOString(), bytes: new Uint8Array(bytes) })
+    touch(i.id)
     hooks.afterUpload?.(i.id)
     const v = view(i)
     return hooks.corruptMd5 ? { ...v, md5Checksum: '0'.repeat(32) } : v
@@ -229,8 +261,11 @@ export function createFakeDrive(o: { pageSize?: number } = {}) {
     },
     clearFailures: () => void (failures.length = 0, Object.keys(counts).forEach((k) => delete counts[k])),
     roots: () => [...items.values()].filter((i) => i.appProperties.kkeujeokId === 'root' && !i.foreign),
-    trash: (id: string) => void (items.get(id)!.trashed = true),
-    remove: (id: string) => void items.delete(id),
+    trash: (id: string) => void ((items.get(id)!.trashed = true), touch(id)),
+    remove: (id: string) => void (items.delete(id), touch(id)),
+    /** Every `changes.list` answers this status (the token is refused). */
+    rejectTokens: (status: number | null) => void (rejectStatus = status),
+    changeCount: () => changeLog.length,
     count: (m: string) => calls.filter((c) => c.split(' ')[0] === m).length,
     hooks,
     uploads,
@@ -242,6 +277,7 @@ export function createFakeDrive(o: { pageSize?: number } = {}) {
     foreignRevision(fileId: string, bytes: Uint8Array) {
       clock += 60_000
       items.get(fileId)!.revs.push({ id: `rev${++rev}`, modifiedTime: new Date(clock).toISOString(), bytes })
+      touch(fileId)
       return `rev${rev}`
     },
     /** The revision listing lacks the newest revision for the next `times` listings. */

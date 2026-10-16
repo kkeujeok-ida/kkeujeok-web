@@ -8,6 +8,7 @@ import { acquireNoteLock } from '../../storage/noteLock'
 import { sharedPenSlots, type PenSlotsStore } from '../../storage/penSlots'
 import { savesSettled } from '../../storage/saveQueue'
 import { registerOpenNote } from '../../sync/openNotes'
+import type { NoteReceiver } from '../../sync/noteReceiver'
 import type { UploadCoordinator } from '../../sync/uploadCoordinator'
 import { PenPopover } from './PenPopover'
 import { PenToolbar } from './PenToolbar'
@@ -46,6 +47,8 @@ function backToLibrary() {
 
 const SNACKBAR_MS = 4000
 const LEAVE_WAIT_MS = 5000
+/** Opening waits for a receive; past this the wait text says so. */
+export const RECEIVE_WAIT_TEXT_MS = 1000
 const MESSAGE_KEY: Record<WriterMessage, Key> = {
   saveFailed: 'editor.saveFailed',
   strokeNotAdded: 'editor.strokeNotAdded',
@@ -68,12 +71,15 @@ export function NoteEditor({
   openStore = () => openNoteStore(undefined, { getAccount: () => auth.getState().account }),
   penStore = sharedPenSlots(),
   uploads,
+  receiver,
 }: {
   noteId: string
   openStore?: () => NoteStore
   penStore?: PenSlotsStore
   /** Told when the note is closed, after its last save and its lock are released (Story 3.12). */
   uploads?: Pick<UploadCoordinator, 'noteClosed'>
+  /** Receives remote changes before the editor opens and checks the remote head after (Story 3.14). */
+  receiver?: Pick<NoteReceiver, 'beforeOpen' | 'noteOpened'>
 }) {
   const { t } = useI18n()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -89,6 +95,8 @@ export function NoteEditor({
   const [, setRevision] = useState(0)
   const [view, setView] = useState<ViewInfo | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  // The note is being received before it opens, for over a second.
+  const [slow, setSlow] = useState(false)
 
   const back = useRef<HTMLButtonElement>(null)
   const toolbar = useRef<HTMLDivElement>(null)
@@ -171,6 +179,18 @@ export function NoteEditor({
     // leave and reopen) must be gone first, or the new load would open read-only.
     const lockP = (async () => {
       await releasing.get(noteId)
+      if (receiver) {
+        // A card or a note with a remote change is received first (UX-DR58); on failure the device copy opens.
+        const timer = setTimeout(() => live && setSlow(true), RECEIVE_WAIT_TEXT_MS)
+        try {
+          await receiver.beforeOpen(noteId)
+        } catch {
+          // a card that could not be downloaded leaves no note: the load below goes back to the library
+        } finally {
+          clearTimeout(timer)
+          if (live) setSlow(false)
+        }
+      }
       return acquireNoteLock(noteId)
     })()
 
@@ -181,6 +201,8 @@ export function NoteEditor({
       if (!cur) return void l.release()
       // A lock granted while the first load ran: do not show the stale read-only note.
       if (live && !(cur.readOnly && l.state === 'held')) setLoaded(cur)
+      // The remote head is asked once the editor is up; a change comes in through it.
+      if (live && !cur.readOnly) void receiver?.noteOpened(noteId).catch(() => {})
       if (!cur.readOnly) return
       await l.whenHeld
       if (!live) return
@@ -435,7 +457,7 @@ export function NoteEditor({
     <section className="editor" aria-label={loaded?.title} aria-busy={!loaded}>
       {!loaded && (
         <p role="status" className="cover-date">
-          {t('library.loading')}
+          {t(slow ? 'sync.receivingLatest' : 'library.loading')}
         </p>
       )}
       {loaded?.readOnly && (

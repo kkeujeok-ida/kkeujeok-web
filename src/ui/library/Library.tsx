@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+import type { NoteReceiver, ReceiveState } from '../../sync/noteReceiver'
 import type { Page } from '../../model/note'
 import { StrokePathCache, fitViewport, paintPage } from '../../render/pagePainter'
 import { savesSettled, takeUnsaved } from '../../storage/saveQueue'
@@ -26,7 +27,14 @@ type Props = {
   root?: RootFolderStore
   /** [로그아웃] of the missing-root dialog: drops the in-memory token only. */
   signOut?: () => void
+  /** Remote changes (Story 3.14): cards of notes not downloaded yet, the ↓ badge, the scan placeholder. */
+  receiver?: Pick<NoteReceiver, 'subscribe' | 'getState'>
 }
+
+const NO_RECEIVE: ReceiveState = { version: 0, receiving: new Set(), scanning: false }
+const NO_RECEIVER = { subscribe: () => () => {}, getState: () => NO_RECEIVE }
+/** The scan placeholder shows only when the scan takes longer than this. */
+export const SCAN_PLACEHOLDER_MS = 1000
 
 const IDLE: RootState = { status: 'idle' }
 const NO_ROOT = { subscribe: () => () => {}, getState: () => IDLE }
@@ -40,9 +48,19 @@ function formatDate(ms: number | null, locale: string): string {
   }
 }
 
-export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut() }: Props) {
+export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver }: Props) {
   const { t, locale } = useI18n()
-  const lib = useLibrary(openStore, defaults, editedBy)
+  const lib = useLibrary(openStore, defaults, editedBy, receiver)
+  const rx = receiver ?? NO_RECEIVER
+  const receive = useSyncExternalStore(rx.subscribe, rx.getState, () => NO_RECEIVE)
+  // Grey cards while the first scan runs, only when it lasts over a second.
+  const scanning = receive.scanning
+  const [placeholder, setPlaceholder] = useState(false)
+  useEffect(() => {
+    if (!scanning) return void setPlaceholder(false)
+    const id = setTimeout(() => setPlaceholder(true), SCAN_PLACEHOLDER_MS)
+    return () => clearTimeout(id)
+  }, [scanning])
   const [sheet, setSheet] = useState<NewNoteDefaults | null>(null)
   const opener = useRef<HTMLElement | null>(null)
   const entering = useRef(false) // a note was created and the editor is opening
@@ -170,7 +188,18 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             </button>
           </li>
         )}
-        {status === 'ready' && items.length === 0 && (
+        {placeholder && items.length === 0 && (
+          <>
+            {[0, 1, 2].map((n) => (
+              <li key={n} aria-hidden="true">
+                <div className="cover-card cover-card-placeholder">
+                  <span className="cover-thumb" />
+                </div>
+              </li>
+            ))}
+          </>
+        )}
+        {status === 'ready' && items.length === 0 && !scanning && (
           <li>
             <button type="button" className="cover-card" onClick={(e) => openSheet(e.currentTarget)}>
               <span className="cover-thumb cover-thumb-new" aria-hidden="true">
@@ -183,7 +212,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           </li>
         )}
         {items.map((item) => (
-          <Card key={item.noteId} item={item} locale={locale} blocked={() => entering.current} />
+          <Card key={item.noteId} item={item} locale={locale} blocked={() => entering.current} receiving={receive.receiving.has(item.noteId)} />
         ))}
       </ul>
       {status === 'ready' && <LibraryFab onNewNote={openSheet} />}
@@ -238,7 +267,7 @@ function Thumb({ page }: { page: Page | undefined }) {
   )
 }
 
-function Card({ item, locale, blocked }: { item: LibraryItem; locale: string; blocked: () => boolean }) {
+function Card({ item, locale, blocked, receiving }: { item: LibraryItem; locale: string; blocked: () => boolean; receiving: boolean }) {
   const { t } = useI18n()
   const titleId = useId()
   const dateId = useId()
@@ -263,7 +292,17 @@ function Card({ item, locale, blocked }: { item: LibraryItem; locale: string; bl
         title={item.title}
         onClick={(e) => blocked() && e.preventDefault()}
       >
-        <Thumb page={item.page} />
+        <span className="cover-thumb-wrap">
+          <Thumb page={item.page} />
+          {receiving && (
+            <span className="cover-badge">
+              <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 3v9M4 8l4 4 4-4" stroke="currentColor" strokeWidth="1.75" fill="none" />
+              </svg>
+              <span>{t('sync.receiving')}</span>
+            </span>
+          )}
+        </span>
         <span id={titleId} className="cover-title">
           {item.title}
         </span>

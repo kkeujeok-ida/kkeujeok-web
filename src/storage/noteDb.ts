@@ -9,6 +9,7 @@ export const NOTES_STORE = 'notes'
 export const BASE_STORE = 'base'
 export const SYNC_STORE = 'sync'
 export const DEVICE_STORE = 'device'
+export const REMOTE_STORE = 'remote'
 
 /** A write did not happen. Earlier values are intact. */
 export class NoteSaveError extends Error {
@@ -28,6 +29,8 @@ const UPGRADES: ((db: IDBPDatabase) => void)[] = [
     db.createObjectStore(SYNC_STORE)
     db.createObjectStore(DEVICE_STORE)
   },
+  // cards of notes on Drive that are not downloaded yet (key noteId)
+  (db) => void db.createObjectStore(REMOTE_STORE),
 ]
 
 export type Db = {

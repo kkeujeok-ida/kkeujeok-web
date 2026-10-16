@@ -16,6 +16,7 @@ import {
   openNoteDb,
 } from './noteDb'
 import { type SyncInfo, type SyncState, emptySync, syncFromJson, syncToJson } from './syncInfo'
+import { createRemoteCardStore, type RemoteCardStore } from './remoteCards'
 import { createSyncDeviceStore } from './syncDevice'
 
 export { NOTES_STORE, NoteSaveError }
@@ -42,6 +43,12 @@ export type NoteStore = {
    */
   commitSync(working: Note, base: Note | null, info: SyncInfo): Promise<void>
   /**
+   * A receive (Story 3.14): working, base (= `remote`) and sync record in one
+   * transaction, only while the stored working copy still is `expected` (`null` = no
+   * working copy yet). False, nothing written, when it moved meanwhile.
+   */
+  commitReceive(noteId: string, expected: Note | null, remote: Note, info: SyncInfo): Promise<boolean>
+  /**
    * Changes one note's sync record (and base copy) without touching the working
    * copy. `change` gets the record read under the note's lock. Returns what was committed.
    */
@@ -50,6 +57,8 @@ export type NoteStore = {
   resetSync(noteId: string): Promise<void>
   /** Never throws. */
   readSync(noteId: string): Promise<SyncRead>
+  /** Cards of notes on Drive that are not downloaded yet (Story 3.14), over the same connection. */
+  remote: RemoteCardStore
   close(): void
 }
 
@@ -242,6 +251,39 @@ export function openNoteStore(
       await notify()
     },
 
+    async commitReceive(noteId, expected, remote, info) {
+      const done = await locked(noteId, () =>
+        wrapSave(async () => {
+          const id = info.baseHeadRevisionId
+          if (id === null || !revisionIdPattern.test(id)) throw new NoteSaveError('baseHeadRevisionId is not a valid id')
+          if (remote.noteId !== noteId) throw new NoteSaveError('note belongs to another id')
+          const record = syncRecord(info)
+          const bytes = await encodeChecked(remote)
+          const [oldWorking, oldBase, oldSync] = await readRaw(noteId)
+          if (expected === null) {
+            if (oldWorking !== undefined) return false
+          } else {
+            const cur = oldWorking === undefined ? null : (await decodeRecord(noteId, oldWorking)).note
+            if (!cur || JSON.stringify(cur) !== JSON.stringify(expected)) return false
+          }
+          try {
+            await apply(
+              [NOTES_STORE, BASE_STORE, SYNC_STORE],
+              [[NOTES_STORE, noteId, oldWorking], [BASE_STORE, noteId, oldBase], [SYNC_STORE, noteId, oldSync]],
+              [[NOTES_STORE, noteId, bytes], [BASE_STORE, noteId, bytes], [SYNC_STORE, noteId, record]],
+            )
+          } catch (e) {
+            // Another tab wrote the working copy between the check and the transaction.
+            if (e instanceof NoteSaveError && e.message === 'record changed while saving') return false
+            throw e
+          }
+          return true
+        }),
+      )
+      if (done) await notify()
+      return done
+    },
+
     async updateSync(noteId, change, o = {}) {
       const committed = await locked(noteId, () =>
         wrapSave(async () => {
@@ -361,6 +403,8 @@ export function openNoteStore(
       }
       return out
     },
+
+    remote: createRemoteCardStore(ndb),
 
     close: () => ndb.close(),
   }

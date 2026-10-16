@@ -21,6 +21,8 @@
   "library.loadFailed": "목록을 불러오지 못했어요",
   "library.loading": "불러오는 중",
   "library.retry": "다시 시도",
+  "sync.receiving": "받는 중",
+  "sync.receivingLatest": "최신 내용 받는 중",
   "library.backToLibrary": "Notes로",
   "settings.title": "설정",
   "settings.close": "닫기",

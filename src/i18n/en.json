@@ -21,6 +21,8 @@
   "library.loadFailed": "Could not load your notes",
   "library.loading": "Loading",
   "library.retry": "Try again",
+  "sync.receiving": "Receiving",
+  "sync.receivingLatest": "Getting the latest",
   "library.backToLibrary": "Back to library",
   "settings.title": "Settings",
   "settings.close": "Close",

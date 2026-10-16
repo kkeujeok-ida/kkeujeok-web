@@ -7,12 +7,13 @@ import { createNote } from '../../ops/ops'
 import type { Background, NewNoteDefaults, Orientation } from '../../storage/newNoteDefaults'
 import type { NoteStore } from '../../storage/noteStore'
 import { savesSettled } from '../../storage/saveQueue'
+import type { NoteReceiver } from '../../sync/noteReceiver'
 
 /**
  * `title` is null for a note this client cannot open. `editedMs` is null when
  * no valid date. `page` is the first page, for the card thumbnail.
  */
-export type LibraryItem = { noteId: string; title: string | null; editedMs: number | null; page?: Page }
+export type LibraryItem = { noteId: string; title: string | null; editedMs: number | null; page?: Page; remote?: true }
 type Entry = Awaited<ReturnType<NoteStore['listNotes']>>[number]
 
 /** The newest page `editedAt` as epoch ms; unusable values are skipped. */
@@ -83,6 +84,7 @@ export function useLibrary(
   openStore: () => NoteStore,
   defaults: { write(d: NewNoteDefaults): void },
   editedBy?: string,
+  receiver?: Pick<NoteReceiver, 'subscribe' | 'getState'>,
 ) {
   // `failed`: a reload failed while a list was already shown; the old list stays.
   const [state, setState] = useState<{ status: 'loading' | 'ready' | 'error'; items: LibraryItem[]; failed: boolean }>({
@@ -106,13 +108,20 @@ export function useLibrary(
       // An editor that was just left may still be saving: list after it.
       await savesSettled(3000)
       const list = await s.listNotes()
+      if (storeRef.current !== s) return // left meanwhile: its connection is closed, no new one
+      // Cards of notes on Drive that are not downloaded yet; a failure only leaves them out.
+      const cards = await s.remote.list().catch(() => [])
       if (mine !== seq.current || storeRef.current !== s) return
-      setState({ status: 'ready', items: sortItems(list.map(toItem)), failed: false })
+      const here = new Set(list.map((e) => e.noteId))
+      const remote: LibraryItem[] = cards
+        .filter((c) => !here.has(c.noteId))
+        .map((c) => ({ noteId: c.noteId, title: c.title, editedMs: Date.parse(c.modifiedAt) || null, remote: true }))
+      setState({ status: 'ready', items: sortItems([...list.map(toItem), ...remote]), failed: false })
     } catch {
       if (mine !== seq.current || storeRef.current !== s) return
       setState((p) => (p.status === 'ready' ? { ...p, failed: true } : { status: 'error', items: [], failed: false }))
     }
-  }, [])
+  }, [receiver])
 
   // The connection lives while the library is shown, so logout's DB delete is not blocked.
   useEffect(() => {
@@ -126,6 +135,18 @@ export function useLibrary(
     // openStore is read once, on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Another device's change was applied (here or in another tab): list again.
+  useEffect(() => {
+    if (!receiver) return
+    let version = receiver.getState().version
+    return receiver.subscribe(() => {
+      const v = receiver.getState().version
+      if (v === version) return
+      version = v
+      void load()
+    })
+  }, [receiver, load])
 
   /** Resolves with the new noteId; rejects (nothing stored, defaults untouched) on any failure. */
   const create = useCallback(

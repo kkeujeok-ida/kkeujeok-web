@@ -80,7 +80,7 @@ afterEach(async () => {
 })
 
 describe('db upgrade', () => {
-  test('a version-1 DB with a note opens as version 2, the record is identical, three stores exist', async () => {
+  test('a version-1 DB with a note opens as version 3, the record is identical, the sync and remote stores exist', async () => {
     store.close()
     await deleteNoteDatabase()
     const bytes = await encodeKkj(mk(N))
@@ -93,8 +93,8 @@ describe('db upgrade', () => {
     store = openNoteStore()
     expect((await store.loadNote(N))!.note).toEqual(mk(N))
     const [version, names] = await raw((db) => [db.version, [...db.objectStoreNames].sort()] as const)
-    expect(version).toBe(2)
-    expect(names).toEqual(['base', 'device', 'notes', 'sync'])
+    expect(version).toBe(3)
+    expect(names).toEqual(['base', 'device', 'notes', 'remote', 'sync'])
     expect([...((await rawGet('notes', N)) as Uint8Array)]).toEqual([...bytes])
   })
 })

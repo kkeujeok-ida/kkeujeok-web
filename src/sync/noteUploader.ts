@@ -1,6 +1,6 @@
 // Uploads one note at a time (spec sync.md steps 0-5 and "Start"). Mirrors
 // kkeujeok-client/lib/sync/note_uploader.dart. Everything that touches the
-// outside is injected. A note's calls run one after another (a chain per note id).
+// outside is injected. A note's calls run one after another (the page session's chain per note id, shared with the receiver).
 //
 // A Drive or local-write failure never throws: it ends in the state `error`
 // with a `lastError` and a log entry. Any other exception is a bug (or a simulated
@@ -26,6 +26,7 @@ import { md5Hex } from '../util/md5'
 import { classifyDriveError } from './errorClass'
 import { hasUnsentRule } from './hasUnsent'
 import type { MergeIo } from './mergeIo'
+import { chained } from './noteChain'
 import type { SyncLog } from './syncLog'
 import { backoffRule, transition, uploadKindRule, verifyPlanRule } from './syncRules'
 
@@ -72,21 +73,6 @@ const asS = (n: Note) => ({ orderRev: n.orderRev, metaRev: n.metaRev, pages: n.p
 export function createNoteUploader(d: UploaderDeps) {
   const { store, drive, log } = d
   const md5 = d.md5 ?? md5Hex
-
-  // ---- chain -------------------------------------------------------------
-  const chains = new Map<string, Promise<void>>()
-  function chained<T>(noteId: string, body: () => Promise<T>): Promise<T> {
-    const run = (chains.get(noteId) ?? Promise.resolve()).then(body)
-    const done = run.then(
-      () => {},
-      () => {},
-    )
-    chains.set(noteId, done)
-    void done.then(() => {
-      if (chains.get(noteId) === done) chains.delete(noteId)
-    })
-    return run
-  }
 
   // ---- state -------------------------------------------------------------
   /** True when `working` has changes `head` does not (sync.hasUnsent against that head). */

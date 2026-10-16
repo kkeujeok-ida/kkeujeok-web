@@ -27,7 +27,14 @@ export type DriveFile = {
   md5Checksum?: string
   /** Canonical timestamp, when asked for. */
   modifiedTime?: string
+  mimeType?: string
+  /** Short-lived, authenticated link; never stored. */
+  thumbnailLink?: string
 }
+
+/** One entry of `changes.list`: a removed file has no `file`. */
+export type DriveChange = { fileId: string; removed: boolean; file?: DriveFile }
+export type DriveChanges = { changes: DriveChange[]; nextPageToken?: string; newStartPageToken?: string }
 
 export type DriveRevision = { id: string; modifiedTime: string }
 
@@ -37,7 +44,7 @@ export type ResumableResult = { received: number; file?: DriveFile }
 export type DrivePage = { files: DriveFile[]; nextPageToken?: string }
 
 export interface DriveClient {
-  list(q: string, o?: { fields?: string; pageToken?: string }): Promise<DrivePage>
+  list(q: string, o?: { fields?: string; pageToken?: string; pageSize?: number }): Promise<DrivePage>
   /** `files.create` with metadata only (`name`, `mimeType`, `parents`, `appProperties`). */
   create(metadata: Record<string, unknown>): Promise<DriveFile>
   get(id: string, o?: { fields?: string }): Promise<DriveFile>
@@ -56,6 +63,10 @@ export interface DriveClient {
   listRevisions(fileId: string): Promise<DriveRevision[]>
   /** `revisions.get` with `alt=media`. */
   downloadRevision(fileId: string, revisionId: string): Promise<Uint8Array>
+  /** `changes.getStartPageToken`. */
+  getStartPageToken(): Promise<string>
+  /** One page of `changes.list` from `pageToken`; a rejected token is a DriveError 400, 404 or 410. */
+  listChanges(pageToken: string): Promise<DriveChanges>
 }
 
 /** Resumable chunk: a multiple of 262,144 (spec sync step 2). */
@@ -126,8 +137,14 @@ function toFile(json: unknown, fallbackId?: string): DriveFile {
     ...(typeof m.headRevisionId === 'string' && { headRevisionId: m.headRevisionId }),
     ...(typeof m.md5Checksum === 'string' && { md5Checksum: m.md5Checksum }),
     ...(typeof m.modifiedTime === 'string' && { modifiedTime: m.modifiedTime }),
+    ...(typeof m.mimeType === 'string' && { mimeType: m.mimeType }),
+    ...(typeof m.thumbnailLink === 'string' && { thumbnailLink: m.thumbnailLink }),
   }
 }
+
+/** The file fields a change or a tree scan needs to draw a card or compare heads. */
+export const CHANGE_FILE_FIELDS =
+  'id,name,mimeType,parents,appProperties,md5Checksum,modifiedTime,thumbnailLink,headRevisionId,trashed'
 
 export function createHttpDriveClient(o: {
   fetch?: typeof fetch
@@ -281,10 +298,35 @@ export function createHttpDriveClient(o: {
       u.searchParams.set('alt', 'media')
       return (await raw('GET', u)).bytes
     },
+    async getStartPageToken() {
+      const j = (await send('GET', '/changes/startPageToken', {})) as { startPageToken?: unknown }
+      if (typeof j?.startPageToken !== 'string' || j.startPageToken === '') throw new DriveError('parse')
+      return j.startPageToken
+    },
+    async listChanges(pageToken) {
+      const j = (await send('GET', '/changes', {
+        pageToken,
+        pageSize: '1000',
+        includeRemoved: 'true',
+        restrictToMyDrive: 'true',
+        spaces: 'drive',
+        fields: `nextPageToken,newStartPageToken,changes(fileId,removed,file(${CHANGE_FILE_FIELDS}))`,
+      })) as { changes?: unknown; nextPageToken?: unknown; newStartPageToken?: unknown }
+      if (!Array.isArray(j?.changes)) throw new DriveError('parse')
+      const changes: DriveChange[] = j.changes.map((c: { fileId?: unknown; removed?: unknown; file?: unknown }) => {
+        if (typeof c?.fileId !== 'string') throw new DriveError('parse')
+        return { fileId: c.fileId, removed: c.removed === true, ...(c.file != null && { file: toFile(c.file, c.fileId) }) }
+      })
+      return {
+        changes,
+        ...(typeof j.nextPageToken === 'string' && j.nextPageToken !== '' && { nextPageToken: j.nextPageToken }),
+        ...(typeof j.newStartPageToken === 'string' && j.newStartPageToken !== '' && { newStartPageToken: j.newStartPageToken }),
+      }
+    },
     async list(q, p = {}) {
       const j = (await send('GET', '/files', {
         q,
-        pageSize: '100',
+        pageSize: String(p.pageSize ?? 100),
         fields: p.fields ?? `nextPageToken,files(${FIELDS})`,
         ...(p.pageToken && { pageToken: p.pageToken }),
       })) as { files?: unknown; nextPageToken?: unknown }

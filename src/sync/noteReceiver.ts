@@ -1,0 +1,622 @@
+// Receives remote changes (spec sync.md "Triggers and polling", "Start", page-token
+// rejection). Mirrors nothing yet: the Android twin (Story 3.13) is built from the
+// same spec. Everything that touches the outside is injected.
+//
+// A note that is not here yet becomes a card from the list summary (no download); a
+// note that is here and whose head moved is replaced (nothing unsent) or merged
+// (unsent changes / open in the editor). A Drive or local-write failure never
+// escapes `check`: it is a log entry and, for a permanent failure, the note's state.
+import {
+  CHANGE_FILE_FIELDS,
+  DriveError,
+  type DriveChange,
+  type DriveClient,
+  type DriveFile,
+} from '../drive/driveClient'
+import { listSummaryRule } from '../drive/noteSummary'
+import { decodeKkj } from '../model/kkjCodec'
+import type { Note } from '../model/note'
+import { NoteSaveError } from '../storage/noteDb'
+import type { NoteStore } from '../storage/noteStore'
+import type { RemoteCard, RemoteCardStore } from '../storage/remoteCards'
+import { type SyncDevice, type SyncDeviceStore } from '../storage/syncDevice'
+import { type SyncInfo, emptySync } from '../storage/syncInfo'
+import { classifyDriveError } from './errorClass'
+import type { MergeIo } from './mergeIo'
+import { chained } from './noteChain'
+import { openNoteIds } from './openNotes'
+import type { SyncLog } from './syncLog'
+import { backoffRule, transition } from './syncRules'
+import { noteLockName } from './uploadCoordinator'
+
+export const KKJ_MIME = 'application/vnd.kkeujeok.kkj'
+/** `files.list` of the rescan: every live note file (folders hold no state of their own yet). */
+export const NOTE_FILES_QUERY = `trashed=false and mimeType='${KKJ_MIME}'`
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** What the UI shows: `receiving` = notes whose card carries the ↓ badge. */
+export type ReceiveState = { version: number; receiving: ReadonlySet<string>; scanning: boolean }
+export type Channel = { post(m: unknown): void; subscribe(fn: (m: unknown) => void): () => void }
+
+export type ReceiverDeps = {
+  store: Pick<NoteStore, 'loadNote' | 'readSync' | 'updateSync' | 'commitReceive' | 'listIds'>
+  drive: DriveClient
+  device: SyncDeviceStore
+  remote: RemoteCardStore
+  log: Pick<SyncLog, 'append'>
+  merge: MergeIo
+  account: () => { sub: string; email: string } | null
+  /** Root folder ready. */
+  allowed: () => boolean
+  online: () => boolean
+  sleep: (ms: number) => Promise<void>
+  jitter: () => number
+  /** Notes open and writable in this tab. */
+  openIds?: () => string[]
+  locks?: LockManager | undefined
+  channel?: Channel | null
+}
+
+class Gone extends Error {}
+class Fail extends Error {
+  constructor(
+    readonly cls: string,
+    readonly status?: number,
+    readonly reason?: string,
+  ) {
+    super(`Fail(${cls}, ${reason ?? ''})`)
+  }
+}
+type Guard = { sub: string; email: string; root: string | null; ensure(): void }
+type Result = 'ok' | 'later'
+
+const isRejected = (e: DriveError) => e.kind === 'http' && (e.status === 400 || e.status === 404 || e.status === 410)
+const TRANSIENT = new Set(['backoff', 'reauth', 'quota'])
+const MAX_PAGES = 1000
+
+export type NoteReceiver = ReturnType<typeof createNoteReceiver>
+
+export function createNoteReceiver(d: ReceiverDeps) {
+  const { store, drive, log } = d
+  const openIds = d.openIds ?? openNoteIds
+  const locks = 'locks' in d ? d.locks : globalThis.navigator?.locks
+
+  // ---- state for the UI --------------------------------------------------
+  let state: ReceiveState = { version: 0, receiving: new Set(), scanning: false }
+  const listeners = new Set<() => void>()
+  const set = (p: Partial<ReceiveState>) => {
+    state = { ...state, ...p }
+    listeners.forEach((fn) => fn())
+  }
+  const mark = (ids: string[]) => {
+    if (ids.some((i) => !state.receiving.has(i))) set({ receiving: new Set([...state.receiving, ...ids]) })
+  }
+  const unmark = (ids: string[]) => {
+    if (ids.some((i) => state.receiving.has(i))) set({ receiving: new Set([...state.receiving].filter((i) => !ids.includes(i))) })
+  }
+  /** The notes or cards changed: lists reload. `post` tells the other tabs. */
+  const bump = (post = true) => {
+    set({ version: state.version + 1 })
+    if (post) d.channel?.post({ t: 'changed' })
+  }
+  /** Changes known and not yet received, for `beforeOpen`. */
+  const pending = new Map<string, { fileId: string; head: string }>()
+
+  // ---- helpers -----------------------------------------------------------
+  function guard(): Guard | null {
+    const a = d.account()
+    if (!a) return null
+    // The account may sign out or change during any await.
+    return {
+      sub: a.sub,
+      email: a.email,
+      root: null,
+      ensure() {
+        if (d.account()?.sub !== a.sub) throw new Gone()
+      },
+    }
+  }
+  const usable = () => d.allowed() && d.online()
+
+  async function logError(noteId: string | undefined, f: Fail) {
+    await log.append('error', {
+      class: f.cls,
+      ...(noteId !== undefined && { noteId }),
+      ...(f.status !== undefined && { status: f.status }),
+      ...(f.reason !== undefined && { reason: f.reason }),
+    })
+  }
+
+  /** One Drive call with the retry rules of sync.errorClass and sync.backoff. */
+  async function call<T>(g: Guard, noteId: string | undefined, fn: () => Promise<T>, pass?: (e: DriveError) => boolean): Promise<T> {
+    let attempt = 0
+    for (;;) {
+      try {
+        return await fn()
+      } catch (e) {
+        if (!(e instanceof DriveError)) throw e
+        if (pass?.(e)) throw e
+        const cls = classifyDriveError(e)
+        const reason = e.kind === 'parse' ? 'parse' : e.reason
+        if (cls !== 'backoff') throw new Fail(cls, e.status, reason)
+        attempt++
+        const plan = backoffRule({ attempt, jitter: d.jitter() })
+        if (!('retry' in plan) || plan.retry !== true) throw new Fail(cls, e.status, reason)
+        await log.append('backoff', { class: cls, attempt, delayMs: plan.delayMs, ...(noteId !== undefined && { noteId }) })
+        await d.sleep(plan.delayMs)
+        g.ensure()
+      }
+    }
+  }
+
+  /** One `sync.json` write: `edit`, then `event` moves the state. Logs the state change. */
+  async function move(
+    noteId: string,
+    event: string,
+    o: { edit?: (c: SyncInfo) => SyncInfo; unsent?: boolean; base?: Note } = {},
+  ): Promise<SyncInfo> {
+    let from = ''
+    let to = ''
+    const done = await store.updateSync(
+      noteId,
+      (cur) => {
+        let next = (o.edit ?? ((c: SyncInfo) => c))(cur)
+        from = to = cur.state
+        const unresolved = next.conflicts.filter((c) => c.resolvedAt == null).length
+        const t = transition(cur.state, event, { unresolved, unsent: o.unsent ?? false })
+        if (t) {
+          to = t
+          next = { ...next, state: t }
+        }
+        return next
+      },
+      o.base ? { base: o.base } : undefined,
+    )
+    if (from !== to) await log.append('stateChange', { noteId, from, to })
+    return done
+  }
+
+  /** The note ends the receive: `verified` for syncing/conflict, `edit` for unsent changes on a synced one, `upload`+`verified` for a pending one with nothing unsent. */
+  async function settle(noteId: string) {
+    const s = await store.readSync(noteId)
+    const st = s.info.state
+    if (st === 'syncing' || st === 'conflict') await move(noteId, 'verified', { unsent: s.hasUnsent })
+    else if (st === 'synced' && s.hasUnsent) await move(noteId, 'edit')
+    else if (st === 'pending' && !s.hasUnsent) {
+      await move(noteId, 'upload')
+      await move(noteId, 'verified', { unsent: false })
+    }
+  }
+
+  /** The states a note passes from `state` when its receive ends with nothing unsent. */
+  function hopsFrom(state: string, unresolved: number): string[] {
+    if (state === 'syncing' || state === 'conflict') return [transition(state, 'verified', { unresolved, unsent: false }) ?? state]
+    if (state === 'pending') {
+      const s1 = transition('pending', 'upload') ?? 'pending'
+      return [s1, transition(s1, 'verified', { unresolved, unsent: false }) ?? s1]
+    }
+    return []
+  }
+
+  async function withNoteLock(noteId: string, run: () => Promise<Result>, taken: () => Result): Promise<Result> {
+    if (!locks) return run()
+    let out: Result = 'ok'
+    await locks.request(noteLockName(noteId), { ifAvailable: true }, async (lock) => {
+      out = lock ? await run() : taken()
+    })
+    return out
+  }
+
+  async function downloadNote(g: Guard, noteId: string, fileId: string, head: string): Promise<Note> {
+    const bytes = await call(g, noteId, () => drive.downloadRevision(fileId, head))
+    g.ensure()
+    await log.append('revisionDownloaded', { noteId, revisionId: head })
+    const r = await decodeKkj(bytes)
+    if (r.result === 'unsupportedVersion') throw new Fail('unreadable', undefined, 'unsupportedVersion')
+    if (!r.note || r.note.noteId !== noteId) throw new Fail('unreadable', undefined, 'parse')
+    return r.note
+  }
+
+  /** A permanent failure of a note that is here: it ends `error`, its device copy stays. */
+  async function noteFailed(noteId: string, f: Fail): Promise<Result> {
+    await logError(noteId, f)
+    if (TRANSIENT.has(f.cls)) return 'later'
+    if (f.cls === 'deleted') return 'ok' // Story 3.18
+    try {
+      await move(noteId, 'failed', {
+        edit: (c) => ({ ...c, lastError: { class: f.cls, ...(f.status !== undefined && { status: f.status }), ...(f.reason !== undefined && { reason: f.reason }) } }),
+      })
+    } catch (e) {
+      if (!(e instanceof NoteSaveError)) throw e // an unreadable sync.json stays as it is
+    }
+    return 'ok'
+  }
+
+  // ---- one note that is here ---------------------------------------------
+  function receiveNote(g: Guard, noteId: string, fileId: string, head: string): Promise<Result> {
+    return chained(noteId, async () => {
+      mark([noteId])
+      try {
+        for (let tries = 0; tries < 3; tries++) {
+          g.ensure()
+          const s = await store.readSync(noteId)
+          const loaded = await store.loadNote(noteId)
+          const work = loaded?.result === 'ok' && loaded.writable ? loaded.note : undefined
+          const info = s.info
+          // Not ours to do: an unreadable working copy is never overwritten; the upload owns an unfinished one.
+          if (!work || info.state === 'error' || info.pendingVerify !== null || info.fileId !== fileId) return 'ok'
+          if (head === info.baseHeadRevisionId) return 'ok'
+          // `remoteChange` before the download: a pending note stays pending (sync.stateMachine).
+          let moved = info
+          if (s.state === 'pending') {
+            if (info.state !== 'pending') moved = await move(noteId, 'edit') // synced, but with unsent changes
+          } else if (info.state !== 'syncing') moved = await move(noteId, 'remoteChange')
+          const remote = await downloadNote(g, noteId, fileId, head)
+          g.ensure()
+          if (!s.hasUnsent && !openIds().includes(noteId)) {
+            const hops = hopsFrom(moved.state, moved.conflicts.filter((c) => c.resolvedAt == null).length)
+            const next: SyncInfo = { ...moved, fileId, baseHeadRevisionId: head, lastError: null, state: (hops.at(-1) ?? moved.state) as SyncInfo['state'] }
+            if (!(await store.commitReceive(noteId, work, remote, next))) continue // it changed meanwhile: look again
+            await log.append('baseAdvanced', { noteId, revisionId: head })
+            let prev: string = moved.state
+            for (const h of hops) {
+              if (h !== prev) await log.append('stateChange', { noteId, from: prev, to: h })
+              prev = h
+            }
+          } else {
+            const r = await d.merge.merge({ noteId, base: s.base, remote })
+            if (r.result === 'conflict') throw new Fail('fatal', undefined, 'conflictPending')
+            if (r.result === 'unsupportedVersion') throw new Fail('unreadable', undefined, 'unsupportedVersion')
+            if (r.result !== 'merged') throw new Fail('fatal', undefined, 'mergeFailed')
+            await log.append('merged', { noteId })
+            await store.updateSync(noteId, (c) => ({ ...c, fileId, baseHeadRevisionId: head, lastError: null }), { base: remote })
+            await log.append('baseAdvanced', { noteId, revisionId: head })
+            await settle(noteId)
+          }
+          bump()
+          return 'ok'
+        }
+        return 'later'
+      } catch (e) {
+        if (e instanceof NoteSaveError) return noteFailed(noteId, new Fail('fatal', undefined, e.message === 'the sync record is unreadable' ? 'syncUnreadable' : 'localWrite'))
+        if (e instanceof Fail) return noteFailed(noteId, e)
+        throw e
+      } finally {
+        unmark([noteId])
+      }
+    })
+  }
+
+  function receiveLocal(g: Guard, noteId: string, fileId: string, head: string): Promise<Result> {
+    if (openIds().includes(noteId)) return receiveNote(g, noteId, fileId, head)
+    return withNoteLock(
+      noteId,
+      () => receiveNote(g, noteId, fileId, head),
+      () => {
+        // Open in another tab: that tab's editor receives it.
+        d.channel?.post({ t: 'remote', noteId, fileId, head })
+        return 'ok'
+      },
+    )
+  }
+
+  // ---- a note that is not here -------------------------------------------
+  /** Downloads the head and stores the note (working = base). */
+  function downloadNew(g: Guard, noteId: string, fileId: string, head: string): Promise<Result> {
+    return withNoteLock(
+      noteId,
+      () =>
+        chained(noteId, async (): Promise<Result> => {
+          const note = await downloadNote(g, noteId, fileId, head)
+          g.ensure()
+          const info: SyncInfo = { ...emptySync(), fileId, baseHeadRevisionId: head, state: 'synced' }
+          await store.commitReceive(noteId, null, note, info) // false: a copy appeared meanwhile, which stays
+          await d.remote.delete(noteId)
+          bump()
+          return 'ok'
+        }),
+      () => 'ok',
+    )
+  }
+
+  async function addRemote(g: Guard, file: DriveFile, noteId: string, head: string): Promise<Result> {
+    const r = listSummaryRule({
+      op: 'read',
+      rootFolderId: g.root,
+      file: {
+        id: file.id,
+        name: file.name,
+        appProperties: file.appProperties,
+        md5Checksum: file.md5Checksum,
+        modifiedTime: file.modifiedTime,
+        parents: file.parents,
+        thumbnailLink: file.thumbnailLink,
+      },
+    }) as { source?: string; card?: { title: string; folderId: string | null; coverId: string | null; modifiedAt: unknown } }
+    if (r.source === 'summary' && r.card && typeof r.card.modifiedAt === 'string') {
+      const card: RemoteCard = {
+        noteId,
+        fileId: file.id,
+        headRevisionId: head,
+        title: r.card.title,
+        folderId: r.card.folderId,
+        coverId: r.card.coverId,
+        modifiedAt: r.card.modifiedAt,
+      }
+      g.ensure()
+      const old = await d.remote.get(noteId)
+      if (old && JSON.stringify(old) === JSON.stringify(card)) return 'ok'
+      await d.remote.put(card)
+      bump()
+      return 'ok'
+    }
+    return downloadNew(g, noteId, file.id, head) // no valid summary: the card is drawn from the content
+  }
+
+  async function dropCard(g: Guard, noteId: string) {
+    g.ensure()
+    if (await d.remote.get(noteId)) {
+      await d.remote.delete(noteId)
+      bump()
+    }
+  }
+
+  // ---- one pass over a list of changes -----------------------------------
+  async function applyAll(g: Guard, changes: DriveChange[]): Promise<boolean> {
+    const local = new Set(await store.listIds())
+    const cards = new Map((await d.remote.list()).map((c) => [c.noteId, c]))
+    g.ensure()
+    const files: { file: DriveFile; noteId: string; head: string }[] = []
+    for (const c of changes) {
+      const f = c.file
+      if (c.removed || !f) {
+        for (const card of cards.values()) if (card.fileId === c.fileId) await dropCard(g, card.noteId)
+        continue
+      }
+      const id = f.appProperties.kkeujeokId
+      if (f.mimeType !== KKJ_MIME || id === undefined || !UUID.test(id)) continue
+      if (f.trashed) {
+        await dropCard(g, id)
+        continue
+      }
+      if (f.headRevisionId) files.push({ file: f, noteId: id, head: f.headRevisionId })
+    }
+    // Badges first: the cards of the notes about to be received show ↓ before any download.
+    const badge: string[] = []
+    for (const { file, noteId, head } of files) {
+      if (local.has(noteId)) {
+        const s = await store.readSync(noteId)
+        if (s.info.fileId === file.id && head !== s.info.baseHeadRevisionId && s.info.state !== 'error' && s.info.pendingVerify === null) {
+          badge.push(noteId)
+          pending.set(noteId, { fileId: file.id, head })
+        }
+      } else if (cards.has(noteId) && cards.get(noteId)!.headRevisionId !== head) badge.push(noteId)
+    }
+    mark(badge)
+    let ok = true
+    try {
+      for (const { file, noteId, head } of files) {
+        g.ensure()
+        let r: Result
+        try {
+          r = local.has(noteId) ? await receiveLocal(g, noteId, file.id, head) : await addRemote(g, file, noteId, head)
+        } catch (e) {
+          if (e instanceof NoteSaveError) e = new Fail('fatal', undefined, 'localWrite')
+          if (!(e instanceof Fail)) throw e
+          await logError(noteId, e)
+          r = TRANSIENT.has(e.cls) ? 'later' : 'ok'
+        } finally {
+          pending.delete(noteId)
+          unmark([noteId])
+        }
+        if (r === 'later') {
+          ok = false
+          break // a failing connection fails the next note too; the token stays and the changes come again
+        }
+      }
+    } finally {
+      for (const f of files) pending.delete(f.noteId)
+      unmark(badge)
+    }
+    return ok
+  }
+
+  // ---- tokens, scan, poll ------------------------------------------------
+  async function deviceFor(g: Guard): Promise<SyncDevice | null> {
+    let dev = await d.device.read()
+    if (dev.sub !== null && dev.sub !== g.sub) return null // Story 3.8 handles another account
+    if (dev.sub === null) {
+      if (!(await d.device.adoptAccount(g.sub, g.email))) {
+        const now = await d.device.read()
+        if (now.sub !== null && now.sub !== g.sub) return null
+        throw new Fail('fatal', undefined, 'deviceUnreadable') // there but unreadable: never overwritten
+      }
+      dev = await d.device.read()
+    }
+    g.ensure()
+    return dev
+  }
+
+  async function saveToken(g: Guard, token: string) {
+    g.ensure()
+    const latest = await d.device.read()
+    if (latest.sub === null) throw new Fail('fatal', undefined, 'deviceUnreadable')
+    if (latest.sub !== g.sub) return
+    g.ensure()
+    try {
+      await d.device.write({ ...latest, pageToken: token })
+    } catch (e) {
+      if (!(e instanceof NoteSaveError)) throw e
+      throw new Fail('fatal', undefined, 'deviceUnreadable')
+    }
+  }
+
+  async function scan(g: Guard, rejected: boolean) {
+    if (rejected) await log.append('pageTokenRejected')
+    set({ scanning: true })
+    try {
+      // The start token comes first: what changes during the scan is listed again later.
+      const start = await call(g, undefined, () => drive.getStartPageToken())
+      const files: DriveFile[] = []
+      let token: string | undefined
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const t = token
+        const p = await call(g, undefined, () =>
+          drive.list(NOTE_FILES_QUERY, { fields: `nextPageToken,files(${CHANGE_FILE_FIELDS})`, pageSize: 1000, ...(t && { pageToken: t }) }),
+        )
+        files.push(...p.files)
+        token = p.nextPageToken
+        if (!token) break
+      }
+      g.ensure()
+      if (await applyAll(g, files.map((f) => ({ fileId: f.id, removed: false, file: f })))) await saveToken(g, start)
+    } finally {
+      set({ scanning: false })
+    }
+  }
+
+  async function poll(g: Guard, saved: string) {
+    let token = saved
+    const changes = new Map<string, DriveChange>()
+    let next: string | undefined
+    try {
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const t = token
+        const r = await call(g, undefined, () => drive.listChanges(t), isRejected)
+        g.ensure()
+        for (const c of r.changes) changes.set(c.fileId, c)
+        if (r.nextPageToken) {
+          token = r.nextPageToken
+          continue
+        }
+        next = r.newStartPageToken
+        break
+      }
+    } catch (e) {
+      if (e instanceof DriveError && isRejected(e)) return scan(g, true)
+      throw e
+    }
+    if (!next) throw new Fail('fatal', undefined, 'noStartToken')
+    if (await applyAll(g, [...changes.values()])) await saveToken(g, next)
+  }
+
+  /** "Start": a note left `syncing` without an upload in progress is received again. */
+  async function recover(g: Guard) {
+    for (const id of await store.listIds()) {
+      g.ensure()
+      const s = await store.readSync(id)
+      const fileId = s.info.fileId
+      if (s.info.state !== 'syncing' || s.info.pendingVerify !== null || fileId === null) continue
+      const head = await call(g, id, () => drive.get(fileId, { fields: 'headRevisionId,trashed' }))
+      if (head.trashed || !head.headRevisionId) continue
+      if (head.headRevisionId === s.info.baseHeadRevisionId) await chained(id, () => settle(id))
+      else await receiveLocal(g, id, fileId, head.headRevisionId)
+    }
+  }
+
+  let flight: Promise<void> | null = null
+  let recovered = false
+
+  async function run() {
+    if (!usable()) return
+    const g = guard()
+    if (!g) return
+    try {
+      const dev = await deviceFor(g)
+      if (!dev || dev.rootFolderId === null) return
+      g.root = dev.rootFolderId
+      if (dev.pageToken === null) await scan(g, false)
+      else await poll(g, dev.pageToken)
+      if (!recovered) {
+        await recover(g)
+        recovered = true
+      }
+    } catch (e) {
+      if (e instanceof Gone) return
+      if (e instanceof NoteSaveError) e = new Fail('fatal', undefined, 'localWrite')
+      if (e instanceof Fail) return logError(undefined, e)
+      throw e
+    }
+  }
+
+  const api = {
+    getState: () => state,
+    subscribe(fn: () => void) {
+      listeners.add(fn)
+      return () => void listeners.delete(fn)
+    },
+
+    /** Asks Drive what changed: at once on load / tab visible, then by timer. One run at a time. */
+    check(): Promise<void> {
+      flight ??= run().finally(() => void (flight = null))
+      return flight
+    },
+
+    /**
+     * Before the editor opens: a card is downloaded, a note flagged receiving is received. Offline or a
+     * failed receive of a local note leaves the device copy; a failed card download rejects.
+     */
+    async beforeOpen(noteId: string): Promise<void> {
+      if (!usable()) return
+      const g = guard()
+      if (!g) return
+      try {
+        const card = await d.remote.get(noteId)
+        if (card) {
+          const f = await call(g, noteId, () => drive.get(card.fileId, { fields: 'headRevisionId,trashed' }))
+          if (f.trashed || !f.headRevisionId) {
+            await dropCard(g, noteId)
+            throw new Fail('deleted', 404, 'trashed')
+          }
+          await downloadNew(g, noteId, card.fileId, f.headRevisionId)
+          return
+        }
+        const p = pending.get(noteId)
+        if (p) await receiveLocal(g, noteId, p.fileId, p.head)
+      } catch (e) {
+        if (e instanceof Gone) return
+        if (e instanceof Fail) await logError(noteId, e)
+        if (e instanceof NoteSaveError) throw new Fail('fatal', undefined, 'localWrite')
+        throw e
+      }
+    },
+
+    /** The editor of `noteId` is shown: its remote head is checked and received through the editor when it differs. */
+    async noteOpened(noteId: string): Promise<void> {
+      if (!usable()) return
+      const g = guard()
+      if (!g) return
+      try {
+        const s = await store.readSync(noteId)
+        const fileId = s.info.fileId
+        if (fileId === null) return
+        const f = await call(g, noteId, () => drive.get(fileId, { fields: 'headRevisionId,trashed' }))
+        g.ensure()
+        if (f.trashed || !f.headRevisionId || f.headRevisionId === s.info.baseHeadRevisionId) return
+        await receiveNote(g, noteId, fileId, f.headRevisionId)
+      } catch (e) {
+        if (e instanceof Gone) return
+        if (e instanceof Fail) return logError(noteId, e)
+        if (e instanceof NoteSaveError) return logError(noteId, new Fail('fatal', undefined, 'localWrite'))
+        throw e
+      }
+    },
+
+    /** A message of another tab: a change to refresh, or a note open here that it could not receive. */
+    async onMessage(m: unknown): Promise<void> {
+      const msg = m as { t?: unknown; noteId?: unknown; fileId?: unknown; head?: unknown } | null
+      if (msg?.t === 'changed') return bump(false)
+      if (msg?.t !== 'remote' || typeof msg.noteId !== 'string' || typeof msg.fileId !== 'string' || typeof msg.head !== 'string') return
+      if (!openIds().includes(msg.noteId) || !usable()) return
+      const g = guard()
+      if (!g) return
+      try {
+        await receiveNote(g, msg.noteId, msg.fileId, msg.head)
+      } catch (e) {
+        if (!(e instanceof Gone)) throw e
+      }
+    },
+  }
+  const unsubscribe = d.channel?.subscribe((m) => void api.onMessage(m).catch(() => {}))
+  return { ...api, dispose: () => unsubscribe?.() }
+}

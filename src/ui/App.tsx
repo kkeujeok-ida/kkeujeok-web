@@ -8,6 +8,8 @@ import { NoteEditor, parseNoteRoute } from './library/NoteEditor'
 import { auth as defaultAuth, type Auth } from '../drive/auth'
 import { defaultRootFolder, type RootFolderStore } from '../drive/rootFolderStore'
 import type { UploadCoordinator } from '../sync/uploadCoordinator'
+import type { NoteReceiver } from '../sync/noteReceiver'
+import { defaultReceiver, useReceiveTriggers } from '../sync/receiveWiring'
 import { defaultUploadCoordinator, useUploadTriggers } from '../sync/uploadWiring'
 
 export const SIDEBAR_EXPANDED_MIN_WIDTH = 840
@@ -36,13 +38,13 @@ function useHash(): string {
 }
 
 // No router library: the path alone picks the static policy page or the shell.
-export function App({ auth = defaultAuth, root, uploads }: { auth?: Auth; root?: RootFolderStore; uploads?: UploadCoordinator }) {
+export function App({ auth = defaultAuth, root, uploads, receiver }: { auth?: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver }) {
   const { token, notice } = useSyncExternalStore(auth.subscribe, auth.getState, auth.getState)
   if (isPrivacyPath(globalThis.location?.pathname ?? '/')) return <PrivacyPolicy />
-  return token ? <Shell auth={auth} root={root} uploads={uploads} /> : <SignIn auth={auth} notice={notice} />
+  return token ? <Shell auth={auth} root={root} uploads={uploads} receiver={receiver} /> : <SignIn auth={auth} notice={notice} />
 }
 
-function Shell({ auth, root: rootProp, uploads: uploadsProp }: { auth: Auth; root?: RootFolderStore; uploads?: UploadCoordinator }) {
+function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverProp }: { auth: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver }) {
   const root = useMemo(() => rootProp ?? defaultRootFolder(auth), [rootProp, auth])
   // Uploads run on the real Drive only with the default root; a given root (tests) needs a given coordinator.
   const uploads = useMemo(
@@ -50,6 +52,12 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp }: { auth: Auth; roo
     [uploadsProp, rootProp, auth, root],
   )
   useUploadTriggers(uploads, root)
+  // Same rule for receiving remote changes (Story 3.14).
+  const receiver = useMemo(
+    () => receiverProp ?? (rootProp ? undefined : defaultReceiver(auth, root)),
+    [receiverProp, rootProp, auth, root],
+  )
+  useReceiveTriggers(receiver, root)
   const { t } = useI18n()
   const expanded = useSidebarExpanded()
   const noteId = parseNoteRoute(useHash())
@@ -92,9 +100,9 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp }: { auth: Auth; roo
         {settingsOpen ? (
           <Settings auth={auth} onClose={() => setSettingsOpen(false)} />
         ) : noteId ? (
-          <NoteEditor key={noteId} noteId={noteId} uploads={uploads} />
+          <NoteEditor key={noteId} noteId={noteId} uploads={uploads} receiver={receiver} />
         ) : (
-          <Library root={root} signOut={auth.signOut} />
+          <Library root={root} signOut={auth.signOut} receiver={receiver} />
         )}
       </main>
     </div>
