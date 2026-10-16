@@ -30,6 +30,14 @@ const DETAIL_KEY: Record<DisplayLabel, Key> = {
   notSaved: 'sync.detail.notSaved',
 }
 
+const NOT_SAVED_DETAIL: Record<string, Key> = {
+  quota: 'sync.detail.quota',
+  reauth: 'sync.detail.reauth',
+  deleted: 'sync.detail.deleted',
+  newVersion: 'sync.detail.newVersion',
+  unreadable: 'sync.detail.unreadable',
+}
+
 const PATH: Record<DisplayLabel, string> = {
   saved: 'M3 8.5l3 3 7-7',
   pending: 'M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM8 4.5V8l2.5 1.5',
@@ -152,7 +160,7 @@ function Indicator({ noteId, sync }: { noteId: string; sync: NonNullable<NoteSyn
 
   const name = fmt(t('sync.indicator.name'), { label: text(label) })
   const detailKey: Key =
-    label === 'notSaved' ? (sync.reason === 'quota' ? 'sync.detail.quota' : sync.reason === 'reauth' ? 'sync.detail.reauth' : 'sync.detail.notSaved') : DETAIL_KEY[label]
+    label === 'notSaved' ? NOT_SAVED_DETAIL[sync.reason ?? 'other'] ?? 'sync.detail.notSaved' : DETAIL_KEY[label]
   return (
     <div className="sync-indicator">
       <button

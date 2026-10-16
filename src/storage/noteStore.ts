@@ -28,7 +28,7 @@ export const SYNC_UNREADABLE = 'the sync record is unreadable'
 export type WriteTx = IDBPTransaction<unknown, string[], 'readwrite'>
 
 /** What `readSync` knows about one note's sync records. */
-export type SyncRead = { info: SyncInfo; base: Note | null; hasUnsent: boolean; state: SyncState }
+export type SyncRead = { info: SyncInfo; base: Note | null; hasUnsent: boolean; state: SyncState; /** There is no note here at all (no working copy, no record). */ missing?: true }
 
 export type NoteStore = {
   /** Rejects with NoteSaveError for every failure. Never touches `note`. Writes `notes` only. */
@@ -54,6 +54,11 @@ export type NoteStore = {
    * copy. `change` gets the record read under the note's lock. Returns what was committed.
    */
   updateSync(noteId: string, change: (cur: SyncInfo) => SyncInfo, opts?: { base?: Note }): Promise<SyncInfo>
+  /**
+   * Deletes the note's three records (Story 3.18: deleted in Drive, nothing unsent), only while the
+   * stored working copy still is `expected`. False, nothing deleted, when it moved or is gone.
+   */
+  removeNote(noteId: string, expected: Note): Promise<boolean>
   /** Forgets the Drive file: pending, no fileId/base/pendingVerify/session/intent/error. */
   resetSync(noteId: string): Promise<void>
   /** Never throws. */
@@ -286,6 +291,30 @@ export function openNoteStore(
       return done
     },
 
+    async removeNote(noteId, expected) {
+      const done = await locked(noteId, () =>
+        wrapSave(async () => {
+          const [oldWorking, oldBase, oldSync] = await readRaw(noteId)
+          if (oldWorking === undefined) return false
+          const cur = (await decodeRecord(noteId, oldWorking)).note
+          if (!cur || JSON.stringify(cur) !== JSON.stringify(expected)) return false
+          try {
+            await apply(
+              [NOTES_STORE, BASE_STORE, SYNC_STORE],
+              [[NOTES_STORE, noteId, oldWorking], [BASE_STORE, noteId, oldBase], [SYNC_STORE, noteId, oldSync]],
+              [[NOTES_STORE, noteId, DEL], [BASE_STORE, noteId, DEL], [SYNC_STORE, noteId, DEL]],
+            )
+          } catch (e) {
+            if (e instanceof NoteSaveError && e.message === 'record changed while saving') return false
+            throw e
+          }
+          return true
+        }),
+      )
+      if (done) await notify(noteId)
+      return done
+    },
+
     async updateSync(noteId, change, o = {}) {
       const committed = await locked(noteId, () =>
         wrapSave(async () => {
@@ -355,6 +384,7 @@ export function openNoteStore(
       return locked(noteId, async () => {
         try {
           const [workingRaw, baseRaw, syncRaw] = await readRaw(noteId)
+          if (workingRaw === undefined && syncRaw === undefined) return { ...none, missing: true } satisfies SyncRead
           const info = syncFromJson(syncRaw) ?? emptySync() // unreadable = absent, nothing deleted
           const id = info.baseHeadRevisionId
           const base = id === null ? null : ((await decodeRecord(noteId, baseRaw)).note ?? null)

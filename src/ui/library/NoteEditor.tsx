@@ -11,6 +11,7 @@ import { registerOpenNote } from '../../sync/openNotes'
 import type { NoteReceiver } from '../../sync/noteReceiver'
 import type { UploadCoordinator } from '../../sync/uploadCoordinator'
 import { Banner } from '../sync/Banner'
+import { useNoteIssue } from '../sync/syncUi'
 import { SyncIndicator } from '../sync/SyncIndicator'
 import { PenPopover } from './PenPopover'
 import { PenToolbar } from './PenToolbar'
@@ -62,7 +63,8 @@ const releasing = new Map<string, Promise<void>>()
 // Editors mounted in this tab: a remount (StrictMode, fast leave and reopen) is not a close.
 const mountedNotes = new Set<string>()
 
-type Loaded = { title: string; writer: Writer; readOnly: boolean }
+/** `readOnly`: another tab holds the note. `newer`: its Drive file is of a newer format (Story 3.18). */
+type Loaded = { title: string; writer: Writer; readOnly: boolean; newer: boolean }
 
 /**
  * The writing screen: the page on a canvas, the pen toolbar and the top-left
@@ -81,7 +83,7 @@ export function NoteEditor({
   /** Told when the note is closed, after its last save and its lock are released (Story 3.12). */
   uploads?: Pick<UploadCoordinator, 'noteClosed'>
   /** Receives remote changes before the editor opens and checks the remote head after (Story 3.14). */
-  receiver?: Pick<NoteReceiver, 'beforeOpen' | 'noteOpened'>
+  receiver?: Pick<NoteReceiver, 'beforeOpen' | 'noteOpened'> & Partial<Pick<NoteReceiver, 'noteClosed'>>
 }) {
   const { t } = useI18n()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -126,6 +128,9 @@ export function NoteEditor({
       try {
         await savesSettled(3000)
         const r = live ? await store.loadNote(noteId) : null
+        // A newer-format remote file was found earlier: the note opens read-only from the first frame.
+        const err = live ? await store.readSync(noteId).then((s) => s.info.lastError, () => null) : null
+        const newer = err?.class === 'unreadable' && err.reason === 'unsupportedVersion'
         if (live) {
           const note = r?.result === 'ok' ? r.note : undefined
           const title: unknown = note?.meta?.title
@@ -144,7 +149,7 @@ export function NoteEditor({
               detectEditedBy,
               () => live && setRevision((n) => n + 1),
             )
-            w.readOnly = readOnly
+            w.readOnly = readOnly || newer
             // The toolbar and the gap are measured when the view is laid out.
             w.insets = () => {
               // The token may be rem: measure it as a length instead of reading its text.
@@ -168,7 +173,7 @@ export function NoteEditor({
                   current: () => w.history.note,
                   applyMerge: (a) => w.applyMerge(a),
                 })
-            return { title, writer: w, readOnly }
+            return { title, writer: w, readOnly, newer }
           }
         }
       } catch {
@@ -232,6 +237,10 @@ export function NoteEditor({
         .then(() => lockP)
         .then((l) => l.release())
         .catch(() => {})
+        .then(async () => {
+          // A note Drive deleted is removed now (nothing unsent) or restored (something unsent), once it is not open.
+          if (!mountedNotes.has(noteId)) await receiver?.noteClosed?.(noteId).catch(() => {})
+        })
         .then(() => {
           // The last save is on disk and the lock is free: the closing upload may read the note.
           unregister()
@@ -264,7 +273,13 @@ export function NoteEditor({
     return () => clearTimeout(id)
   }, [message])
 
-  const readOnly = loaded?.readOnly ?? false
+  // The Drive file turned out to be of a newer format while the note is open: read-only from now on.
+  const issue = useNoteIssue(noteId)
+  const newer = issue?.kind === 'newVersion' || loaded?.newer === true
+  useEffect(() => {
+    if (newer && loaded) loaded.writer.readOnly = true
+  }, [newer, loaded])
+  const readOnly = (loaded?.readOnly ?? false) || newer
   // Read-only began while the popover was open: close it.
   useEffect(() => {
     if (readOnly) setPopover(null)
@@ -460,7 +475,7 @@ export function NoteEditor({
 
   return (
     <section ref={section} className="editor" aria-label={loaded?.title} aria-busy={!loaded}>
-      <Banner otherTab={loaded?.readOnly === true} />
+      <Banner otherTab={loaded?.readOnly === true} noteId={noteId} onClose={() => (loaded ? onBack() : goToLibrary())} />
       {!loaded && (
         <p role="status" className="cover-date">
           {t(slow ? 'sync.receivingLatest' : 'library.loading')}
@@ -481,9 +496,9 @@ export function NoteEditor({
               ref={toolbar}
               pens={pens}
               selected={selected}
-              onSelect={(i) => !loaded.readOnly && setSelected(i)}
+              onSelect={(i) => !readOnly && setSelected(i)}
               onEdit={(i) => {
-                if (loaded.readOnly || loaded.writer.busy()) return
+                if (readOnly || loaded.writer.busy()) return
                 setPens(penStore.read()) // another tab may have changed it
                 setPopover(i)
               }}
@@ -491,7 +506,7 @@ export function NoteEditor({
               canRedo={loaded.writer.canRedo}
               onUndo={() => loaded.writer.undo()}
               onRedo={() => loaded.writer.redo()}
-              readOnly={loaded.readOnly}
+              readOnly={readOnly}
             />
             <div
               className="editor-more"
@@ -591,7 +606,7 @@ export function NoteEditor({
           <div role="status" aria-live="polite" className="sr-only">
             {announce}
           </div>
-          {popover !== null && !loaded.readOnly && pens[popover] && (
+          {popover !== null && !readOnly && pens[popover] && (
             <PenPopover
               pen={pens[popover]}
               anchor={toolbar.current?.querySelector<HTMLElement>(`[data-slot="${popover}"]`) ?? null}

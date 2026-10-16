@@ -38,7 +38,7 @@ export const MAX_THUMBNAIL_BYTES = 2_097_152
 const KKJ_MIME = 'application/vnd.kkeujeok.kkj'
 const LAST_RESORT_TIME = '9999-12-31T23:59:59.999Z'
 
-type Failure = { cls: string; status?: number; reason?: string; clearVerify?: boolean }
+type Failure = { cls: string; status?: number; reason?: string; clearVerify?: boolean; /** The remote head that could not be read. */ head?: string }
 class UploadFailure extends Error {
   constructor(readonly f: Failure) {
     super(`UploadFailure(${f.cls}, ${f.reason ?? ''})`)
@@ -157,7 +157,12 @@ export function createNoteUploader(d: UploaderDeps) {
         (c) => ({
           ...c,
           pendingVerify: f.clearVerify ? null : c.pendingVerify,
-          lastError: { class: f.cls, ...(f.status !== undefined && { status: f.status }), ...(f.reason !== undefined && { reason: f.reason }) },
+          lastError: {
+            class: f.cls,
+            ...(f.status !== undefined && { status: f.status }),
+            ...(f.reason !== undefined && { reason: f.reason }),
+            ...(f.cls === 'unreadable' && f.head !== undefined && { head: f.head }),
+          },
         }),
         { event: 'failed' },
       )
@@ -207,7 +212,7 @@ export function createNoteUploader(d: UploaderDeps) {
     await log.append('revisionDownloaded', { noteId, revisionId: revision })
     const r = await decodeKkj(bytes)
     if (!r.note || r.note.noteId !== noteId) {
-      throw failure('unreadable', { reason: r.result === 'unsupportedVersion' ? 'unsupportedVersion' : 'parse' })
+      throw failure('unreadable', { reason: r.result === 'unsupportedVersion' ? 'unsupportedVersion' : 'parse', head: revision })
     }
     return r.note
   }
@@ -233,7 +238,7 @@ export function createNoteUploader(d: UploaderDeps) {
       }) as { keep: string }
     ).keep
 
-  async function mergeInto(noteId: string, base: Note | null, remote: Note): Promise<void> {
+  async function mergeInto(noteId: string, base: Note | null, remote: Note, head?: string): Promise<void> {
     const r = await d.merge.merge({ noteId, base, remote })
     switch (r.result) {
       case 'merged':
@@ -242,7 +247,7 @@ export function createNoteUploader(d: UploaderDeps) {
       case 'conflict':
         throw failure('fatal', { reason: 'conflictPending', clearVerify: true })
       case 'unsupportedVersion':
-        throw failure('unreadable', { reason: 'unsupportedVersion', clearVerify: true })
+        throw failure('unreadable', { reason: 'unsupportedVersion', clearVerify: true, ...(head !== undefined && { head }) })
       default:
         throw failure('fatal', { reason: 'mergeFailed', clearVerify: true })
     }
@@ -339,7 +344,7 @@ export function createNoteUploader(d: UploaderDeps) {
                   pendingVerify: { parentRevisionId: p, oursRevisionId: head, round: 1 },
                 }))
               } else {
-                await mergeInto(noteId, baseNote, remote)
+                await mergeInto(noteId, baseNote, remote, head)
               }
             } else if (baseNote) {
               // Head == base: the merge still gives a page changed here its lineage.

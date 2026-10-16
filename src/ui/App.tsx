@@ -12,6 +12,7 @@ import type { UploadCoordinator } from '../sync/uploadCoordinator'
 import type { NoteReceiver } from '../sync/noteReceiver'
 import { defaultReceiver, useReceiveTriggers } from '../sync/receiveWiring'
 import { defaultUploadCoordinator, useUploadTriggers } from '../sync/uploadWiring'
+import { ReviveSnackbar } from './sync/ReviveSnackbar'
 import { SyncUiProvider } from './sync/syncUi'
 
 export const SIDEBAR_EXPANDED_MIN_WIDTH = 840
@@ -118,6 +119,7 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
         )}
       </main>
     </div>
+    <ReviveSnackbar />
     </SyncUiProvider>
   )
 }

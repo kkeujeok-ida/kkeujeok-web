@@ -15,6 +15,7 @@ import { detectEditedBy } from '../ui/library/useLibrary'
 import { createMergeIo } from './mergeIo'
 import { type Channel, type NoteReceiver, createNoteReceiver } from './noteReceiver'
 import { syncLog } from './syncLog'
+import { defaultUploadCoordinator } from './uploadWiring'
 
 export const POLL_MS = 20_000
 /** Visibility and connection kicks closer than this to the last one are skipped. */
@@ -62,6 +63,8 @@ export function defaultReceiver(auth: Auth, root: RootFolderStore): NoteReceiver
       sleep: (ms) => new Promise((res) => setTimeout(res, ms)),
       jitter: Math.random,
       channel: browserChannel(),
+      // A note restored because it had unsent changes goes to Drive now (Story 3.18).
+      uploadNote: (noteId) => defaultUploadCoordinator(auth, root).noteClosed(noteId),
     })
     receivers.set(root, r)
   }

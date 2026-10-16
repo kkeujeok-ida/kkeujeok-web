@@ -13,7 +13,12 @@ import { defaultUnsentStore } from '../../sync/unsent'
 import type { UploadCoordinator } from '../../sync/uploadCoordinator'
 import { pickBanner, type BannerKind } from './bannerPriority'
 
-type ReceiverLike = { subscribe(fn: () => void): () => void; getState(): { receiving: ReadonlySet<string> } }
+type ReceiverLike = {
+  subscribe(fn: () => void): () => void
+  getState(): { receiving: ReadonlySet<string>; revived?: number }
+  /** [다시 살리기] of the deleted banner. */
+  revive?(noteId: string): Promise<void>
+}
 type AuthLike = Pick<Auth, 'getState' | 'subscribe'> & Partial<Pick<Auth, 'reauth'>>
 
 export type SyncUi = {
@@ -23,6 +28,8 @@ export type SyncUi = {
   receiver: ReceiverLike | undefined
   uploads: Partial<Pick<UploadCoordinator, 'syncNow'>> | undefined
   exportLog: () => Promise<{ name: string; text: string }>
+  /** [다시 살리기] of the deleted banner: the file is back on Drive and the note goes up now. */
+  revive: (noteId: string) => Promise<void>
   /** [다시 로그인]; one at a time. */
   reauth: () => void
   reauthBusy: boolean
@@ -35,7 +42,7 @@ const EMPTY_SNAP = { version: 0, loaded: false, notes: new Map<string, NoteSyncV
 const NO_STATUS = { getSnapshot: () => EMPTY_SNAP, subscribe: () => () => {} }
 const ONLINE = { offline: false }
 const NO_NET = { getState: () => ONLINE, subscribe: () => () => {} }
-const NO_RECEIVE = { version: 0, receiving: new Set<string>(), scanning: false }
+const NO_RECEIVE = { version: 0, receiving: new Set<string>(), scanning: false, revived: 0 }
 const NO_RECEIVER = { subscribe: () => () => {}, getState: () => NO_RECEIVE }
 const NO_AUTH = { getState: () => ({ expired: false }), subscribe: () => () => {} } as unknown as AuthLike
 // Test stand-ins of Auth may not have `expired`.
@@ -118,6 +125,10 @@ export function SyncUiProvider({
       uploads,
       exportLog,
       reauthBusy,
+      async revive(noteId) {
+        await receiver?.revive?.(noteId)
+        await uploads?.syncNow?.(noteId)
+      },
       reauth() {
         if (flight.current || !auth.reauth) return
         flight.current = true
@@ -148,7 +159,7 @@ export function SyncUiProvider({
 export type NoteSyncDisplay = {
   label: DisplayLabel
   /** Why a `notSaved` note is not saved, for the popover. */
-  reason: 'quota' | 'reauth' | 'other' | null
+  reason: 'quota' | 'reauth' | 'deleted' | 'unreadable' | 'newVersion' | 'other' | null
 } | null
 
 /** The label of one note, or null while nothing is known about it. */
@@ -169,12 +180,44 @@ export function useNoteSync(noteId: string): NoteSyncDisplay {
   const r = displayRule({ state, cause: receiving ? 'remote' : 'upload', platform: 'web', online: true })
   const label: DisplayLabel = 'label' in r ? r.label : 'pending'
   const cls = view?.lastError?.class
-  const reason = label !== 'notSaved' ? null : cls === 'quota' ? 'quota' : cls === 'reauth' || expired ? 'reauth' : 'other'
+  const reason =
+    label !== 'notSaved'
+      ? null
+      : cls === 'quota'
+        ? 'quota'
+        : cls === 'reauth' || expired
+          ? 'reauth'
+          : cls === 'deleted'
+            ? 'deleted'
+            : cls === 'unreadable'
+              ? view?.lastError?.reason === 'unsupportedVersion'
+                ? 'newVersion'
+                : 'unreadable'
+              : 'other'
   return { label, reason }
 }
 
-/** The one banner to show now (the editor says whether another tab holds the note). */
-export function useBannerKind(otherTab: boolean): BannerKind | null {
+/** What Drive did to a note that the screens must say (Story 3.18); null for a note that is fine. */
+export type NoteIssue = { kind: 'deleted' | 'newVersion' | 'unreadable'; fileId: string | null; hasUnsent: boolean }
+
+export function issueOf(v: NoteSyncView | undefined): NoteIssue | null {
+  const e = v?.lastError
+  if (!v || !e) return null
+  const base = { fileId: v.fileId ?? null, hasUnsent: v.hasUnsent }
+  if (e.class === 'deleted') return { kind: 'deleted', ...base }
+  if (e.class === 'unreadable') return { kind: e.reason === 'unsupportedVersion' ? 'newVersion' : 'unreadable', ...base }
+  return null
+}
+
+/** The issue of one note, from the sync records the status store keeps. */
+export function useNoteIssue(noteId: string): NoteIssue | null {
+  const st = useSyncUi()?.status ?? NO_STATUS
+  const snap = useSyncExternalStore(st.subscribe, st.getSnapshot, st.getSnapshot)
+  return issueOf(snap.notes.get(noteId))
+}
+
+/** The one banner to show now (the editor says whether another tab holds the note, and which note it shows). */
+export function useBannerKind(otherTab: boolean, noteId?: string): BannerKind | null {
   const ui = useSyncUi()
   const st = ui?.status ?? NO_STATUS
   const snap = useSyncExternalStore(st.subscribe, st.getSnapshot, st.getSnapshot)
@@ -183,7 +226,15 @@ export function useBannerKind(otherTab: boolean): BannerKind | null {
   const a = ui?.auth ?? NO_AUTH
   const expired = useSyncExternalStore(a.subscribe, () => expiredOf(a), () => false)
   const failed = (cls: string) => [...snap.notes.values()].some((v) => v.state === 'error' && v.lastError?.class === cls)
-  return pickBanner({ otherTab, reauth: expired || failed('reauth'), quota: failed('quota'), offline })
+  const issue = noteId === undefined ? null : issueOf(snap.notes.get(noteId))
+  return pickBanner({
+    otherTab,
+    deleted: issue?.kind === 'deleted',
+    newVersion: issue?.kind === 'newVersion',
+    reauth: expired || failed('reauth'),
+    quota: failed('quota'),
+    offline,
+  })
 }
 
 /** The connection is down: library cards cannot be opened (the open note keeps working). */

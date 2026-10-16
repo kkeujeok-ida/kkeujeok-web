@@ -440,6 +440,16 @@ h1 {
   cursor: default;
 }
 
+/* "열 수 없음": disabled in look, but it opens the sheet. */
+.cover-card-blocked {
+  cursor: pointer;
+}
+
+/* Above the writing screen's own snackbar. */
+.revive-snackbar {
+  bottom: calc(var(--spacing-5) * 3);
+}
+
 .cover-status {
   display: flex;
   flex-direction: column;

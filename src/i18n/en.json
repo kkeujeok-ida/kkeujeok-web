@@ -132,5 +132,20 @@
   "sync.manageStorage": "Manage Drive storage",
   "banner.offline": "You're offline. Your changes are kept in this browser.",
   "banner.reauth": "Your sign-in expired. Your changes are kept in this browser.",
-  "banner.quota": "Drive storage is full. Your changes are kept in this browser."
+  "banner.quota": "Drive storage is full. Your changes are kept in this browser.",
+  "banner.deleted": "This note was deleted on another device.",
+  "banner.deleted.revive": "Restore",
+  "banner.deleted.close": "Close",
+  "banner.newVersion": "This note was made in a newer version. Update the app to edit it.",
+  "sync.revived": "This note was deleted on another device but had unsent changes, so it was restored.",
+  "sync.detail.deleted": "This note was deleted on another device. The copy in this browser is kept.",
+  "sync.detail.newVersion": "This note was made in a newer version, so it is read-only here.",
+  "sync.detail.unreadable": "The note file in Drive can't be read. The file was left as it is.",
+  "cannotOpen.label": "Note that can't be opened",
+  "cannotOpen.body": "This note file can't be read. The file was left as it is.",
+  "cannotOpen.unsent": "Your unsent changes are still kept in this browser.",
+  "cannotOpen.openDrive": "View in Drive",
+  "cannotOpen.exportFile": "Download as file",
+  "cannotOpen.exportFailed": "Could not download the file. Please try again",
+  "dialog.close": "Close"
 }

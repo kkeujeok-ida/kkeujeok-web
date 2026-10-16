@@ -132,5 +132,20 @@
   "sync.manageStorage": "Drive 공간 관리",
   "banner.offline": "연결이 끊겼어요. 변경은 이 브라우저에 보관 중이에요.",
   "banner.reauth": "로그인이 만료됐어요. 변경은 이 브라우저에 보관 중이에요.",
-  "banner.quota": "Drive 저장 공간이 부족해요. 변경은 이 브라우저에 보관 중이에요."
+  "banner.quota": "Drive 저장 공간이 부족해요. 변경은 이 브라우저에 보관 중이에요.",
+  "banner.deleted": "다른 기기에서 지운 노트예요.",
+  "banner.deleted.revive": "다시 살리기",
+  "banner.deleted.close": "닫기",
+  "banner.newVersion": "새 버전에서 만든 노트예요. 앱을 업데이트하면 편집할 수 있어요.",
+  "sync.revived": "다른 기기에서 지운 노트에 보내지 않은 변경이 있어 되살렸어요.",
+  "sync.detail.deleted": "다른 기기에서 지운 노트예요. 이 기기의 사본은 그대로 있어요.",
+  "sync.detail.newVersion": "새 버전에서 만든 노트라서 여기서는 읽기만 돼요.",
+  "sync.detail.unreadable": "Drive의 노트 파일을 읽을 수 없어요. 파일은 그대로 두었어요.",
+  "cannotOpen.label": "열 수 없는 노트",
+  "cannotOpen.body": "이 노트 파일을 읽을 수 없어요. 파일은 그대로 두었어요.",
+  "cannotOpen.unsent": "보내지 않은 변경은 이 기기에 그대로 있어요.",
+  "cannotOpen.openDrive": "Drive에서 보기",
+  "cannotOpen.exportFile": "파일로 내려받기",
+  "cannotOpen.exportFailed": "파일을 내려받지 못했어요. 다시 시도해 주세요",
+  "dialog.close": "닫기"
 }

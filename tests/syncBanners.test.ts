@@ -8,17 +8,17 @@ import { BANNER_ORDER, pickBanner } from '../src/ui/sync/bannerPriority'
 
 describe('pickBanner', () => {
   test('the order is the UX rule', () => {
-    expect([...BANNER_ORDER]).toEqual(['conflictReadOnly', 'otherTab', 'reauth', 'quota', 'offline'])
+    expect([...BANNER_ORDER]).toEqual(['conflictReadOnly', 'otherTab', 'deleted', 'newVersion', 'reauth', 'quota', 'offline'])
   })
   test('with everything on, one at a time; as each ends the next shows', () => {
-    const on = { conflictReadOnly: true, otherTab: true, reauth: true, quota: true, offline: true }
+    const on = { conflictReadOnly: true, otherTab: true, deleted: true, newVersion: true, reauth: true, quota: true, offline: true }
     const seen: unknown[] = []
     for (const k of BANNER_ORDER) {
       seen.push(pickBanner(on))
       on[k] = false
     }
     seen.push(pickBanner(on))
-    expect(seen).toEqual(['conflictReadOnly', 'otherTab', 'reauth', 'quota', 'offline', null])
+    expect(seen).toEqual(['conflictReadOnly', 'otherTab', 'deleted', 'newVersion', 'reauth', 'quota', 'offline', null])
   })
   test('lower states show alone, and nothing or bad input is no banner', () => {
     expect(pickBanner({ offline: true })).toBe('offline')

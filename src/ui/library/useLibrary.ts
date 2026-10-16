@@ -2,6 +2,7 @@
 // through createNote (ops) and noteStore.writeNote.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { newId } from '../../model/ids'
+import { encodeKkj } from '../../model/kkjCodec'
 import type { Note, Page } from '../../model/note'
 import { createNote } from '../../ops/ops'
 import type { Background, NewNoteDefaults, Orientation } from '../../storage/newNoteDefaults'
@@ -13,7 +14,15 @@ import type { NoteReceiver } from '../../sync/noteReceiver'
  * `title` is null for a note this client cannot open. `editedMs` is null when
  * no valid date. `page` is the first page, for the card thumbnail.
  */
-export type LibraryItem = { noteId: string; title: string | null; editedMs: number | null; page?: Page; remote?: true }
+export type LibraryItem = {
+  noteId: string
+  title: string | null
+  editedMs: number | null
+  page?: Page
+  remote?: true
+  /** A remote-only note whose file was downloaded and cannot be read or is of a newer format (Story 3.18). */
+  blocked?: { reason: 'unreadable' | 'unsupportedVersion'; fileId: string }
+}
 type Entry = Awaited<ReturnType<NoteStore['listNotes']>>[number]
 
 /** The newest page `editedAt` as epoch ms; unusable values are skipped. */
@@ -115,7 +124,13 @@ export function useLibrary(
       const here = new Set(list.map((e) => e.noteId))
       const remote: LibraryItem[] = cards
         .filter((c) => !here.has(c.noteId))
-        .map((c) => ({ noteId: c.noteId, title: c.title, editedMs: Date.parse(c.modifiedAt) || null, remote: true }))
+        .map((c) => ({
+          noteId: c.noteId,
+          title: c.title,
+          editedMs: Date.parse(c.modifiedAt) || null,
+          remote: true as const,
+          ...(c.blocked && { blocked: { reason: c.blocked, fileId: c.fileId } }),
+        }))
       setState({ status: 'ready', items: sortItems([...list.map(toItem), ...remote]), failed: false })
     } catch {
       if (mine !== seq.current || storeRef.current !== s) return
@@ -179,5 +194,14 @@ export function useLibrary(
     [defaults, editedBy],
   )
 
-  return { status: state.status, items: state.items, failed: state.failed, reload: load, create }
+  /** The device copy of a note as `.kkj` bytes, for [파일로 내려받기] of the "열 수 없음" sheet. */
+  const exportCopy = useCallback(async (noteId: string): Promise<{ name: string; bytes: Uint8Array }> => {
+    const s = storeRef.current
+    if (!s) throw new Error('library not ready')
+    const r = await s.loadNote(noteId)
+    if (r?.result !== 'ok' || !r.note) throw new Error('no readable copy')
+    return { name: `${r.note.meta.title}-${noteId.slice(0, 8)}.kkj`, bytes: await encodeKkj(r.note) }
+  }, [])
+
+  return { status: state.status, items: state.items, failed: state.failed, reload: load, create, exportCopy }
 }

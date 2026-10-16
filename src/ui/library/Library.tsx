@@ -10,8 +10,10 @@ import type { RootFolderStore, RootState } from '../../drive/rootFolderStore'
 import { MissingRootDialog } from '../MissingRootDialog'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
 import { Banner } from '../sync/Banner'
+import { CannotOpenSheet } from '../sync/CannotOpenSheet'
+import { downloadBlob } from '../download'
 import { SyncBadge, useCardStatus, BADGE_KEY } from '../sync/SyncIndicator'
-import { useOffline } from '../sync/syncUi'
+import { useNoteIssue, useOffline } from '../sync/syncUi'
 import { LibraryFab } from './LibraryFab'
 import { NewNoteDialog } from './NewNoteDialog'
 import { noteHref } from './NoteEditor'
@@ -34,7 +36,7 @@ type Props = {
   receiver?: Pick<NoteReceiver, 'subscribe' | 'getState'>
 }
 
-const NO_RECEIVE: ReceiveState = { version: 0, receiving: new Set(), scanning: false }
+const NO_RECEIVE: ReceiveState = { version: 0, receiving: new Set(), scanning: false, revived: 0 }
 const NO_RECEIVER = { subscribe: () => () => {}, getState: () => NO_RECEIVE }
 /** The scan placeholder shows only when the scan takes longer than this. */
 export const SCAN_PLACEHOLDER_MS = 1000
@@ -217,7 +219,18 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           </li>
         )}
         {items.map((item) => (
-          <Card key={item.noteId} item={item} locale={locale} blocked={() => entering.current} receiving={receive.receiving.has(item.noteId)} offline={offline} />
+          <Card
+            key={item.noteId}
+            item={item}
+            locale={locale}
+            blocked={() => entering.current}
+            receiving={receive.receiving.has(item.noteId)}
+            offline={offline}
+            exportCopy={async () => {
+              const f = await lib.exportCopy(item.noteId)
+              downloadBlob(f.name, f.bytes as BlobPart, 'application/octet-stream')
+            }}
+          />
         ))}
       </ul>
       {status === 'ready' && <LibraryFab onNewNote={openSheet} />}
@@ -272,12 +285,55 @@ function Thumb({ page }: { page: Page | undefined }) {
   )
 }
 
-function Card({ item, locale, blocked, receiving, offline }: { item: LibraryItem; locale: string; blocked: () => boolean; receiving: boolean; offline: boolean }) {
+/** A note whose Drive file cannot be read: "열 수 없음", and the sheet when it is pressed (UX-DR69). */
+function BlockedCard({ fileId, hasUnsent, exportCopy }: { fileId: string | null; hasUnsent: boolean; exportCopy: () => Promise<void> }) {
   const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const button = useRef<HTMLButtonElement>(null)
+  return (
+    <li>
+      <button ref={button} type="button" className="cover-card cover-card-disabled cover-card-blocked" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
+        <span className="cover-thumb" aria-hidden="true" />
+        <span className="cover-title">{t('library.cannotOpen')}</span>
+      </button>
+      {open && (
+        <CannotOpenSheet
+          fileId={fileId}
+          hasUnsent={hasUnsent}
+          onExportCopy={exportCopy}
+          onClose={() => {
+            setOpen(false)
+            button.current?.focus() // the card stays; focus goes back to it
+          }}
+        />
+      )}
+    </li>
+  )
+}
+
+function Card({
+  item,
+  locale,
+  blocked,
+  receiving,
+  offline,
+  exportCopy,
+}: {
+  item: LibraryItem
+  locale: string
+  blocked: () => boolean
+  receiving: boolean
+  offline: boolean
+  exportCopy: () => Promise<void>
+}) {
+  const { t } = useI18n()
+  const issue = useNoteIssue(item.noteId)
   const titleId = useId()
   const dateId = useId()
   const statusId = useId()
   const sync = useCardStatus(item.noteId).label
+  if (item.blocked) return <BlockedCard fileId={item.blocked.fileId} hasUnsent={false} exportCopy={exportCopy} />
+  if (issue?.kind === 'unreadable') return <BlockedCard fileId={issue.fileId} hasUnsent={issue.hasUnsent} exportCopy={exportCopy} />
   if (item.title === null) {
     return (
       <li>

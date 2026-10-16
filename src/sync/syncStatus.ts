@@ -9,6 +9,8 @@ export type NoteSyncView = {
   state: SyncStateName
   hasUnsent: boolean
   lastError: { class: string; status?: number; reason?: string } | null
+  /** The Drive file of the note, for "Drive에서 보기". */
+  fileId?: string | null
 }
 export type SyncSnapshot = { version: number; loaded: boolean; notes: ReadonlyMap<string, NoteSyncView> }
 
@@ -41,11 +43,14 @@ export function createSyncStatus(d: {
     listeners.forEach((fn) => fn())
   }
 
-  async function view(noteId: string): Promise<NoteSyncView | null> {
+  /** `'gone'`: the note was removed (nothing to show, nothing unsent). */
+  async function view(noteId: string): Promise<NoteSyncView | null | 'gone'> {
     try {
       const r = await d.store.readSync(noteId)
+      if (r.missing) return 'gone'
       const e = r.info.lastError
       return {
+        fileId: r.info.fileId,
         state: r.state,
         hasUnsent: r.hasUnsent,
         lastError: e && typeof e.class === 'string' ? { class: e.class, ...(typeof e.status === 'number' && { status: e.status }), ...(typeof e.reason === 'string' && { reason: e.reason }) } : null,
@@ -59,13 +64,17 @@ export function createSyncStatus(d: {
     const ids = [...queued]
     queued.clear()
     const updates: [string, NoteSyncView][] = []
+    const gone: string[] = []
     for (const id of ids) {
       const v = await view(id)
       if (disposed) return
-      if (v) updates.push([id, v])
+      if (v === 'gone') gone.push(id)
+      else if (v) updates.push([id, v])
     }
     // Merged into the snapshot as it is now: reads that overlap do not drop each other's notes.
-    publish(new Map([...snap.notes, ...updates]), snap.loaded)
+    const next = new Map([...snap.notes, ...updates])
+    gone.forEach((id) => next.delete(id))
+    publish(next, snap.loaded)
   }
 
   // The first change is read at once (an edit must count as unsent before the tab can close);
@@ -99,7 +108,7 @@ export function createSyncStatus(d: {
           for (const id of ids) {
             const v = await view(id)
             if (disposed) return
-            if (v) next.set(id, v)
+            if (v && v !== 'gone') next.set(id, v)
           }
           publish(next, true)
         } catch {

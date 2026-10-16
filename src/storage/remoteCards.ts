@@ -12,6 +12,8 @@ export type RemoteCard = {
   coverId: string | null
   /** Canonical timestamp. */
   modifiedAt: string
+  /** The file was downloaded and cannot be read (parse failure) or is of a newer format (Story 3.18). */
+  blocked?: 'unreadable' | 'unsupportedVersion'
 }
 
 const str = (v: unknown) => typeof v === 'string' && v !== ''
@@ -23,7 +25,17 @@ function toCard(noteId: string, v: unknown): RemoteCard | null {
   if (!str(o.fileId) || !str(o.headRevisionId) || typeof o.title !== 'string' || !strOrNull(o.folderId) || !strOrNull(o.coverId) || !str(o.modifiedAt)) {
     return null
   }
-  return { noteId, fileId: o.fileId as string, headRevisionId: o.headRevisionId as string, title: o.title, folderId: (o.folderId as string | null) ?? null, coverId: (o.coverId as string | null) ?? null, modifiedAt: o.modifiedAt as string }
+  if (o.blocked !== undefined && o.blocked !== 'unreadable' && o.blocked !== 'unsupportedVersion') return null
+  return {
+    noteId,
+    fileId: o.fileId as string,
+    headRevisionId: o.headRevisionId as string,
+    title: o.title,
+    folderId: (o.folderId as string | null) ?? null,
+    coverId: (o.coverId as string | null) ?? null,
+    modifiedAt: o.modifiedAt as string,
+    ...(o.blocked !== undefined && { blocked: o.blocked }),
+  }
 }
 
 export type RemoteCardStore = ReturnType<typeof createRemoteCardStore>

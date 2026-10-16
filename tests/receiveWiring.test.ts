@@ -344,7 +344,7 @@ describe('the library', () => {
   test('the scan placeholder shows only after 1,000 ms and goes with the scan', async () => {
     vi.useFakeTimers()
     const ls = new Set<() => void>()
-    let state = { version: 0, receiving: new Set<string>(), scanning: true }
+    let state = { version: 0, receiving: new Set<string>(), scanning: true, revived: 0 }
     const scan = (scanning: boolean) => {
       state = { ...state, scanning } // a new snapshot, as the receiver makes
       act(() => ls.forEach((f) => f()))
@@ -372,7 +372,7 @@ describe('the library', () => {
   })
 })
 
-const IDLE_STATE = { version: 0, receiving: new Set<string>(), scanning: false }
+const IDLE_STATE = { version: 0, receiving: new Set<string>(), scanning: false, revived: 0 }
 describe('opening a note', () => {
   function stubReceiver() {
     let release!: () => void

@@ -263,6 +263,10 @@ export function createFakeDrive(o: { pageSize?: number; changePageSize?: number 
     roots: () => [...items.values()].filter((i) => i.appProperties.kkeujeokId === 'root' && !i.foreign),
     trash: (id: string) => void ((items.get(id)!.trashed = true), touch(id)),
     remove: (id: string) => void (items.delete(id), touch(id)),
+    /** The Drive UI renames a file: no new revision, one change. */
+    rename: (id: string, name: string) => void ((items.get(id)!.name = name), touch(id)),
+    /** The Drive UI moves a file into another folder (possibly one outside `Kkeujeok`). */
+    move: (id: string, parent: string) => void ((items.get(id)!.parents = [parent]), touch(id)),
     /** Every `changes.list` answers this status (the token is refused). */
     rejectTokens: (status: number | null) => void (rejectStatus = status),
     changeCount: () => changeLog.length,
