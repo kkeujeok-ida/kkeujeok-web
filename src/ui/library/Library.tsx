@@ -1,10 +1,12 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import type { Page } from '../../model/note'
 import { StrokePathCache, fitViewport, paintPage } from '../../render/pagePainter'
 import { savesSettled, takeUnsaved } from '../../storage/saveQueue'
 import { useI18n } from '../../i18n'
 import { createNewNoteDefaults, type Background, type NewNoteDefaults, type Orientation } from '../../storage/newNoteDefaults'
 import { auth } from '../../drive/auth'
+import type { RootFolderStore, RootState } from '../../drive/rootFolderStore'
+import { MissingRootDialog } from '../MissingRootDialog'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
 import { LibraryFab } from './LibraryFab'
 import { NewNoteDialog } from './NewNoteDialog'
@@ -20,7 +22,14 @@ type Props = {
   openStore?: () => NoteStore
   defaults?: { read(): NewNoteDefaults; write(d: NewNoteDefaults): void }
   editedBy?: string
+  /** The Drive root folder (Story 3.10). Without it the library does nothing Drive-related. */
+  root?: RootFolderStore
+  /** [로그아웃] of the missing-root dialog: drops the in-memory token only. */
+  signOut?: () => void
 }
+
+const IDLE: RootState = { status: 'idle' }
+const NO_ROOT = { subscribe: () => () => {}, getState: () => IDLE }
 
 function formatDate(ms: number | null, locale: string): string {
   if (ms === null) return ''
@@ -31,7 +40,7 @@ function formatDate(ms: number | null, locale: string): string {
   }
 }
 
-export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy }: Props) {
+export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut() }: Props) {
   const { t, locale } = useI18n()
   const lib = useLibrary(openStore, defaults, editedBy)
   const [sheet, setSheet] = useState<NewNoteDefaults | null>(null)
@@ -46,6 +55,21 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       mounted.current = false
     }
   }, [])
+
+  const rootState = useSyncExternalStore((root ?? NO_ROOT).subscribe, (root ?? NO_ROOT).getState, () => IDLE)
+  // [나중에]: no question until the next page load or the tab is visible again.
+  const [later, setLater] = useState(false)
+  useEffect(() => {
+    if (!root) return
+    void root.checkForeground() // throttled; no spinner on a known root
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      setLater(false)
+      void root.checkForeground()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [root])
 
   // Opening again while a sheet is open or the editor is opening does nothing.
   const openSheet = (from: HTMLElement | null) => {
@@ -87,6 +111,19 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     })
   }, [])
 
+  // The question waits while the new-note sheet covers the library and is asked when it closes.
+  const asking = rootState.status === 'missing' && !later && !sheet && !entering.current
+  const askOpener = useRef<HTMLElement | null>(null)
+  const wasAsking = useRef(false)
+  useEffect(() => {
+    if (asking) askOpener.current = document.activeElement as HTMLElement | null
+    else if (wasAsking.current && mounted.current) {
+      const back = askOpener.current
+      if (back?.isConnected && (!document.activeElement || document.activeElement === document.body)) back.focus()
+    }
+    wasAsking.current = asking
+  }, [asking])
+
   const { items, status } = lib
   return (
     <section ref={section} className="library" aria-label={t('library.label')} aria-busy={status === 'loading'}>
@@ -99,6 +136,30 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
         {status === 'loading' && (
           <li className="cover-status" role="status">
             {t('library.loading')}
+          </li>
+        )}
+        {rootState.status === 'preparing' && (
+          <li className="cover-status" role="status">
+            {t('drive.preparing')}
+          </li>
+        )}
+        {root && rootState.status === 'failed' && (
+          <li className="cover-status" role="alert">
+            {rootState.errorClass === 'reauth' ? (
+              <>
+                <span>{t('drive.reauth')}</span>
+                <button type="button" className="btn" onClick={() => void root.signInAgain()}>
+                  {t('drive.reauthAction')}
+                </button>
+              </>
+            ) : (
+              <>
+                <span>{t(rootState.errorClass === 'backoff' ? 'drive.networkError' : 'drive.prepareFailed')}</span>
+                <button type="button" className="btn" onClick={() => void root.check()}>
+                  {t('library.retry')}
+                </button>
+              </>
+            )}
           </li>
         )}
         {(status === 'error' || lib.failed) && (
@@ -126,6 +187,9 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
         ))}
       </ul>
       {status === 'ready' && <LibraryFab onNewNote={openSheet} />}
+      {root && asking && (
+        <MissingRootDialog onCreate={() => void root.recreate()} onLater={() => setLater(true)} onSignOut={signOut} />
+      )}
       {sheet && (
         <NewNoteDialog
           defaults={sheet}

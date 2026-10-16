@@ -84,5 +84,15 @@
   "editor.fitPage": "페이지 맞춤",
   "editor.zoomOutTip": "축소 (Ctrl+-)",
   "editor.zoomInTip": "확대 (Ctrl++)",
-  "editor.fitWidthTip": "너비 맞춤 (Ctrl+0)"
+  "editor.fitWidthTip": "너비 맞춤 (Ctrl+0)",
+  "drive.preparing": "Drive 준비 중",
+  "drive.networkError": "연결을 확인하고 다시 시도해 주세요",
+  "drive.reauth": "다시 로그인해 주세요",
+  "drive.reauthAction": "다시 로그인",
+  "drive.prepareFailed": "Drive를 준비하지 못했어요",
+  "rootMissing.title": "Drive에서 Kkeujeok 폴더를 찾을 수 없어요",
+  "rootMissing.body": "폴더가 삭제되었거나 휴지통에 있어요. 새로 만들면 이 브라우저의 노트가 다시 올라가요. 그동안 노트는 계속 쓸 수 있어요.",
+  "rootMissing.create": "새로 만들기",
+  "rootMissing.later": "나중에",
+  "rootMissing.signOut": "로그아웃"
 }

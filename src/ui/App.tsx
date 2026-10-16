@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useI18n } from '../i18n'
 import { PrivacyPolicy, isPrivacyPath } from './PrivacyPolicy'
 import { Settings } from './Settings'
@@ -6,6 +6,7 @@ import { SignIn } from './SignIn'
 import { Library } from './library/Library'
 import { NoteEditor, parseNoteRoute } from './library/NoteEditor'
 import { auth as defaultAuth, type Auth } from '../drive/auth'
+import { defaultRootFolder, type RootFolderStore } from '../drive/rootFolderStore'
 
 export const SIDEBAR_EXPANDED_MIN_WIDTH = 840
 export const isSidebarExpanded = (width: number) => width >= SIDEBAR_EXPANDED_MIN_WIDTH
@@ -33,13 +34,14 @@ function useHash(): string {
 }
 
 // No router library: the path alone picks the static policy page or the shell.
-export function App({ auth = defaultAuth }: { auth?: Auth }) {
+export function App({ auth = defaultAuth, root }: { auth?: Auth; root?: RootFolderStore }) {
   const { token, notice } = useSyncExternalStore(auth.subscribe, auth.getState, auth.getState)
   if (isPrivacyPath(globalThis.location?.pathname ?? '/')) return <PrivacyPolicy />
-  return token ? <Shell auth={auth} /> : <SignIn auth={auth} notice={notice} />
+  return token ? <Shell auth={auth} root={root} /> : <SignIn auth={auth} notice={notice} />
 }
 
-function Shell({ auth }: { auth: Auth }) {
+function Shell({ auth, root: rootProp }: { auth: Auth; root?: RootFolderStore }) {
+  const root = useMemo(() => rootProp ?? defaultRootFolder(auth), [rootProp, auth])
   const { t } = useI18n()
   const expanded = useSidebarExpanded()
   const noteId = parseNoteRoute(useHash())
@@ -84,7 +86,7 @@ function Shell({ auth }: { auth: Auth }) {
         ) : noteId ? (
           <NoteEditor key={noteId} noteId={noteId} />
         ) : (
-          <Library />
+          <Library root={root} signOut={auth.signOut} />
         )}
       </main>
     </div>

@@ -84,5 +84,15 @@
   "editor.fitPage": "Fit page",
   "editor.zoomOutTip": "Zoom out (Ctrl+-)",
   "editor.zoomInTip": "Zoom in (Ctrl++)",
-  "editor.fitWidthTip": "Fit width (Ctrl+0)"
+  "editor.fitWidthTip": "Fit width (Ctrl+0)",
+  "drive.preparing": "Preparing Drive",
+  "drive.networkError": "Check your connection and try again",
+  "drive.reauth": "Please sign in again",
+  "drive.reauthAction": "Sign in again",
+  "drive.prepareFailed": "Could not prepare Drive",
+  "rootMissing.title": "Can't find the Kkeujeok folder in Drive",
+  "rootMissing.body": "The folder was deleted or is in the trash. If you create a new one, the notes in this browser are uploaded again. You can keep writing in the meantime.",
+  "rootMissing.create": "Create new",
+  "rootMissing.later": "Later",
+  "rootMissing.signOut": "Log out"
 }

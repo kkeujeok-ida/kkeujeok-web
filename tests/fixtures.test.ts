@@ -16,6 +16,8 @@ import { pageBackground } from '../src/render/pageBackground'
 import { strokeOutline } from '../src/render/strokeOutline'
 import { hasUnsentRule } from '../src/sync/hasUnsent'
 import { checkLogEntry } from '../src/sync/syncLogEntry'
+import { driveDuplicatesRule } from '../src/drive/duplicates'
+import { errorClassRule } from '../src/sync/errorClass'
 
 // `tolerance` is the fixture file's top-level value, copied onto each case.
 type Case = { name: string; input: unknown; expected: unknown; tolerance?: number }
@@ -88,6 +90,12 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'sync.hasUnsent': ({ input, expected }) => {
     expect(hasUnsentRule(input)).toEqual(expected)
   },
+  'drive.duplicates': ({ input, expected }) => {
+    expect(driveDuplicatesRule(input as Parameters<typeof driveDuplicatesRule>[0])).toEqual(expected)
+  },
+  'sync.errorClass': ({ input, expected }) => {
+    expect(errorClassRule(input as Record<string, unknown>)).toEqual(expected)
+  },
   'synclog.entry': ({ input, expected }) => {
     expect(checkLogEntry((input as { entry: unknown }).entry)).toEqual(expected)
   },
@@ -97,11 +105,21 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Sync rules (Story 3.2) arrive with the web sync stories (3.4, 3.6, 3.10, ...);
 // each story removes its rule here when it adds the runner.
 const PENDING: string[] = [
-  'drive.duplicates',
   'drive.fileName',
   'drive.listSummary',
+  'merge.page3way',
+  'merge.staleSeq',
+  'merge.seqAfterMerge',
+  'merge.conflictSidecar',
+  'merge.order',
+  'merge.meta',
+  'merge.unknownFields',
+  'merge.formatVersion',
+  'merge.resolve',
+  'merge.keepBothConverge',
+  'merge.requeue',
+  'merge.undoDrop',
   'sync.backoff',
-  'sync.errorClass',
   'sync.stateMachine',
   'sync.uploadKind',
   'sync.verifyPlan',
