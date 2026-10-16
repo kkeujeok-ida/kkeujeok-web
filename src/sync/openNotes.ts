@@ -7,6 +7,8 @@ import type { MergeCtx, RequeueResult } from './merge'
 export type OpenNote = {
   /** Waits until the save queue is on disk; false = a snapshot is still unsaved. */
   flush(): Promise<boolean>
+  /** A stroke is being drawn or a save is not on disk yet (the tab-close warning asks this synchronously). */
+  unsaved?(): boolean
   /** The note as the editor has it right now. */
   current(): Note
   /** Merges `remote` into the editor's note (history, repaint, save). */

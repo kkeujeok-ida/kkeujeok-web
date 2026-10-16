@@ -886,3 +886,110 @@ h1 {
   width: 100%;
   height: auto;
 }
+
+/* Sync display (Story 3.16) */
+.editor-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-3);
+}
+
+.editor-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The library banner spans the content area and pushes the cards down. */
+.library > .editor-banner {
+  margin: calc(var(--spacing-5) * -1) calc(var(--spacing-5) * -1) var(--spacing-5);
+  width: auto;
+}
+
+.sync-indicator-button {
+  color: var(--components-sync-indicator-synced);
+}
+
+.sync-indicator-button.sync-pending {
+  color: var(--components-sync-indicator-pending);
+}
+
+.sync-indicator-button.sync-saving {
+  color: var(--components-sync-indicator-syncing);
+}
+
+.sync-indicator-button.sync-receiving {
+  color: var(--components-sync-indicator-incoming);
+}
+
+.sync-indicator-button.sync-twoVersions {
+  color: var(--components-sync-indicator-conflict-icon);
+}
+
+.sync-indicator-button.sync-notSaved {
+  color: var(--components-sync-indicator-error);
+}
+
+.sync-spin {
+  animation: sync-spin 1s linear infinite;
+}
+
+@keyframes sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-spin {
+    animation: none;
+  }
+}
+
+.sync-popover {
+  position: absolute;
+  top: calc(100% + var(--spacing-2));
+  right: 0;
+  z-index: 5;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  width: max-content;
+  max-width: min(20rem, calc(100vw - var(--spacing-5)));
+  padding: var(--components-popover-padding);
+  border-radius: var(--components-popover-rounded);
+  background: var(--components-popover-background);
+  color: var(--color-ink-primary);
+  box-shadow: var(--components-popover-shadow);
+}
+
+.sync-popover p {
+  margin: 0;
+}
+
+.sync-popover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.sync-badge {
+  background: var(--components-badge-neutral-background);
+  color: var(--components-badge-neutral-text);
+  font-family: var(--components-badge-text-font-family);
+  font-size: var(--components-badge-text-font-size);
+  font-weight: var(--components-badge-text-font-weight);
+  line-height: var(--components-badge-text-line-height);
+  border-radius: var(--components-badge-rounded);
+}
+
+.sync-badge-twoVersions {
+  background: var(--components-badge-conflict-background);
+  color: var(--components-badge-conflict-text);
+}
+
+.sync-badge-notSaved {
+  background: var(--components-badge-error-background);
+  color: var(--components-badge-error-text);
+}

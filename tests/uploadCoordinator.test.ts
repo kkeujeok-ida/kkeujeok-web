@@ -17,7 +17,7 @@ afterEach(async () => {
 
 const OTHER = '01926f3a-0000-7000-8000-0000000000a2'
 
-async function setup(o: { open?: string[]; locks?: LockManager | undefined; flush?: () => Promise<void> } = {}) {
+async function setup(o: { open?: string[]; locks?: LockManager | undefined; flush?: () => Promise<void>; tokenOk?: () => boolean } = {}) {
   const e = (env = await makeEnv())
   const coordinator = (locks = o.locks) =>
     createUploadCoordinator({
@@ -27,6 +27,7 @@ async function setup(o: { open?: string[]; locks?: LockManager | undefined; flus
       allowed: e.deps.allowed,
       online: e.deps.online,
       flushOpen: o.flush ?? (async () => {}),
+      ...(o.tokenOk && { tokenOk: o.tokenOk }),
       openIds: () => o.open ?? [],
       locks,
     })
@@ -190,7 +191,6 @@ describe('error notes', () => {
 
   test.each([
     ['backoff', new DriveError('http', 503)],
-    ['quota', new DriveError('http', 403, 'storageQuotaExceeded')],
     ['reauth', new DriveError('http', 401, 'noToken')],
     ['fatal', new DriveError('http', 409)],
   ])('class %s is retried at the next trigger', async (_c, err) => {
@@ -242,5 +242,82 @@ describe('error notes', () => {
     await c.hidden()
     expect(e.drive.count('downloadRevision')).toBe(afterRetry) // not again
     expect((await e.sync()).info.state).toBe('error')
+  })
+})
+
+describe('retry policy of the web display (Story 3.16)', () => {
+  const quota = () => new DriveError('http', 403, 'storageQuotaExceeded')
+  const reauth = () => new DriveError('http', 401, 'noToken')
+  async function failWith(e: Env, err: DriveError) {
+    await unsentNote(e)
+    e.drive.failAt('list', 1, err)
+    await e.uploader.upload(NID)
+    e.drive.clearFailures()
+    expect((await e.sync()).info.state).toBe('error')
+  }
+  const entries = (e: Env) => e.events('stateChange').length
+
+  test('a quota note is not retried by hidden, unsent, rootReady-after-start or noteClosed', async () => {
+    const { e, coordinator } = await setup()
+    await failWith(e, quota())
+    const before = entries(e)
+    const c = coordinator(undefined)
+    await c.hidden()
+    await c.unsent()
+    await c.noteClosed(NID)
+    expect((await e.sync()).info.state).toBe('error')
+    expect(entries(e)).toBe(before)
+  })
+
+  test('a quota note is retried at page load, by [다시 시도] / [지금 동기화] (syncNow)', async () => {
+    const a = await setup()
+    await failWith(a.e, quota())
+    await a.coordinator(undefined).start()
+    expect((await a.e.sync()).info.state).toBe('synced')
+    a.e.close()
+    await deleteNoteDatabase()
+    const b = await setup()
+    await failWith(b.e, quota())
+    await b.coordinator(undefined).syncNow(NID)
+    expect((await b.e.sync()).info.state).toBe('synced')
+  })
+
+  test('syncNow flushes the open editor first and uploads an open note', async () => {
+    const order: string[] = []
+    const { e, coordinator } = await setup({ open: [NID], flush: async () => void order.push('flush') })
+    await unsentNote(e)
+    e.drive.hooks.beforeCall = (m) => void (m === 'list' && order.push('drive'))
+    await coordinator(undefined).syncNow(NID)
+    expect(order.slice(0, 2)).toEqual(['flush', 'drive'])
+    expect((await e.sync()).info.state).toBe('synced')
+  })
+
+  test('a reauth note waits while the token is expired: no retry, no log entry', async () => {
+    let ok = false
+    const { e, coordinator } = await setup({ tokenOk: () => ok })
+    await failWith(e, reauth())
+    const before = entries(e)
+    const c = coordinator(undefined)
+    await c.hidden()
+    await c.unsent()
+    await c.start()
+    expect((await e.sync()).info.state).toBe('error')
+    expect(entries(e)).toBe(before)
+    ok = true
+    await c.unsent()
+    expect((await e.sync()).info.state).toBe('synced')
+  })
+
+  test('resume retries reauth notes even while the flag says expired, and leaves quota notes alone', async () => {
+    const a = await setup({ tokenOk: () => false })
+    await failWith(a.e, reauth())
+    await a.coordinator(undefined).resume()
+    expect((await a.e.sync()).info.state).toBe('synced')
+    a.e.close()
+    await deleteNoteDatabase()
+    const b = await setup({ tokenOk: () => true })
+    await failWith(b.e, quota())
+    await b.coordinator(undefined).resume()
+    expect((await b.e.sync()).info.state).toBe('error')
   })
 })

@@ -146,6 +146,8 @@ function toFile(json: unknown, fallbackId?: string): DriveFile {
 export const CHANGE_FILE_FIELDS =
   'id,name,mimeType,parents,appProperties,md5Checksum,modifiedTime,thumbnailLink,headRevisionId,trashed'
 
+export type DriveOutcome = { kind: 'ok' } | { kind: 'network' } | { kind: 'unauthorized'; token: string | null }
+
 export function createHttpDriveClient(o: {
   fetch?: typeof fetch
   /** null = no token (401 noToken); a throw is a transient failure (network). */
@@ -155,10 +157,20 @@ export function createHttpDriveClient(o: {
   timeoutMs?: number
   /** Test hook: the random bytes of a multipart boundary. */
   randomBytes?: () => Uint8Array
+  /** Told how each request ended: answered, failed on the network, or refused for the token it carried (401). */
+  onOutcome?: (o: DriveOutcome) => void
 }): DriveClient {
   const base = o.baseUrl ?? 'https://www.googleapis.com/drive/v3'
   const uploadBase = o.uploadBaseUrl ?? 'https://www.googleapis.com/upload/drive/v3'
   const timeoutMs = o.timeoutMs ?? 30_000
+
+  // Reports a failed request to `onOutcome` and hands the error on.
+  function tell(e: DriveError, token: string | null): DriveError {
+    if (e.kind === 'network') o.onOutcome?.({ kind: 'network' })
+    else if (e.kind === 'http' && e.status === 401) o.onOutcome?.({ kind: 'unauthorized', token })
+    else if (e.kind === 'http') o.onOutcome?.({ kind: 'ok' }) // answered, whatever the answer
+    return e
+  }
 
   // A raw request (body bytes, own headers). A status outside 2xx and `accept` is a DriveError.
   async function raw(
@@ -168,8 +180,10 @@ export function createHttpDriveClient(o: {
   ): Promise<{ res: Response; bytes: Uint8Array }> {
     let res: Response
     let bytes: Uint8Array
+    let used: string | null = null
     try {
       const t = await o.token()
+      used = t
       if (!t) throw new DriveError('http', 401, 'noToken')
       res = await (o.fetch ?? globalThis.fetch)(url, {
         method,
@@ -179,10 +193,11 @@ export function createHttpDriveClient(o: {
       })
       bytes = new Uint8Array(await res.arrayBuffer())
     } catch (e) {
-      throw e instanceof DriveError ? e : new DriveError('network')
+      throw tell(e instanceof DriveError ? e : new DriveError('network'), used)
     }
     const ok = (res.status >= 200 && res.status <= 299) || (a.accept ?? []).includes(res.status)
-    if (!ok) throw new DriveError('http', res.status, reasonOf(new TextDecoder().decode(bytes)))
+    if (!ok) throw tell(new DriveError('http', res.status, reasonOf(new TextDecoder().decode(bytes))), used)
+    o.onOutcome?.({ kind: 'ok' })
     return { res, bytes }
   }
   const parse = (bytes: Uint8Array): unknown => {
@@ -202,8 +217,10 @@ export function createHttpDriveClient(o: {
   async function send(method: string, path: string, query: Record<string, string>, body?: unknown) {
     let res: Response
     let text: string
+    let used: string | null = null
     try {
       const t = await o.token()
+      used = t
       if (!t) throw new DriveError('http', 401, 'noToken')
       const url = new URL(base + path)
       for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v)
@@ -218,9 +235,10 @@ export function createHttpDriveClient(o: {
       })
       text = await res.text()
     } catch (e) {
-      throw e instanceof DriveError ? e : new DriveError('network') // fetch, timeout, token getter
+      throw tell(e instanceof DriveError ? e : new DriveError('network'), used) // fetch, timeout, token getter
     }
-    if (res.status < 200 || res.status > 299) throw new DriveError('http', res.status, reasonOf(text))
+    if (res.status < 200 || res.status > 299) throw tell(new DriveError('http', res.status, reasonOf(text)), used)
+    o.onOutcome?.({ kind: 'ok' })
     try {
       return JSON.parse(text) as unknown
     } catch {

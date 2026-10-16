@@ -14,6 +14,11 @@ export class SaveQueue {
     private onFail: () => void = () => {},
   ) {}
 
+  /** A snapshot is waiting, being written, or failed and not written yet. */
+  get pending(): boolean {
+    return this.running !== null || this.latest !== null || this.failed !== null
+  }
+
   /** Queues `note`; the writes run one at a time and skip superseded snapshots. */
   commit(note: Note): void {
     this.latest = note

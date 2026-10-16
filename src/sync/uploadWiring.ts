@@ -3,7 +3,7 @@
 // back, root folder ready). The React hook removes every listener on unmount.
 import { useEffect } from 'react'
 import type { Auth } from '../drive/auth'
-import { createHttpDriveClient } from '../drive/driveClient'
+import { createAuthedDrive } from '../drive/authedDrive'
 import { type RootFolderStore, uploadsAllowed } from '../drive/rootFolderStore'
 import { renderThumbnail } from '../drive/thumbnail'
 import { newId } from '../model/ids'
@@ -28,7 +28,7 @@ export function defaultUploadCoordinator(auth: Auth, root: RootFolderStore): Upl
     const log = syncLog()
     const uploader = createNoteUploader({
       store,
-      drive: createHttpDriveClient({ token: () => auth.getAccessToken() }),
+      drive: createAuthedDrive(auth),
       device: createSyncDeviceStore(openNoteDb()),
       log,
       merge: createMergeIo({ store, editedBy: detectEditedBy, now: () => new Date().toISOString(), newId }),
@@ -44,6 +44,7 @@ export function defaultUploadCoordinator(auth: Auth, root: RootFolderStore): Upl
       log,
       allowed: () => uploadsAllowed(root),
       online: () => globalThis.navigator?.onLine !== false,
+      tokenOk: () => !auth.getState().expired,
       flushOpen: async () => void (await Promise.all(openNoteIds().map((id) => getOpenNote(id)?.flush()))),
     })
     coordinators.set(root, c)

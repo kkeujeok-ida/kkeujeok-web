@@ -1,7 +1,7 @@
 // State of the Drive root folder for the library and the upload gate (Story 3.10),
 // mirroring RootFolderNotifier of kkeujeok-client/lib/ui/providers.dart.
 import type { Auth } from './auth'
-import { createHttpDriveClient } from './driveClient'
+import { createAuthedDrive } from './authedDrive'
 import { createRootFolderService, type RootFolderService, type RootResult, type RootStatus } from './rootFolder'
 import { createSyncDeviceStore } from '../storage/syncDevice'
 import { openNoteDb } from '../storage/noteDb'
@@ -98,7 +98,7 @@ export function defaultRootFolder(auth: Auth): RootFolderStore {
   if (!s) {
     const account = () => auth.getState().account
     const service = createRootFolderService({
-      client: createHttpDriveClient({ token: () => auth.getAccessToken() }),
+      client: createAuthedDrive(auth),
       open: () => {
         const ndb = openNoteDb()
         const notes = openNoteStore(undefined, { getAccount: account })

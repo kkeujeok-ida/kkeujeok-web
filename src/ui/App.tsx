@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, type ComponentProps, useRef, useState, useSyncExternalStore } from 'react'
 import { useI18n } from '../i18n'
 import { PrivacyPolicy, isPrivacyPath } from './PrivacyPolicy'
 import { Settings } from './Settings'
@@ -12,6 +12,7 @@ import type { UploadCoordinator } from '../sync/uploadCoordinator'
 import type { NoteReceiver } from '../sync/noteReceiver'
 import { defaultReceiver, useReceiveTriggers } from '../sync/receiveWiring'
 import { defaultUploadCoordinator, useUploadTriggers } from '../sync/uploadWiring'
+import { SyncUiProvider } from './sync/syncUi'
 
 export const SIDEBAR_EXPANDED_MIN_WIDTH = 840
 export const isSidebarExpanded = (width: number) => width >= SIDEBAR_EXPANDED_MIN_WIDTH
@@ -39,20 +40,22 @@ function useHash(): string {
 }
 
 // No router library: the path alone picks the static policy page or the shell.
-export function App({ auth = defaultAuth, root, uploads, receiver, gate, unsentIds }: { auth?: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; gate?: GateDeps; unsentIds?: () => Promise<string[] | null> }) {
+export type SyncUiProps = Pick<ComponentProps<typeof SyncUiProvider>, 'status' | 'net' | 'exportLog'>
+
+export function App({ auth = defaultAuth, root, uploads, receiver, gate, unsentIds, syncUi }: { auth?: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; gate?: GateDeps; unsentIds?: () => Promise<string[] | null>; syncUi?: SyncUiProps }) {
   const { token, notice, busy } = useSyncExternalStore(auth.subscribe, auth.getState, auth.getState)
   if (isPrivacyPath(globalThis.location?.pathname ?? '/')) return <PrivacyPolicy />
   // While the sign-in runs (busy) the account is not known yet: no shell, so nothing syncs before the gate decides.
   return token && !busy ? (
     <AccountGate auth={auth} {...(gate && { deps: gate })}>
-      <Shell auth={auth} root={root} uploads={uploads} receiver={receiver} {...(unsentIds && { unsentIds })} />
+      <Shell auth={auth} root={root} uploads={uploads} receiver={receiver} {...(unsentIds && { unsentIds })} {...(syncUi && { syncUi })} />
     </AccountGate>
   ) : (
     <SignIn auth={auth} notice={notice} />
   )
 }
 
-function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverProp, unsentIds }: { auth: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; unsentIds?: () => Promise<string[] | null> }) {
+function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverProp, unsentIds, syncUi }: { auth: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; unsentIds?: () => Promise<string[] | null>; syncUi?: SyncUiProps }) {
   const root = useMemo(() => rootProp ?? defaultRootFolder(auth), [rootProp, auth])
   // Uploads run on the real Drive only with the default root; a given root (tests) needs a given coordinator.
   const uploads = useMemo(
@@ -82,6 +85,7 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
   const hidden = expanded ? undefined : 'sr-only'
 
   return (
+    <SyncUiProvider auth={auth} uploads={uploads} receiver={receiver} {...syncUi}>
     <div className="shell">
       {/* The writing screen covers the window; the sidebar is not reachable behind it. */}
       <nav
@@ -114,5 +118,6 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
         )}
       </main>
     </div>
+    </SyncUiProvider>
   )
 }

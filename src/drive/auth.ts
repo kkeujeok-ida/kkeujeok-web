@@ -33,6 +33,8 @@ export interface AuthState {
   account: Account | null
   notice: Notice
   busy: boolean
+  /** A Drive call was refused for the current token (401): it needs a new one (Story 3.16). */
+  expired: boolean
 }
 
 // Only the slice of google.accounts.oauth2 that is used.
@@ -45,6 +47,7 @@ interface GoogleOAuth2 {
     client_id: string
     scope: string
     prompt?: string
+    hint?: string
     callback: (r: TokenResponse) => void
     error_callback: (e: { type?: string }) => void
   }): { requestAccessToken(): void }
@@ -83,10 +86,11 @@ export interface Env {
 }
 
 export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000, fetchAccount }: Env) {
-  let state: AuthState = { token: null, account: null, notice: null, busy: false }
+  let state: AuthState = { token: null, account: null, notice: null, busy: false, expired: false }
   const listeners = new Set<() => void>()
   // After a disconnect the next sign-in must show the consent screen again.
   let reconsent = false
+  let reauthing = false
   const set = (patch: Partial<AuthState>) => {
     state = { ...state, ...patch }
     listeners.forEach((fn) => fn())
@@ -102,13 +106,14 @@ export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000, fet
     }
   }
 
-  function request(oauth2: GoogleOAuth2): Promise<Outcome> {
+  function request(oauth2: GoogleOAuth2, hint?: string): Promise<Outcome> {
     return new Promise((resolve) => {
       oauth2
         .initTokenClient({
           client_id: clientId!.trim(),
           scope: TOKEN_SCOPE,
           ...(reconsent && { prompt: 'consent' }),
+          ...(hint && { hint }),
           callback: (r) => {
             if (r.error || !r.access_token) resolve(r.error === 'access_denied' ? 'denied' : 'network')
             else if (!oauth2.hasGrantedAllScopes(r, DRIVE_SCOPE)) {
@@ -118,7 +123,7 @@ export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000, fet
             }
             else {
               reconsent = false
-              set({ token: r.access_token })
+              set({ token: r.access_token, expired: false })
               resolve('granted')
             }
           },
@@ -161,7 +166,35 @@ export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000, fet
       return outcome
     },
     // Drop the in-memory token; the gate then shows the sign-in screen.
-    signOut: () => set({ token: null, account: null, notice: null }),
+    signOut: () => set({ token: null, account: null, notice: null, expired: false }),
+    // A Drive call was refused (401) for `token`. Only the token in use counts: a late answer
+    // for an older token must not expire the new one.
+    markExpired(token: string | null) {
+      if (token !== null && token === state.token && !state.expired) set({ expired: true })
+    },
+    // [다시 로그인]: a new token inside the click. Unlike signIn it never sets `busy`, so the
+    // shell and the open note stay where they are; a failure leaves everything as it was.
+    async reauth(): Promise<Outcome> {
+      if (reauthing || state.busy || !state.token) return 'cancelled'
+      reauthing = true
+      try {
+        await loadScript()
+        const oauth2 = gis()
+        if (!oauth2 || !clientId?.trim()) return 'network'
+        const outcome = await request(oauth2, state.account?.email || undefined)
+        if (outcome === 'granted') {
+          const before = state.account
+          await lookUpAccount(state.token!)
+          // The lookup failed: it is the account the hint named, as far as anyone knows.
+          if (state.account === null && before !== null) set({ account: before })
+        }
+        return outcome
+      } catch {
+        return 'network'
+      } finally {
+        reauthing = false
+      }
+    },
     // Revoke the Drive grant at Google. Only 'revoked' means it is gone.
     async disconnect(): Promise<'revoked' | 'failed'> {
       const token = state.token

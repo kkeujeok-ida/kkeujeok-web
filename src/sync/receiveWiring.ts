@@ -5,7 +5,7 @@
 // listener and timer on unmount.
 import { useEffect } from 'react'
 import type { Auth } from '../drive/auth'
-import { createHttpDriveClient } from '../drive/driveClient'
+import { createAuthedDrive } from '../drive/authedDrive'
 import { type RootFolderStore, uploadsAllowed } from '../drive/rootFolderStore'
 import { newId } from '../model/ids'
 import { openNoteDb } from '../storage/noteDb'
@@ -51,7 +51,7 @@ export function defaultReceiver(auth: Auth, root: RootFolderStore): NoteReceiver
     const store = openNoteStore(undefined, { getAccount: account })
     r = createNoteReceiver({
       store,
-      drive: createHttpDriveClient({ token: () => auth.getAccessToken() }),
+      drive: createAuthedDrive(auth),
       device: createSyncDeviceStore(ndb),
       remote: store.remote,
       log: syncLog(),

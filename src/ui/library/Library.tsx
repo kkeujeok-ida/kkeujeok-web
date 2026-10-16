@@ -9,6 +9,9 @@ import { auth } from '../../drive/auth'
 import type { RootFolderStore, RootState } from '../../drive/rootFolderStore'
 import { MissingRootDialog } from '../MissingRootDialog'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
+import { Banner } from '../sync/Banner'
+import { SyncBadge, useCardStatus, BADGE_KEY } from '../sync/SyncIndicator'
+import { useOffline } from '../sync/syncUi'
 import { LibraryFab } from './LibraryFab'
 import { NewNoteDialog } from './NewNoteDialog'
 import { noteHref } from './NoteEditor'
@@ -143,8 +146,10 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   }, [asking])
 
   const { items, status } = lib
+  const offline = useOffline()
   return (
     <section ref={section} className="library" aria-label={t('library.label')} aria-busy={status === 'loading'}>
+      <Banner />
       {unsaved && (
         <p role="status" className="cover-status">
           {t('library.saveFailed')}
@@ -212,7 +217,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           </li>
         )}
         {items.map((item) => (
-          <Card key={item.noteId} item={item} locale={locale} blocked={() => entering.current} receiving={receive.receiving.has(item.noteId)} />
+          <Card key={item.noteId} item={item} locale={locale} blocked={() => entering.current} receiving={receive.receiving.has(item.noteId)} offline={offline} />
         ))}
       </ul>
       {status === 'ready' && <LibraryFab onNewNote={openSheet} />}
@@ -267,10 +272,12 @@ function Thumb({ page }: { page: Page | undefined }) {
   )
 }
 
-function Card({ item, locale, blocked, receiving }: { item: LibraryItem; locale: string; blocked: () => boolean; receiving: boolean }) {
+function Card({ item, locale, blocked, receiving, offline }: { item: LibraryItem; locale: string; blocked: () => boolean; receiving: boolean; offline: boolean }) {
   const { t } = useI18n()
   const titleId = useId()
   const dateId = useId()
+  const statusId = useId()
+  const sync = useCardStatus(item.noteId).label
   if (item.title === null) {
     return (
       <li>
@@ -282,30 +289,44 @@ function Card({ item, locale, blocked, receiving }: { item: LibraryItem; locale:
     )
   }
   const date = formatDate(item.editedMs, locale)
+  // A note that is being received has the badge whatever its record says.
+  const badge = receiving ? 'receiving' : sync
+  const described = [badge ? statusId : null, date ? dateId : null].filter(Boolean).join(' ') || undefined
+  const status = badge && <span id={statusId} className="sr-only">{t(BADGE_KEY[badge])}</span>
+  if (offline) {
+    // No connection: the card is shown but cannot be opened (UX-DR59).
+    return (
+      <li>
+        <div className="cover-card cover-card-disabled" aria-disabled="true" aria-labelledby={titleId} aria-describedby={described} title={item.title}>
+          <span className="cover-thumb-wrap">
+            <Thumb page={item.page} />
+            {badge && <SyncBadge label={badge} />}
+          </span>
+          <span id={titleId} className="cover-title">{item.title}</span>
+          {status}
+          {date && <span id={dateId} className="cover-date">{date}</span>}
+        </div>
+      </li>
+    )
+  }
   return (
     <li>
       <a
         className="cover-card"
         href={noteHref(item.noteId)}
         aria-labelledby={titleId}
-        aria-describedby={date ? dateId : undefined}
+        aria-describedby={described}
         title={item.title}
         onClick={(e) => blocked() && e.preventDefault()}
       >
         <span className="cover-thumb-wrap">
           <Thumb page={item.page} />
-          {receiving && (
-            <span className="cover-badge">
-              <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M8 3v9M4 8l4 4 4-4" stroke="currentColor" strokeWidth="1.75" fill="none" />
-              </svg>
-              <span>{t('sync.receiving')}</span>
-            </span>
-          )}
+          {badge && <SyncBadge label={badge} />}
         </span>
         <span id={titleId} className="cover-title">
           {item.title}
         </span>
+        {status}
         {date && (
           <span id={dateId} className="cover-date">
             {date}

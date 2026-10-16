@@ -18,6 +18,7 @@ import {
 import { type SyncInfo, type SyncState, emptySync, syncFromJson, syncToJson } from './syncInfo'
 import { createRemoteCardStore, type RemoteCardStore } from './remoteCards'
 import { createSyncDeviceStore } from './syncDevice'
+import { emitSyncChanged } from '../sync/syncSignal'
 
 export { NOTES_STORE, NoteSaveError }
 
@@ -117,7 +118,8 @@ export function openNoteStore(
   const { withDb } = ndb
   const device = createSyncDeviceStore(ndb)
 
-  async function notify() {
+  async function notify(noteId: string) {
+    emitSyncChanged(noteId)
     try {
       await opts.onWrite?.()
       const a = opts.getAccount?.()
@@ -216,7 +218,7 @@ export function openNoteStore(
           throw e instanceof NoteSaveError ? e : new NoteSaveError('could not write note', e)
         }
       })
-      await notify()
+      await notify(noteId)
     },
 
     async commitSync(working, base, info) {
@@ -248,7 +250,7 @@ export function openNoteStore(
           )
         }),
       )
-      await notify()
+      await notify(noteId)
     },
 
     async commitReceive(noteId, expected, remote, info) {
@@ -280,7 +282,7 @@ export function openNoteStore(
           return true
         }),
       )
-      if (done) await notify()
+      if (done) await notify(noteId)
       return done
     },
 
@@ -319,7 +321,7 @@ export function openNoteStore(
           return next
         }),
       )
-      await notify()
+      await notify(noteId)
       return committed
     },
 
@@ -345,7 +347,7 @@ export function openNoteStore(
           )
         }),
       )
-      await notify()
+      await notify(noteId)
     },
 
     readSync(noteId) {

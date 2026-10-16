@@ -32,9 +32,18 @@ export type CoordinatorDeps = {
   flushOpen: () => Promise<void>
   /** The notes open and writable in this tab. */
   openIds?: () => string[]
+  /** False while the token is known to be expired (a 401): `reauth` notes are not retried by a trigger then. */
+  tokenOk?: () => boolean
   /** `navigator.locks`; without it the tab uploads without exclusivity. */
   locks?: LockManager | undefined
 }
+
+/**
+ * Why a note in `error` is looked at again. `trigger`: an upload trigger; `start`: page load;
+ * `manual`: [다시 시도] / [지금 동기화]; `reauth`: a finished sign-in of the same account.
+ * Spec sync.md Errors: `quota` is retried only at start and by hand (web); `reauth` after sign-in.
+ */
+type RetryMode = 'trigger' | 'start' | 'manual' | 'reauth'
 
 export type UploadCoordinator = ReturnType<typeof createUploadCoordinator>
 
@@ -84,13 +93,16 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
     }
   }
 
-  async function retry(noteId: string): Promise<void> {
+  async function retry(noteId: string, mode: RetryMode = 'trigger'): Promise<void> {
     try {
       const s = await d.store.readSync(noteId)
       if (s.info.state !== 'error') return
       const err = s.info.lastError
       if (!RETRY_CLASSES.has(String(err?.class))) return // deleted, unreadable
-      if (RETRY_ONCE.has(String(err?.reason))) {
+      if (mode === 'reauth' && err?.class !== 'reauth') return
+      if (err?.class === 'quota' && mode !== 'start' && mode !== 'manual') return // the person or the next load decides
+      if (err?.class === 'reauth' && (mode === 'trigger' || mode === 'start') && d.tokenOk?.() === false) return // it would fail again
+      if (mode !== 'manual' && mode !== 'reauth' && RETRY_ONCE.has(String(err?.reason))) {
         if (retried.has(noteId)) return
         retried.add(noteId)
       }
@@ -106,11 +118,11 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
     }
   }
 
-  async function all(o: { includeOpen: boolean; recover?: boolean }): Promise<void> {
+  async function all(o: { includeOpen: boolean; recover?: boolean; mode?: RetryMode }): Promise<void> {
     try {
       const open = new Set(openIds())
       const ids = (await d.store.listIds()).filter((id) => o.includeOpen || !open.has(id))
-      for (const id of ids) await retry(id) // once per trigger, so a failure is not retried at once
+      for (const id of ids) await retry(id, o.mode) // once per trigger, so a failure is not retried at once
       // Interrupted uploads are finished before anything new goes.
       if (o.recover) for (const id of ids) await one(id, { recover: true, openHere: open.has(id) })
       for (const id of ids) await one(id, { openHere: open.has(id) })
@@ -136,6 +148,28 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
     /** Page load: interrupted uploads are finished first, then unsent notes go (open ones stay). */
     async start(): Promise<void> {
       started = true
+      await all({ includeOpen: false, recover: true, mode: 'start' })
+    },
+
+    /** [지금 동기화] / [다시 시도] of one note: its open editor is flushed, an error is retried, then it uploads. */
+    async syncNow(noteId: string): Promise<void> {
+      try {
+        const here = openIds().includes(noteId)
+        if (here) await d.flushOpen()
+        await retry(noteId, 'manual')
+        await one(noteId, { openHere: here })
+      } catch {
+        // the state and the log say what happened
+      }
+    },
+
+    /** A sign-in of the same account finished: notes stopped by an expired token go again. */
+    async resume(): Promise<void> {
+      try {
+        for (const id of await d.store.listIds()) await retry(id, 'reauth')
+      } catch {
+        // the next trigger tries again
+      }
       await all({ includeOpen: false, recover: true })
     },
 

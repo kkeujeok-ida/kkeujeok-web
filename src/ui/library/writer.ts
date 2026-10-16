@@ -226,6 +226,11 @@ export class Writer {
     this.setView(a.to, this.fitMode)
   }
 
+  /** A stroke is being drawn or the note is not on disk yet: closing the tab now would lose it. */
+  unsaved(): boolean {
+    return this.drawing !== null || this.queue.pending
+  }
+
   /** A stroke, a gesture or a pan is going on. */
   busy(): boolean {
     return this.drawing !== null || this.mode === 'gesture' || this.mode === 'pan'

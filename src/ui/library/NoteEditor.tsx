@@ -10,6 +10,8 @@ import { savesSettled } from '../../storage/saveQueue'
 import { registerOpenNote } from '../../sync/openNotes'
 import type { NoteReceiver } from '../../sync/noteReceiver'
 import type { UploadCoordinator } from '../../sync/uploadCoordinator'
+import { Banner } from '../sync/Banner'
+import { SyncIndicator } from '../sync/SyncIndicator'
 import { PenPopover } from './PenPopover'
 import { PenToolbar } from './PenToolbar'
 import { detectEditedBy } from './useLibrary'
@@ -98,6 +100,7 @@ export function NoteEditor({
   // The note is being received before it opens, for over a second.
   const [slow, setSlow] = useState(false)
 
+  const section = useRef<HTMLElement>(null)
   const back = useRef<HTMLButtonElement>(null)
   const toolbar = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -161,6 +164,7 @@ export function NoteEditor({
               ? () => {}
               : registerOpenNote(noteId, {
                   flush: () => w.flushSaves(),
+                  unsaved: () => w.unsaved(),
                   current: () => w.history.note,
                   applyMerge: (a) => w.applyMerge(a),
                 })
@@ -270,7 +274,7 @@ export function NoteEditor({
     if (!ready) return
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.altKey || e.metaKey || popoverOpen.current) return
-      const regions = [back.current?.parentElement, toolbar.current, canvas.current].filter((r): r is HTMLElement => !!r)
+      const regions = [section.current?.querySelector<HTMLElement>('[data-banner]'), back.current?.parentElement, toolbar.current, canvas.current].filter((r): r is HTMLElement => !!r)
       const active = document.activeElement
       if (e.key === 'F6') {
         const at = regions.findIndex((r) => r.contains(active))
@@ -280,6 +284,7 @@ export function NoteEditor({
         const to = regions[next]
         if (to === toolbar.current) toolbar.current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus()
         else if (to === canvas.current) canvas.current?.focus()
+        else if (to?.hasAttribute('data-banner')) (to.querySelector<HTMLElement>('button, a') ?? to).focus()
         else back.current?.focus()
       } else if (e.key === '1' && !e.shiftKey) {
         const target = e.target as Node | null
@@ -454,15 +459,11 @@ export function NoteEditor({
     : undefined
 
   return (
-    <section className="editor" aria-label={loaded?.title} aria-busy={!loaded}>
+    <section ref={section} className="editor" aria-label={loaded?.title} aria-busy={!loaded}>
+      <Banner otherTab={loaded?.readOnly === true} />
       {!loaded && (
         <p role="status" className="cover-date">
           {t(slow ? 'sync.receivingLatest' : 'library.loading')}
-        </p>
-      )}
-      {loaded?.readOnly && (
-        <p role="status" aria-live="polite" className="editor-banner">
-          {t('editor.otherTab')}
         </p>
       )}
       {loaded && (
@@ -501,6 +502,7 @@ export function NoteEditor({
               }}
             >
               <div className="editor-corner">
+                <SyncIndicator noteId={noteId} />
                 <button
                   ref={more}
                   type="button"
