@@ -31,4 +31,9 @@ export function sessionHistory(note: Note): History {
   return h
 }
 
+/** A merge changed a note whose editor is closed: its kept history follows (spec merge.undoDrop). */
+export function applyMergeToSession(noteId: string, note: Note, undoDrop: readonly string[]): void {
+  histories.get(noteId)?.applyMerged(note, undoDrop)
+}
+
 export const clearSessionHistories = () => histories.clear()

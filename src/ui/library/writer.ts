@@ -5,6 +5,9 @@ import { newId } from '../../model/ids'
 import type { Page, Stroke } from '../../model/note'
 import type { Pen } from '../../model/pen'
 import type { History } from '../../ops/history'
+import type { Note } from '../../model/note'
+import { commitMerge } from '../../sync/commitMerge'
+import type { MergeCtx, RequeueResult } from '../../sync/merge'
 import {
   clampScale,
   clampViewport,
@@ -601,6 +604,25 @@ export class Writer {
     this.queue.commit(this.history.note)
     this.onChange()
     return true
+  }
+
+  /**
+   * A sync result for this note joins the queue (AD-16): merged against the
+   * note as it is now, undo records of replaced pages dropped, then saved.
+   * `unsupportedVersion` and errors leave the note as it is.
+   */
+  applyMerge(a: { base: Note | null; localAtStart: Note; remote: Note; ctx: MergeCtx }): RequeueResult {
+    const r = commitMerge(this.history, a)
+    if (r.result === 'merged') {
+      try {
+        this.redraw()
+      } catch {
+        // the next layout repaints
+      }
+      this.queue.commit(this.history.note)
+      this.onChange() // undo/redo buttons re-read their aria-disabled state
+    }
+    return r
   }
 
   /**

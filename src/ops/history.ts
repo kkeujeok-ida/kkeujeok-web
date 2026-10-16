@@ -15,6 +15,19 @@ export class History {
     return this.redoStack.length
   }
 
+  /**
+   * A merge changed the note (spec merge.undoDrop, AD-16): adopt it and forget
+   * every undo and redo record of the pages in `dropPages`. Records of other
+   * pages (and ones without a page) stay; ops of different pages commute.
+   */
+  applyMerged(note: Note, dropPages: readonly string[]): void {
+    const drop = new Set(dropPages)
+    const keep = (op: Op) => !(typeof op.pageId === 'string' && drop.has(op.pageId))
+    this.note = note
+    this.undoStack = this.undoStack.filter(keep)
+    this.redoStack = this.redoStack.filter(keep)
+  }
+
   /** Error code, or null on success. A failure changes nothing. */
   doOp(op: Op, ctx: Ctx): string | null {
     const r = applyOp(this.note, op, ctx)

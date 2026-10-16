@@ -17,6 +17,9 @@ import { strokeOutline } from '../src/render/strokeOutline'
 import { hasUnsentRule } from '../src/sync/hasUnsent'
 import { checkLogEntry } from '../src/sync/syncLogEntry'
 import { driveDuplicatesRule } from '../src/drive/duplicates'
+import type { Conflict, Sidecar } from '../src/sync/merge'
+import { merge, mergeRequeue, type MergeCtx } from '../src/sync/merge'
+import { resolveConflict } from '../src/ops/resolveConflict'
 import { errorClassRule } from '../src/sync/errorClass'
 
 // `tolerance` is the fixture file's top-level value, copied onto each case.
@@ -96,6 +99,32 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'sync.errorClass': ({ input, expected }) => {
     expect(errorClassRule(input as Record<string, unknown>)).toEqual(expected)
   },
+  'merge.page3way': mergeRunner,
+  'merge.staleSeq': mergeRunner,
+  'merge.seqAfterMerge': mergeRunner,
+  'merge.conflictSidecar': mergeRunner,
+  'merge.order': mergeRunner,
+  'merge.meta': mergeRunner,
+  'merge.unknownFields': mergeRunner,
+  'merge.formatVersion': mergeRunner,
+  'merge.undoDrop': mergeRunner,
+  'merge.requeue': ({ input, expected }) => {
+    expect(mergeRequeue(input as Parameters<typeof mergeRequeue>[0])).toEqual(expected)
+  },
+  'merge.resolve': ({ input, expected }) => {
+    const i = input as { note: Note; conflict: Conflict; sidecar: Sidecar; choice: unknown; ctx: MergeCtx }
+    expect(resolveConflict(i.note, i.conflict, i.sidecar, i.choice, i.ctx)).toEqual(expected)
+  },
+  'merge.keepBothConverge': ({ input, expected }) => {
+    type Side = { note: Note; conflict: Conflict; sidecar: Sidecar; ctx: MergeCtx }
+    const i = input as { base: Note; a: Side; b: Side; ctx: MergeCtx }
+    const res = (s: Side) => resolveConflict(s.note, s.conflict, s.sidecar, 'both', s.ctx)
+    const a = res(i.a)
+    const b = res(i.b)
+    expect('note' in a && 'note' in b, 'both sides resolve').toBe(true)
+    const [an, bn] = [(a as { note: Note }).note, (b as { note: Note }).note]
+    expect({ a, b, ab: merge(i.base, an, bn, i.ctx), ba: merge(i.base, bn, an, i.ctx) }).toEqual(expected)
+  },
   'synclog.entry': ({ input, expected }) => {
     expect(checkLogEntry((input as { entry: unknown }).entry)).toEqual(expected)
   },
@@ -107,23 +136,20 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 const PENDING: string[] = [
   'drive.fileName',
   'drive.listSummary',
-  'merge.page3way',
-  'merge.staleSeq',
-  'merge.seqAfterMerge',
-  'merge.conflictSidecar',
-  'merge.order',
-  'merge.meta',
-  'merge.unknownFields',
-  'merge.formatVersion',
-  'merge.resolve',
-  'merge.keepBothConverge',
-  'merge.requeue',
-  'merge.undoDrop',
   'sync.backoff',
   'sync.stateMachine',
   'sync.uploadKind',
   'sync.verifyPlan',
+  'version.list',
+  'version.keepForever',
+  'ops.restoreNote',
+  'ops.restorePage',
 ]
+
+function mergeRunner({ input, expected }: Case) {
+  const i = input as { base: Note | null; local: Note; remote: Note; ctx: MergeCtx }
+  expect(merge(i.base, i.local, i.remote, i.ctx)).toEqual(expected)
+}
 
 function opRunner({ input, expected }: Case) {
   const i = input as { note: Note; op: Op; ctx: Ctx }
