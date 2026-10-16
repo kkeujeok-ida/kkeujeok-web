@@ -606,6 +606,11 @@ export class Writer {
     return true
   }
 
+  /** Waits until the save queue is on disk (the upload reads the note after this); false = a snapshot is still unsaved. */
+  flushSaves(): Promise<boolean> {
+    return this.queue.flush()
+  }
+
   /**
    * A sync result for this note joins the queue (AD-16): merged against the
    * note as it is now, undo records of replaced pages dropped, then saved.

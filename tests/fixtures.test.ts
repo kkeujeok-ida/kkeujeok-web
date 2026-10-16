@@ -21,6 +21,8 @@ import type { Conflict, Sidecar } from '../src/sync/merge'
 import { merge, mergeRequeue, type MergeCtx } from '../src/sync/merge'
 import { resolveConflict } from '../src/ops/resolveConflict'
 import { errorClassRule } from '../src/sync/errorClass'
+import { backoffRule, stateMachineRule, uploadKindRule, verifyPlanRule } from '../src/sync/syncRules'
+import { driveFileNameRule, listSummaryRule } from '../src/drive/noteSummary'
 
 // `tolerance` is the fixture file's top-level value, copied onto each case.
 type Case = { name: string; input: unknown; expected: unknown; tolerance?: number }
@@ -99,6 +101,12 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'sync.errorClass': ({ input, expected }) => {
     expect(errorClassRule(input as Record<string, unknown>)).toEqual(expected)
   },
+  'sync.uploadKind': ({ input, expected }) => void expect(uploadKindRule(input)).toEqual(expected),
+  'sync.verifyPlan': ({ input, expected }) => void expect(verifyPlanRule(input)).toEqual(expected),
+  'sync.backoff': ({ input, expected }) => void expect(backoffRule(input)).toEqual(expected),
+  'sync.stateMachine': ({ input, expected }) => void expect(stateMachineRule(input)).toEqual(expected),
+  'drive.fileName': ({ input, expected }) => void expect(driveFileNameRule(input)).toEqual(expected),
+  'drive.listSummary': ({ input, expected }) => void expect(listSummaryRule(input)).toEqual(expected),
   'merge.page3way': mergeRunner,
   'merge.staleSeq': mergeRunner,
   'merge.seqAfterMerge': mergeRunner,
@@ -134,12 +142,6 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Sync rules (Story 3.2) arrive with the web sync stories (3.4, 3.6, 3.10, ...);
 // each story removes its rule here when it adds the runner.
 const PENDING: string[] = [
-  'drive.fileName',
-  'drive.listSummary',
-  'sync.backoff',
-  'sync.stateMachine',
-  'sync.uploadKind',
-  'sync.verifyPlan',
   'version.list',
   'version.keepForever',
   'ops.restoreNote',

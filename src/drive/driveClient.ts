@@ -22,7 +22,17 @@ export type DriveFile = {
   /** Canonical timestamp, or undefined when not asked for. */
   createdTime?: string
   trashed: boolean
+  /** Newest revision, when asked for. */
+  headRevisionId?: string
+  md5Checksum?: string
+  /** Canonical timestamp, when asked for. */
+  modifiedTime?: string
 }
+
+export type DriveRevision = { id: string; modifiedTime: string }
+
+/** Answer of one resumable PUT: `file` when finished (200/201), else `received` bytes are held (308). */
+export type ResumableResult = { received: number; file?: DriveFile }
 
 export type DrivePage = { files: DriveFile[]; nextPageToken?: string }
 
@@ -33,6 +43,44 @@ export interface DriveClient {
   get(id: string, o?: { fields?: string }): Promise<DriveFile>
   /** `files.update` of metadata: parents moved and/or the file trashed. */
   update(id: string, o: { addParents?: string; removeParents?: string; trashed?: boolean }): Promise<DriveFile>
+  /**
+   * One multipart upload (`fields=id,headRevisionId,md5Checksum`). Creates when `fileId` is
+   * undefined, else replaces the content. An update never carries `parents`.
+   */
+  uploadSimple(o: { fileId?: string; metadata: Record<string, unknown>; bytes: Uint8Array }): Promise<DriveFile>
+  /** Starts a resumable session with the same metadata; returns its URI. */
+  startResumable(o: { fileId?: string; metadata: Record<string, unknown>; size: number }): Promise<string>
+  /** One PUT of a session. A null `chunk` asks how far it got (`bytes *` over the size). 404/410 is a DriveError. */
+  putResumable(uri: string, size: number, offset: number, chunk: Uint8Array | null): Promise<ResumableResult>
+  /** Every revision of the file (all pages, `pageSize=1000`). */
+  listRevisions(fileId: string): Promise<DriveRevision[]>
+  /** `revisions.get` with `alt=media`. */
+  downloadRevision(fileId: string, revisionId: string): Promise<Uint8Array>
+}
+
+/** Resumable chunk: a multiple of 262,144 (spec sync step 2). */
+export const RESUMABLE_CHUNK = 8_388_608
+
+const UPLOAD_FIELDS = 'id,headRevisionId,md5Checksum'
+
+/** A random multipart boundary that occurs neither in the metadata JSON nor in the content. */
+export function pickBoundary(
+  json: string,
+  bytes: Uint8Array,
+  random: () => Uint8Array = () => crypto.getRandomValues(new Uint8Array(12)),
+): string {
+  for (;;) {
+    const b = 'kkj-' + [...random()].map((x) => x.toString(16).padStart(2, '0')).join('')
+    if (!json.includes(b) && !contains(bytes, new TextEncoder().encode(b))) return b
+  }
+}
+
+function contains(hay: Uint8Array, needle: Uint8Array): boolean {
+  outer: for (let i = 0; i + needle.length <= hay.length; i++) {
+    for (let j = 0; j < needle.length; j++) if (hay[i + j] !== needle[j]) continue outer
+    return true
+  }
+  return false
 }
 
 /** Escapes `\` first and then `'` for a quoted `q` string. */
@@ -75,6 +123,9 @@ function toFile(json: unknown, fallbackId?: string): DriveFile {
     appProperties: props,
     ...(typeof m.createdTime === 'string' && { createdTime: m.createdTime }),
     trashed: m.trashed === true,
+    ...(typeof m.headRevisionId === 'string' && { headRevisionId: m.headRevisionId }),
+    ...(typeof m.md5Checksum === 'string' && { md5Checksum: m.md5Checksum }),
+    ...(typeof m.modifiedTime === 'string' && { modifiedTime: m.modifiedTime }),
   }
 }
 
@@ -83,10 +134,53 @@ export function createHttpDriveClient(o: {
   /** null = no token (401 noToken); a throw is a transient failure (network). */
   token: () => string | null | Promise<string | null>
   baseUrl?: string
+  uploadBaseUrl?: string
   timeoutMs?: number
+  /** Test hook: the random bytes of a multipart boundary. */
+  randomBytes?: () => Uint8Array
 }): DriveClient {
   const base = o.baseUrl ?? 'https://www.googleapis.com/drive/v3'
+  const uploadBase = o.uploadBaseUrl ?? 'https://www.googleapis.com/upload/drive/v3'
   const timeoutMs = o.timeoutMs ?? 30_000
+
+  // A raw request (body bytes, own headers). A status outside 2xx and `accept` is a DriveError.
+  async function raw(
+    method: string,
+    url: URL | string,
+    a: { headers?: Record<string, string>; body?: BodyInit; accept?: number[] } = {},
+  ): Promise<{ res: Response; bytes: Uint8Array }> {
+    let res: Response
+    let bytes: Uint8Array
+    try {
+      const t = await o.token()
+      if (!t) throw new DriveError('http', 401, 'noToken')
+      res = await (o.fetch ?? globalThis.fetch)(url, {
+        method,
+        headers: { ...a.headers, Authorization: `Bearer ${t}` },
+        ...(a.body !== undefined && { body: a.body }),
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      bytes = new Uint8Array(await res.arrayBuffer())
+    } catch (e) {
+      throw e instanceof DriveError ? e : new DriveError('network')
+    }
+    const ok = (res.status >= 200 && res.status <= 299) || (a.accept ?? []).includes(res.status)
+    if (!ok) throw new DriveError('http', res.status, reasonOf(new TextDecoder().decode(bytes)))
+    return { res, bytes }
+  }
+  const parse = (bytes: Uint8Array): unknown => {
+    try {
+      return JSON.parse(new TextDecoder().decode(bytes))
+    } catch {
+      throw new DriveError('parse')
+    }
+  }
+  const uploadUrl = (type: string, fileId?: string) => {
+    const u = new URL(`${uploadBase}/files${fileId === undefined ? '' : '/' + encodeURIComponent(fileId)}`)
+    u.searchParams.set('uploadType', type)
+    u.searchParams.set('fields', UPLOAD_FIELDS)
+    return u
+  }
 
   async function send(method: string, path: string, query: Record<string, string>, body?: unknown) {
     let res: Response
@@ -117,8 +211,76 @@ export function createHttpDriveClient(o: {
     }
   }
   const file = (id: string) => `/files/${encodeURIComponent(id)}`
+  const enc = new TextEncoder()
 
   return {
+    async uploadSimple({ fileId, metadata, bytes }) {
+      const meta = JSON.stringify(metadata)
+      const boundary = pickBoundary(meta, bytes, o.randomBytes)
+      const head = enc.encode(
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n`,
+      )
+      const tail = enc.encode(`\r\n--${boundary}--`)
+      const body = new Uint8Array(head.length + bytes.length + tail.length)
+      body.set(head)
+      body.set(bytes, head.length)
+      body.set(tail, head.length + bytes.length)
+      const { bytes: out } = await raw(fileId === undefined ? 'POST' : 'PATCH', uploadUrl('multipart', fileId), {
+        headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+        body: body as BodyInit,
+      })
+      return toFile(parse(out), fileId)
+    },
+    async startResumable({ fileId, metadata, size }) {
+      const { res } = await raw(fileId === undefined ? 'POST' : 'PATCH', uploadUrl('resumable', fileId), {
+        headers: {
+          'Content-Type': 'application/json; charset=UTF-8',
+          'X-Upload-Content-Type': 'application/octet-stream',
+          'X-Upload-Content-Length': String(size),
+        },
+        body: JSON.stringify(metadata),
+      })
+      const loc = res.headers.get('location')
+      if (!loc) throw new DriveError('parse')
+      return loc
+    },
+    async putResumable(uri, size, offset, chunk) {
+      const range = chunk === null ? `bytes */${size}` : `bytes ${offset}-${offset + chunk.length - 1}/${size}`
+      const { res, bytes } = await raw('PUT', uri, {
+        headers: { 'Content-Range': range },
+        body: (chunk ?? new Uint8Array(0)) as BodyInit,
+        accept: [308],
+      })
+      if (res.status === 308) {
+        // No Range header (or one the browser hides) means nothing is held: start at 0.
+        const m = /bytes=0-(\d+)/.exec(res.headers.get('range') ?? '')
+        return { received: m ? Number(m[1]) + 1 : 0 }
+      }
+      return { received: size, file: toFile(parse(bytes)) }
+    },
+    async listRevisions(fileId) {
+      const out: DriveRevision[] = []
+      let token: string | undefined
+      do {
+        const j = (await send('GET', `${file(fileId)}/revisions`, {
+          fields: 'nextPageToken,revisions(id,modifiedTime)',
+          pageSize: '1000',
+          ...(token && { pageToken: token }),
+        })) as { revisions?: unknown; nextPageToken?: unknown }
+        if (!Array.isArray(j?.revisions)) throw new DriveError('parse')
+        for (const r of j.revisions as { id?: unknown; modifiedTime?: unknown }[]) {
+          if (typeof r?.id !== 'string' || typeof r.modifiedTime !== 'string') throw new DriveError('parse')
+          out.push({ id: r.id, modifiedTime: r.modifiedTime })
+        }
+        token = typeof j.nextPageToken === 'string' && j.nextPageToken !== '' ? j.nextPageToken : undefined
+      } while (token)
+      return out
+    },
+    async downloadRevision(fileId, revisionId) {
+      const u = new URL(`${base}${file(fileId)}/revisions/${encodeURIComponent(revisionId)}`)
+      u.searchParams.set('alt', 'media')
+      return (await raw('GET', u)).bytes
+    },
     async list(q, p = {}) {
       const j = (await send('GET', '/files', {
         q,

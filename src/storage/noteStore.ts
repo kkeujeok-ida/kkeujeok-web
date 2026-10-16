@@ -20,6 +20,9 @@ import { createSyncDeviceStore } from './syncDevice'
 
 export { NOTES_STORE, NoteSaveError }
 
+/** The message of the error `updateSync` throws for a sync record it cannot read (never overwritten). */
+export const SYNC_UNREADABLE = 'the sync record is unreadable'
+
 export type WriteTx = IDBPTransaction<unknown, string[], 'readwrite'>
 
 /** What `readSync` knows about one note's sync records. */
@@ -31,6 +34,8 @@ export type NoteStore = {
   /** `null` when there is no record for `noteId`. */
   loadNote(noteId: string): Promise<NoteReadResult | null>
   listNotes(): Promise<{ noteId: string; result: NoteReadResult }[]>
+  /** Every noteId that has a working copy. */
+  listIds(): Promise<string[]>
   /**
    * Working copy, base copy and sync record in one transaction (all or nothing).
    * A null `base` keeps the stored base, which `info.baseHeadRevisionId` needs.
@@ -245,7 +250,7 @@ export function openNoteStore(
           // No record is "none". One that is there but unreadable is never replaced by
           // an empty record: that would drop the fileId and the base.
           const cur = oldSync === undefined ? emptySync() : syncFromJson(oldSync)
-          if (!cur) throw new NoteSaveError('the sync record is unreadable')
+          if (!cur) throw new NoteSaveError(SYNC_UNREADABLE)
           let next = change(cur)
           let id = next.baseHeadRevisionId
           const stored = !!(await decodeRecord(noteId, oldBase)).note
@@ -337,6 +342,11 @@ export function openNoteStore(
         const value = await readBytes(noteId)
         return value === undefined ? null : decodeRecord(noteId, value)
       })
+    },
+
+    async listIds() {
+      const keys = await withDb((db) => db.getAllKeys(NOTES_STORE))
+      return keys.filter((k): k is string => typeof k === 'string')
     },
 
     async listNotes() {

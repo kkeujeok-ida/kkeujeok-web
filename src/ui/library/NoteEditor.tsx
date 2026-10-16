@@ -7,6 +7,8 @@ import { openNoteStore, type NoteStore } from '../../storage/noteStore'
 import { acquireNoteLock } from '../../storage/noteLock'
 import { sharedPenSlots, type PenSlotsStore } from '../../storage/penSlots'
 import { savesSettled } from '../../storage/saveQueue'
+import { registerOpenNote } from '../../sync/openNotes'
+import type { UploadCoordinator } from '../../sync/uploadCoordinator'
 import { PenPopover } from './PenPopover'
 import { PenToolbar } from './PenToolbar'
 import { detectEditedBy } from './useLibrary'
@@ -52,6 +54,8 @@ const MESSAGE_KEY: Record<WriterMessage, Key> = {
 
 // Per note: the release of the lock a left editor still holds.
 const releasing = new Map<string, Promise<void>>()
+// Editors mounted in this tab: a remount (StrictMode, fast leave and reopen) is not a close.
+const mountedNotes = new Set<string>()
 
 type Loaded = { title: string; writer: Writer; readOnly: boolean }
 
@@ -63,10 +67,13 @@ export function NoteEditor({
   noteId,
   openStore = () => openNoteStore(undefined, { getAccount: () => auth.getState().account }),
   penStore = sharedPenSlots(),
+  uploads,
 }: {
   noteId: string
   openStore?: () => NoteStore
   penStore?: PenSlotsStore
+  /** Told when the note is closed, after its last save and its lock are released (Story 3.12). */
+  uploads?: Pick<UploadCoordinator, 'noteClosed'>
 }) {
   const { t } = useI18n()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -97,8 +104,10 @@ export function NoteEditor({
   // other tab lets go.
   useEffect(() => {
     mounted.current = true
+    mountedNotes.add(noteId)
     let live = true
     let writer: Writer | null = null
+    let unregister: () => void = () => {}
 
     // A save of this note that is still running must land before it is read.
     const load = async (readOnly: boolean): Promise<Loaded | null> => {
@@ -138,6 +147,15 @@ export function NoteEditor({
             }
             w.onView = (v) => live && setView(v)
             writer = w // owned from here: the cleanup finalizes it
+            // A writable editor is the tab that may upload this note while it is open.
+            unregister()
+            unregister = readOnly
+              ? () => {}
+              : registerOpenNote(noteId, {
+                  flush: () => w.flushSaves(),
+                  current: () => w.history.note,
+                  applyMerge: (a) => w.applyMerge(a),
+                })
             return { title, writer: w, readOnly }
           }
         }
@@ -180,6 +198,7 @@ export function NoteEditor({
     return () => {
       live = false
       mounted.current = false
+      mountedNotes.delete(noteId)
       // Leaving by the browser's back button ends here: finish and save in the
       // background; the library waits for it before it lists the notes. The
       // lock goes last, so the next tab reads the final save.
@@ -187,6 +206,11 @@ export function NoteEditor({
         .then(() => lockP)
         .then((l) => l.release())
         .catch(() => {})
+        .then(() => {
+          // The last save is on disk and the lock is free: the closing upload may read the note.
+          unregister()
+          if (!mountedNotes.has(noteId)) void uploads?.noteClosed(noteId)
+        })
         .finally(() => {
           if (releasing.get(noteId) === done) releasing.delete(noteId)
         })

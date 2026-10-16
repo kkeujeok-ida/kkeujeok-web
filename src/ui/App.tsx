@@ -7,6 +7,8 @@ import { Library } from './library/Library'
 import { NoteEditor, parseNoteRoute } from './library/NoteEditor'
 import { auth as defaultAuth, type Auth } from '../drive/auth'
 import { defaultRootFolder, type RootFolderStore } from '../drive/rootFolderStore'
+import type { UploadCoordinator } from '../sync/uploadCoordinator'
+import { defaultUploadCoordinator, useUploadTriggers } from '../sync/uploadWiring'
 
 export const SIDEBAR_EXPANDED_MIN_WIDTH = 840
 export const isSidebarExpanded = (width: number) => width >= SIDEBAR_EXPANDED_MIN_WIDTH
@@ -34,14 +36,20 @@ function useHash(): string {
 }
 
 // No router library: the path alone picks the static policy page or the shell.
-export function App({ auth = defaultAuth, root }: { auth?: Auth; root?: RootFolderStore }) {
+export function App({ auth = defaultAuth, root, uploads }: { auth?: Auth; root?: RootFolderStore; uploads?: UploadCoordinator }) {
   const { token, notice } = useSyncExternalStore(auth.subscribe, auth.getState, auth.getState)
   if (isPrivacyPath(globalThis.location?.pathname ?? '/')) return <PrivacyPolicy />
-  return token ? <Shell auth={auth} root={root} /> : <SignIn auth={auth} notice={notice} />
+  return token ? <Shell auth={auth} root={root} uploads={uploads} /> : <SignIn auth={auth} notice={notice} />
 }
 
-function Shell({ auth, root: rootProp }: { auth: Auth; root?: RootFolderStore }) {
+function Shell({ auth, root: rootProp, uploads: uploadsProp }: { auth: Auth; root?: RootFolderStore; uploads?: UploadCoordinator }) {
   const root = useMemo(() => rootProp ?? defaultRootFolder(auth), [rootProp, auth])
+  // Uploads run on the real Drive only with the default root; a given root (tests) needs a given coordinator.
+  const uploads = useMemo(
+    () => uploadsProp ?? (rootProp ? undefined : defaultUploadCoordinator(auth, root)),
+    [uploadsProp, rootProp, auth, root],
+  )
+  useUploadTriggers(uploads, root)
   const { t } = useI18n()
   const expanded = useSidebarExpanded()
   const noteId = parseNoteRoute(useHash())
@@ -84,7 +92,7 @@ function Shell({ auth, root: rootProp }: { auth: Auth; root?: RootFolderStore })
         {settingsOpen ? (
           <Settings auth={auth} onClose={() => setSettingsOpen(false)} />
         ) : noteId ? (
-          <NoteEditor key={noteId} noteId={noteId} />
+          <NoteEditor key={noteId} noteId={noteId} uploads={uploads} />
         ) : (
           <Library root={root} signOut={auth.signOut} />
         )}
