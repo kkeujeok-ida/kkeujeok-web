@@ -171,22 +171,6 @@ describe('changes.list', () => {
     expect(e.drive.uploads).toHaveLength(2) // the seed and the foreign edit: the receiver never uploads
   })
 
-  test('a conflict needing a sidecar is not applied: error conflictPending, device copy and base stay', async () => {
-    const e = await make()
-    const note = two()
-    const { fileId } = await e.seedSynced(note)
-    await e.receiver.check()
-    const mine = withStroke(note, PA, 'a2')
-    await e.store.writeNote(mine)
-    const up = await e.remoteUpload(foreignEdit(note, PA, 'a3'), { fileId })
-    await e.receiver.check()
-    expect(await working(e)).toEqual(mine)
-    const s = await e.store.readSync(NID)
-    expect(s.info).toMatchObject({ state: 'error', lastError: { class: 'fatal', reason: 'conflictPending' }, baseHeadRevisionId: expect.not.stringMatching(up.head) })
-    expect(e.events('error').at(-1)).toMatchObject({ class: 'fatal', reason: 'conflictPending', noteId: NID })
-    expect(await token(e)).toBe(String(e.drive.changeCount())) // permanent for this note: the token moves on
-  })
-
   test('a note open in this tab is merged through the editor registry', async () => {
     const e = await make()
     const note = two()

@@ -20,7 +20,7 @@ export const noteLockName = (noteId: string) => `kkeujeok-note:${noteId}`
 const RETRY_CLASSES = new Set(['backoff', 'quota', 'reauth', 'fatal'])
 // These end the same way again until something else changes, so they are retried
 // once per page session, not at every trigger.
-const RETRY_ONCE = new Set(['conflictPending', 'verifyExhausted', 'sessionLost', 'mergeFailed'])
+const RETRY_ONCE = new Set(['verifyExhausted', 'sessionLost', 'mergeFailed'])
 
 export type CoordinatorDeps = {
   store: Pick<NoteStore, 'listIds' | 'readSync' | 'updateSync'>

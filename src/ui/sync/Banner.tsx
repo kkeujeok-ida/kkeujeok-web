@@ -4,11 +4,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useI18n, type Key } from '../../i18n'
 import type { BannerKind } from './bannerPriority'
-import { useBannerKind, useSyncUi } from './syncUi'
+import { useBannerKind, useNoteConflicts, useSyncUi } from './syncUi'
 
 export const DRIVE_STORAGE_URL = 'https://drive.google.com/settings/storage'
 
 const TEXT: Partial<Record<BannerKind, Key>> = {
+  conflictReadOnly: 'banner.conflict',
   otherTab: 'editor.otherTab',
   deleted: 'banner.deleted',
   newVersion: 'banner.newVersion',
@@ -27,7 +28,21 @@ const ICON: Record<BannerKind, string> = {
   offline: 'M2 13h9.5a3 3 0 00.5-5.95A4.5 4.5 0 004 6.5 3.25 3.25 0 002 13zM2 2l12 12',
 }
 
-export function Banner({ otherTab = false, noteId, onClose }: { otherTab?: boolean; noteId?: string; onClose?: () => void }) {
+/** How long the banner stays emphasized after a blocked write (UX-DR65). */
+export const EMPHASIS_MS = 800
+
+export function Banner({
+  otherTab = false,
+  noteId,
+  onClose,
+  pulse = 0,
+}: {
+  otherTab?: boolean
+  noteId?: string
+  onClose?: () => void
+  /** Grows by one for every blocked write on a conflict page: the banner is emphasized once for each. */
+  pulse?: number
+}) {
   const { t } = useI18n()
   const ui = useSyncUi()
   const kind = useBannerKind(otherTab, noteId)
@@ -38,7 +53,17 @@ export function Banner({ otherTab = false, noteId, onClose }: { otherTab?: boole
     mounted.current = true
     return () => void (mounted.current = false)
   }, [])
-  const key = kind ? TEXT[kind] : undefined
+  const conflicts = useNoteConflicts(noteId)
+  const [emphasis, setEmphasis] = useState(false)
+  useEffect(() => {
+    if (pulse === 0) return
+    setEmphasis(true)
+    const id = setTimeout(() => setEmphasis(false), EMPHASIS_MS)
+    return () => clearTimeout(id)
+  }, [pulse])
+  // A page the other device deleted has its own words; mixed conflicts use the general ones.
+  const onlyDeleted = !!conflicts && conflicts.length > 0 && conflicts.every((c) => c.kind === 'remoteDeleted')
+  const key = kind === 'conflictReadOnly' && onlyDeleted ? 'banner.conflictDeleted' : kind ? TEXT[kind] : undefined
   if (!kind || !key) return null
   async function revive() {
     if (working.current || !ui || noteId === undefined) return
@@ -67,6 +92,13 @@ export function Banner({ otherTab = false, noteId, onClose }: { otherTab?: boole
         )}
       </>
     )
+  } else if (kind === 'conflictReadOnly' && noteId !== undefined) {
+    const resolve = ui?.resolve
+    action = (
+      <button type="button" className="btn" aria-disabled={!resolve} onClick={() => resolve?.(noteId)}>
+        {t('banner.conflict.resolve')}
+      </button>
+    )
   } else if (kind === 'reauth' && ui?.auth.reauth) {
     action = (
       <button type="button" className="btn" aria-disabled={ui.reauthBusy} aria-busy={ui.reauthBusy} onClick={() => ui.reauth()}>
@@ -83,7 +115,13 @@ export function Banner({ otherTab = false, noteId, onClose }: { otherTab?: boole
   // A full Drive is announced at once (UX-DR85); the others politely.
   const live = kind === 'quota' ? { role: 'alert' } : { role: 'status', 'aria-live': 'polite' as const }
   return (
-    <div className="editor-banner" data-banner={kind} tabIndex={-1} {...live}>
+    <div
+      className={emphasis ? 'editor-banner is-emphasis' : 'editor-banner'}
+      data-banner={kind}
+      {...(emphasis && { 'data-emphasis': 'true' })}
+      tabIndex={-1}
+      {...live}
+    >
       <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
         <path d={ICON[kind]} stroke="currentColor" strokeWidth="1.5" fill="none" />
       </svg>

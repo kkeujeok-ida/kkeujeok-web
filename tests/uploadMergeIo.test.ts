@@ -48,19 +48,6 @@ describe('mergeIo', () => {
     store.close()
   })
 
-  test('a conflict is applied nowhere', async () => {
-    const store = openNoteStore()
-    await store.writeNote(withStroke(two(), PA, 'a2'))
-    const entry = { current: () => withStroke(two(), PA, 'a2'), flush: vi.fn(async () => true), applyMerge: vi.fn() }
-    const write = vi.spyOn(store, 'writeNote')
-    const remote = foreignEdit(two(), PA, 'a3')
-    expect(await mk(store).merge({ noteId: NID, base: two(), remote })).toEqual({ result: 'conflict' })
-    expect(await mk(store, () => entry as never).merge({ noteId: NID, base: two(), remote })).toEqual({ result: 'conflict' })
-    expect(entry.applyMerge).not.toHaveBeenCalled()
-    expect(write).not.toHaveBeenCalled()
-    store.close()
-  })
-
   test('a newer remote format and a missing working copy are reported, not applied', async () => {
     const store = openNoteStore()
     expect(await mk(store).merge({ noteId: NID, base: null, remote: two() })).toEqual({ result: 'error', reason: 'workingMissing' })

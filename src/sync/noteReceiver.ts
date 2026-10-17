@@ -21,6 +21,7 @@ import type { NoteStore } from '../storage/noteStore'
 import type { RemoteCard, RemoteCardStore } from '../storage/remoteCards'
 import { type SyncDevice, type SyncDeviceStore } from '../storage/syncDevice'
 import { type SyncInfo, emptySync } from '../storage/syncInfo'
+import { conflictLogFields } from './conflicts'
 import { classifyDriveError } from './errorClass'
 import type { MergeIo } from './mergeIo'
 import { chained } from './noteChain'
@@ -210,6 +211,14 @@ export function createNoteReceiver(d: ReceiverDeps) {
     }
   }
 
+  /** `conflictFound`: a pending note was about to be saved, so it takes `upload` first. One log entry per sidecar. */
+  async function conflictFound(noteId: string, revs: string[]): Promise<void> {
+    const st = (await store.readSync(noteId)).info.state
+    if (st === 'pending') await move(noteId, 'upload')
+    await move(noteId, 'conflictFound')
+    for (const rev of revs) await log.append('conflictFound', conflictLogFields(noteId, rev))
+  }
+
   /** The states a note passes from `state` when its receive ends with nothing unsent. */
   function hopsFrom(state: string, unresolved: number): string[] {
     if (state === 'syncing' || state === 'conflict') return [transition(state, 'verified', { unresolved, unsent: false }) ?? state]
@@ -308,12 +317,14 @@ export function createNoteReceiver(d: ReceiverDeps) {
             }
           } else {
             const r = await d.merge.merge({ noteId, base: s.base, remote })
-            if (r.result === 'conflict') throw new Fail('fatal', undefined, 'conflictPending')
             if (r.result === 'unsupportedVersion') throw new Fail('unreadable', undefined, 'unsupportedVersion', head)
             if (r.result !== 'merged') throw new Fail('fatal', undefined, 'mergeFailed')
             await log.append('merged', { noteId })
             await store.updateSync(noteId, (c) => ({ ...c, fileId, baseHeadRevisionId: head, lastError: null }), { base: remote })
             await log.append('baseAdvanced', { noteId, revisionId: head })
+            // A conflict (Story 3.20): the sidecars are recorded; the note is a `conflict` note whose
+            // sidecars the next upload sends, and the other pages keep syncing.
+            if (r.conflicts && r.conflicts.length > 0) await conflictFound(noteId, r.conflicts)
             await settle(noteId)
           }
           bump()

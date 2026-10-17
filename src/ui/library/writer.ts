@@ -7,7 +7,8 @@ import type { Pen } from '../../model/pen'
 import type { History } from '../../ops/history'
 import type { Note } from '../../model/note'
 import { commitMerge } from '../../sync/commitMerge'
-import type { MergeCtx, RequeueResult } from '../../sync/merge'
+import { sidecarKey } from '../../sync/conflicts'
+import { type MergeCtx, type RequeueResult, mergeRequeue } from '../../sync/merge'
 import {
   clampScale,
   clampViewport,
@@ -27,7 +28,7 @@ import { SaveQueue, markUnsaved, trackSave } from '../../storage/saveQueue'
 
 export type WriterMessage = 'saveFailed' | 'strokeNotAdded' | 'historyNotApplied'
 
-type Drawing = { id: number; strokeId: string; type: string; t0: number; points: number[][] }
+type Drawing = { id: number; strokeId: string; type: string; t0: number; points: number[][]; pageId: string }
 const POINTER_TYPES = ['pen', 'mouse', 'touch']
 /** A second finger this soon after the first turns the stroke into a gesture. */
 const SECOND_FINGER_MS = 150
@@ -74,6 +75,14 @@ export class Writer {
   readOnly = false
   /** Called whenever the view (scale, scrollbars) changed. */
   onView: (v: ViewInfo) => void = () => {}
+  /** Someone tried to write or undo on a page with an unresolved conflict (Story 3.20). */
+  onBlocked: () => void = () => {}
+  /**
+   * A page whose conflict was detected while a stroke was being drawn on it: the version on screen stays
+   * the one the person was writing on (never saved); the stored note has the Drive version. Dropped with the editor.
+   */
+  private held: Page | null = null
+  private strokeWaiters: ((pageId: string | null) => void)[] = []
 
   constructor(
     readonly history: History,
@@ -91,7 +100,25 @@ export class Writer {
   }
 
   private get page(): Page | undefined {
-    return this.history.note.pages[0]
+    return this.held ?? this.history.note.pages[0]
+  }
+
+  /** The page on screen has an unresolved conflict: no stroke, no undo (Story 3.20). */
+  get pageLocked(): boolean {
+    const p = this.page
+    return !!p && this.history.isLocked(p.id)
+  }
+
+  /** Resolves when no stroke is in progress. The value is the page of a stroke that was added meanwhile, else null. */
+  strokeEnd(): Promise<string | null> {
+    if (!this.drawing) return Promise.resolve(null)
+    return new Promise((resolve) => this.strokeWaiters.push(resolve))
+  }
+
+  private releaseStrokeWaiters(pageId: string | null): void {
+    const w = this.strokeWaiters
+    this.strokeWaiters = []
+    w.forEach((f) => f(pageId))
   }
 
   /** Wires `canvas` for input and drawing; the returned function unwires it. */
@@ -395,13 +422,14 @@ export class Writer {
     if (this.readOnly) return
     const p = this.point(e, e.timeStamp)
     if (!p || !this.inPage(p)) return
+    if (this.pageLocked) return this.onBlocked() // a page waiting for its conflict to be settled
     e.preventDefault()
     try {
       this.canvas?.focus({ preventScroll: true })
     } catch {
       // focus is a convenience
     }
-    this.drawing = { id: e.pointerId, strokeId: newId(), type: e.pointerType, t0: e.timeStamp, points: [p] }
+    this.drawing = { id: e.pointerId, strokeId: newId(), type: e.pointerType, t0: e.timeStamp, points: [p], pageId: this.page!.id }
     this.redraw()
   }
 
@@ -410,6 +438,7 @@ export class Writer {
     if (!this.drawing) return
     this.drawing = null
     this.redraw()
+    this.releaseStrokeWaiters(null)
   }
 
   private onDown(e: PointerEvent): void {
@@ -429,8 +458,10 @@ export class Writer {
     this.discardStroke()
     this.gesture = null
     this.capture(e)
-    // Read-only: pen and mouse drags pan (touch took its own path above).
-    if (middle || this.readOnly || (this.hand && e.pointerType === 'mouse')) {
+    // Read-only: pen and mouse drags pan (touch took its own path above). So do they on a conflicted page.
+    const blocked = !this.readOnly && !middle && !this.hand && this.onLockedPage(e)
+    if (middle || this.readOnly || blocked || (this.hand && e.pointerType === 'mouse')) {
+      if (blocked) this.onBlocked()
       this.mode = 'pan'
       this.pan = { id: e.pointerId, x: e.clientX, y: e.clientY }
       this.handUsed = true
@@ -441,6 +472,13 @@ export class Writer {
     this.mode = 'pen'
     this.penId = e.pointerId
     this.begin(e)
+  }
+
+  /** `e` lands on the page and the page is locked by a conflict. */
+  private onLockedPage(e: PointerEvent): boolean {
+    if (!this.pageLocked) return false
+    const p = this.point(e, e.timeStamp)
+    return !!p && this.inPage(p)
   }
 
   private touchDown(e: PointerEvent): void {
@@ -563,14 +601,16 @@ export class Writer {
     const d = this.drawing
     const page = this.page
     this.drawing = null
-    if (this.readOnly || !d || !page) return
-    const err = this.history.doOp({ op: 'addStroke', pageId: page.id, stroke: this.build(d.points, d.strokeId) }, this.ctx())
+    if (this.readOnly || !d || !page) return this.releaseStrokeWaiters(null)
+    const err = this.history.doOp({ op: 'addStroke', pageId: d.pageId, stroke: this.build(d.points, d.strokeId) }, this.ctx())
     this.redraw()
     if (err) this.message('strokeNotAdded')
     else {
       this.queue.commit(this.history.note)
       this.onChange()
     }
+    // After the op is in the history: whoever waited merges the note with this stroke in it.
+    this.releaseStrokeWaiters(err ? null : d.pageId)
   }
 
   private ctx() {
@@ -578,10 +618,10 @@ export class Writer {
   }
 
   get canUndo() {
-    return !this.readOnly && this.history.undoDepth > 0
+    return !this.readOnly && !this.pageLocked && this.history.undoDepth > 0
   }
   get canRedo() {
-    return !this.readOnly && this.history.redoDepth > 0
+    return !this.readOnly && !this.pageLocked && this.history.redoDepth > 0
   }
 
   /** Undoes the last edit; false when nothing happened. */
@@ -594,6 +634,10 @@ export class Writer {
 
   private replay(kind: 'undo' | 'redo'): boolean {
     const depth = kind === 'undo' ? this.history.undoDepth : this.history.redoDepth
+    if (this.pageLocked && !this.readOnly && !this.leaving) {
+      this.onBlocked() // the record of a conflicted page is gone; nothing else is undone under it
+      return false
+    }
     if (this.readOnly || this.leaving || this.drawing || this.touches.size > 0 || this.mode !== 'none' || depth === 0) return false
     const err = this.history[kind](this.ctx())
     if (err) {
@@ -621,9 +665,29 @@ export class Writer {
    * note as it is now, undo records of replaced pages dropped, then saved.
    * `unsupportedVersion` and errors leave the note as it is.
    */
-  applyMerge(a: { base: Note | null; localAtStart: Note; remote: Note; ctx: MergeCtx }): RequeueResult {
+  applyMerge(a: {
+    base: Note | null
+    localAtStart: Note
+    remote: Note
+    ctx: MergeCtx
+    expect?: readonly string[]
+    held?: string | null
+  }): RequeueResult | { result: 'stale' } {
+    if (a.expect) {
+      // The sidecars were recorded for a preview. Apply only that: another sidecar (the page changed) or a
+      // stroke that began meanwhile means the preview is old.
+      const pre = mergeRequeue({ base: a.base, localAtStart: a.localAtStart, localAtCommit: this.history.note, remote: a.remote, ctx: a.ctx })
+      const keys = new Set(a.expect)
+      if (pre.result === 'merged' && (this.drawing !== null || pre.sidecars.some((s) => !keys.has(sidecarKey(s))))) return { result: 'stale' }
+    }
+    const before = this.history.note
     const r = commitMerge(this.history, a)
     if (r.result === 'merged') {
+      if (r.conflicts.length > 0) {
+        this.history.lockPages(r.conflicts.map((c) => c.pageId))
+        const held = a.held ? before.pages.find((p) => p.id === a.held) : undefined
+        if (held && r.conflicts.some((c) => c.pageId === held.id)) this.held = structuredClone(held)
+      }
       try {
         this.redraw()
       } catch {

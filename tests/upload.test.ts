@@ -176,22 +176,6 @@ describe('existing note', () => {
     expect((await e.sync()).info.state).toBe('synced')
   })
 
-  test('head != base, conflict: nothing uploaded or written, error conflictPending', async () => {
-    const e = await make()
-    const id = await uploaded(e, two())
-    e.drive.foreignRevision(id, await bytesOf(withStroke(two(), PA, 'a3')))
-    const mine = withStroke(two(), PA, 'a2')
-    await e.store.writeNote(mine)
-    const before = e.drive.revisions(id).length
-    expect(await e.uploader.upload(NID)).toBe('failed')
-    expect(e.drive.revisions(id)).toHaveLength(before)
-    expect(pageRev((await e.store.loadNote(NID))!.note!, PA)).toBe('a2')
-    const s = await e.sync()
-    expect(s.info.state).toBe('error')
-    expect(s.info.lastError).toMatchObject({ class: 'fatal', reason: 'conflictPending' })
-    expect(s.info.baseHeadRevisionId).toBe('rev1')
-  })
-
   test('remote with a newer formatVersion: never merged, never overwritten', async () => {
     const e = await make()
     const id = await uploaded(e, two())

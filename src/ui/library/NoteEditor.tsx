@@ -11,7 +11,8 @@ import { registerOpenNote } from '../../sync/openNotes'
 import type { NoteReceiver } from '../../sync/noteReceiver'
 import type { UploadCoordinator } from '../../sync/uploadCoordinator'
 import { Banner } from '../sync/Banner'
-import { useNoteIssue } from '../sync/syncUi'
+import { unresolvedOf } from '../../sync/conflicts'
+import { useNoteConflicts, useNoteIssue } from '../sync/syncUi'
 import { SyncIndicator } from '../sync/SyncIndicator'
 import { PenPopover } from './PenPopover'
 import { PenToolbar } from './PenToolbar'
@@ -49,6 +50,10 @@ function backToLibrary() {
 }
 
 const SNACKBAR_MS = 4000
+/** An assertive announcement stays in its live region this long. */
+const ALERT_MS = 5000
+/** A blocked write is announced at most this often. */
+const BLOCKED_ALERT_GAP_MS = 1000
 const LEAVE_WAIT_MS = 5000
 /** Opening waits for a receive; past this the wait text says so. */
 export const RECEIVE_WAIT_TEXT_MS = 1000
@@ -101,6 +106,15 @@ export function NoteEditor({
   const [menuOpen, setMenuOpen] = useState(false)
   // The note is being received before it opens, for over a second.
   const [slow, setSlow] = useState(false)
+  // Writes refused on a conflict page (Story 3.20): the banner is emphasized, "읽기 전용 페이지예요" is announced.
+  const [blocked, setBlocked] = useState(0)
+  const [alert, setAlert] = useState({ text: '', n: 0 })
+  const say = (text: string) => setAlert((a) => ({ text, n: a.n + 1 }))
+  const sayRef = useRef(say)
+  sayRef.current = say
+  const tRef = useRef(t)
+  tRef.current = t
+  const lastBlockedAlert = useRef(-Infinity)
 
   const section = useRef<HTMLElement>(null)
   const back = useRef<HTMLButtonElement>(null)
@@ -129,7 +143,8 @@ export function NoteEditor({
         await savesSettled(3000)
         const r = live ? await store.loadNote(noteId) : null
         // A newer-format remote file was found earlier: the note opens read-only from the first frame.
-        const err = live ? await store.readSync(noteId).then((s) => s.info.lastError, () => null) : null
+        const sync = live ? await store.readSync(noteId).catch(() => null) : null
+        const err = sync?.info.lastError ?? null
         const newer = err?.class === 'unreadable' && err.reason === 'unsupportedVersion'
         if (live) {
           const note = r?.result === 'ok' ? r.note : undefined
@@ -150,6 +165,16 @@ export function NoteEditor({
               () => live && setRevision((n) => n + 1),
             )
             w.readOnly = readOnly || newer
+            // Pages with an unresolved conflict are read-only from the first frame (Story 3.20).
+            if (sync) w.history.setLocked(unresolvedOf(sync.info).map((c) => String(c.pageId)))
+            w.onBlocked = () => {
+              if (!live) return
+              setBlocked((n) => n + 1)
+              const now = Date.now()
+              if (now - lastBlockedAlert.current < BLOCKED_ALERT_GAP_MS) return
+              lastBlockedAlert.current = now
+              sayRef.current(tRef.current('editor.pageReadOnly'))
+            }
             // The toolbar and the gap are measured when the view is laid out.
             w.insets = () => {
               // The token may be rem: measure it as a length instead of reading its text.
@@ -170,6 +195,7 @@ export function NoteEditor({
               : registerOpenNote(noteId, {
                   flush: () => w.flushSaves(),
                   unsaved: () => w.unsaved(),
+                  strokeEnd: () => w.strokeEnd(),
                   current: () => w.history.note,
                   applyMerge: (a) => w.applyMerge(a),
                 })
@@ -280,6 +306,27 @@ export function NoteEditor({
     if (newer && loaded) loaded.writer.readOnly = true
   }, [newer, loaded])
   const readOnly = (loaded?.readOnly ?? false) || newer
+  // Conflict pages (Story 3.20): the writer learns about pages the status store knows (never unlocks), and
+  // a conflict that appears while the editor is open is announced at once.
+  const conflicts = useNoteConflicts(noteId)
+  const knownConflicts = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (!conflicts) return
+    loaded?.writer.history.lockPages(conflicts.map((c) => c.pageId))
+    const known = knownConflicts.current
+    const fresh = known ? conflicts.find((c) => !known.has(c.pageId)) : undefined
+    knownConflicts.current = new Set(conflicts.map((c) => c.pageId))
+    if (fresh) {
+      say(fmt(t(fresh.kind === 'remoteDeleted' ? 'editor.conflictDetectedDeleted' : 'editor.conflictDetected'), { n: fresh.originalIndex + 1 }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conflicts, loaded])
+  // An assertive announcement goes away by itself.
+  useEffect(() => {
+    if (!alert.text) return
+    const id = setTimeout(() => setAlert((a) => ({ ...a, text: '' })), ALERT_MS)
+    return () => clearTimeout(id)
+  }, [alert])
   // Read-only began while the popover was open: close it.
   useEffect(() => {
     if (readOnly) setPopover(null)
@@ -475,7 +522,7 @@ export function NoteEditor({
 
   return (
     <section ref={section} className="editor" aria-label={loaded?.title} aria-busy={!loaded}>
-      <Banner otherTab={loaded?.readOnly === true} noteId={noteId} onClose={() => (loaded ? onBack() : goToLibrary())} />
+      <Banner otherTab={loaded?.readOnly === true} noteId={noteId} pulse={blocked} onClose={() => (loaded ? onBack() : goToLibrary())} />
       {!loaded && (
         <p role="status" className="cover-date">
           {t(slow ? 'sync.receivingLatest' : 'library.loading')}
@@ -587,7 +634,7 @@ export function NoteEditor({
               aria-describedby={descId}
             />
             <span id={descId} className="sr-only">
-              {t('editor.handwriting')}
+              {loaded.writer.pageLocked ? `${t('editor.handwriting')}. ${t('editor.conflictDescription')}` : t('editor.handwriting')}
             </span>
             {view?.y && (
               <span className="editor-scroll editor-scroll-y" aria-hidden="true">
@@ -605,6 +652,9 @@ export function NoteEditor({
           </div>
           <div role="status" aria-live="polite" className="sr-only">
             {announce}
+          </div>
+          <div role="alert" className="sr-only" key={alert.n}>
+            {alert.text}
           </div>
           {popover !== null && !readOnly && pens[popover] && (
             <PenPopover

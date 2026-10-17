@@ -17,8 +17,8 @@ afterEach(async () => {
 
 const OTHER = '01926f3a-0000-7000-8000-0000000000a2'
 
-async function setup(o: { open?: string[]; locks?: LockManager | undefined; flush?: () => Promise<void>; tokenOk?: () => boolean } = {}) {
-  const e = (env = await makeEnv())
+async function setup(o: { open?: string[]; locks?: LockManager | undefined; flush?: () => Promise<void>; tokenOk?: () => boolean; merge?: Env['deps']['merge'] } = {}) {
+  const e = (env = await makeEnv(o.merge ? { merge: o.merge } : {}))
   const coordinator = (locks = o.locks) =>
     createUploadCoordinator({
       store: e.store,
@@ -221,19 +221,20 @@ describe('error notes', () => {
   })
 
   test('a reason that fails the same way again is retried once per page session', async () => {
-    const { e, coordinator } = await setup()
+    // a merge that cannot be done: every upload attempt ends in mergeFailed
+    const { e, coordinator } = await setup({ merge: { merge: async () => ({ result: 'error', reason: 'boom' }) } })
     const id = await (async () => {
       await e.store.writeNote(mkNote({ pages: { [PA]: 'a1' } }))
       await e.uploader.upload(NID)
       return e.drive.byKkeujeokId(NID)[0]!.id
     })()
-    // a conflicting remote: every upload attempt ends in conflictPending
+    // a changed remote head makes the merge run
     const { bytesOf, foreignEdit } = await import('./uploadHarness')
     e.drive.foreignRevision(id, await bytesOf(foreignEdit(mkNote({ pages: { [PA]: 'a1' } }), PA, 'a3')))
     await e.store.writeNote(withStroke(mkNote({ pages: { [PA]: 'a1' } }), PA, 'a2'))
     const c = coordinator(undefined)
-    await c.unsent() // fails: conflictPending
-    expect((await e.sync()).info.lastError).toMatchObject({ reason: 'conflictPending' })
+    await c.unsent() // fails: mergeFailed
+    expect((await e.sync()).info.lastError).toMatchObject({ reason: 'mergeFailed' })
     const downloads = e.drive.count('downloadRevision')
     await c.unsent() // the one retry
     const afterRetry = e.drive.count('downloadRevision')

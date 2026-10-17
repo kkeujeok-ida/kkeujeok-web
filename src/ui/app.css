@@ -910,6 +910,12 @@ h1 {
   min-width: 0;
 }
 
+/* A write on a conflict page was refused (Story 3.20): the banner is outlined for a moment. No motion. */
+.editor-banner.is-emphasis {
+  outline: var(--components-focus-ring-width) solid var(--color-status-warning);
+  outline-offset: calc(var(--components-focus-ring-width) * -1);
+}
+
 /* The library banner spans the content area and pushes the cards down. */
 .library > .editor-banner {
   margin: calc(var(--spacing-5) * -1) calc(var(--spacing-5) * -1) var(--spacing-5);

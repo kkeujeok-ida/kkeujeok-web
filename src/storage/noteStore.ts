@@ -6,12 +6,15 @@
 import type { IDBPTransaction } from 'idb'
 import { decodeKkj, encodeKkj } from '../model/kkjCodec'
 import type { Note, NoteReadResult } from '../model/note'
+import { type Recorded, noRecorded, recordInto } from '../sync/conflicts'
 import { hasUnsentRule } from '../sync/hasUnsent'
+import type { Conflict, Sidecar } from '../sync/merge'
 import { revisionIdPattern } from '../sync/syncLogEntry'
 import {
   BASE_STORE,
   NOTES_STORE,
   NoteSaveError,
+  SIDECAR_STORE,
   SYNC_STORE,
   openNoteDb,
 } from './noteDb'
@@ -59,6 +62,25 @@ export type NoteStore = {
    * stored working copy still is `expected`. False, nothing deleted, when it moved or is gone.
    */
   removeNote(noteId: string, expected: Note): Promise<boolean>
+  /**
+   * A merge that raised conflicts (Story 3.20), closed note: sidecar records, the sync record
+   * (`conflicts`, `unsentSidecars`) and the merged working copy in ONE transaction, in this order,
+   * only while the stored working copy still is `expected`. False, nothing written, when it moved.
+   * With no conflicts only the working copy is written. The state of the note is not changed.
+   */
+  commitMerge(noteId: string, expected: Note, merged: Note, rec: { conflicts: readonly Conflict[]; sidecars: readonly Sidecar[] }): Promise<boolean>
+  /**
+   * Sidecar records and the sync record, in one transaction, before the editor applies a merge
+   * (open note). `supersedes` is what an earlier try of the same merge recorded. Returns what was added.
+   */
+  recordConflicts(
+    noteId: string,
+    rec: { conflicts: readonly Conflict[]; sidecars: readonly Sidecar[]; supersedes?: Recorded },
+  ): Promise<Recorded>
+  /** The sidecar is on Drive: it leaves `unsentSidecars` and the store in one transaction. */
+  sidecarSent(noteId: string, pageId: string, rev: string): Promise<void>
+  /** Sidecar records that are not uploaded yet. */
+  sidecars: { get(noteId: string, pageId: string, rev: string): Promise<Sidecar | null> }
   /** Forgets the Drive file: pending, no fileId/base/pendingVerify/session/intent/error. */
   resetSync(noteId: string): Promise<void>
   /** Never throws. */
@@ -99,6 +121,11 @@ async function encodeChecked(note: Note): Promise<Uint8Array> {
 }
 
 const DEL = Symbol('delete')
+const sidecarRecordKey = (noteId: string, pageId: string, rev: string) => JSON.stringify([noteId, pageId, rev])
+const isSidecar = (v: unknown, noteId: string): v is Sidecar => {
+  const o = v as Record<string, unknown> | null
+  return !!o && typeof o === 'object' && o.noteId === noteId && typeof o.pageId === 'string' && typeof o.rev === 'string' && typeof o.page === 'object' && o.page !== null
+}
 type Expect = [store: string, key: string, value: unknown]
 type Put = [store: string, key: string, value: unknown]
 
@@ -291,6 +318,84 @@ export function openNoteStore(
       return done
     },
 
+    async commitMerge(noteId, expected, merged, rec) {
+      const done = await locked(noteId, () =>
+        wrapSave(async () => {
+          if (merged.noteId !== noteId) throw new NoteSaveError('note belongs to another id')
+          const bytes = await encodeChecked(merged)
+          const [oldWorking, oldBase, oldSync] = await readRaw(noteId)
+          const cur = oldWorking === undefined ? null : (await decodeRecord(noteId, oldWorking)).note
+          if (!cur || JSON.stringify(cur) !== JSON.stringify(expected)) return false
+          const puts: Put[] = []
+          if (rec.conflicts.length > 0 || rec.sidecars.length > 0) {
+            const info = oldSync === undefined ? emptySync() : syncFromJson(oldSync)
+            if (!info) throw new NoteSaveError(SYNC_UNREADABLE)
+            const r = recordInto(info, rec)
+            for (const sc of r.store) puts.push([SIDECAR_STORE, sidecarRecordKey(noteId, sc.pageId, sc.rev), sc])
+            puts.push([SYNC_STORE, noteId, syncRecord(r.info)])
+          }
+          puts.push([NOTES_STORE, noteId, bytes]) // last: the working copy never leads its sidecars
+          try {
+            await apply(
+              [NOTES_STORE, BASE_STORE, SYNC_STORE, SIDECAR_STORE],
+              [[NOTES_STORE, noteId, oldWorking], [BASE_STORE, noteId, oldBase], [SYNC_STORE, noteId, oldSync]],
+              puts,
+            )
+          } catch (e) {
+            if (e instanceof NoteSaveError && e.message === 'record changed while saving') return false
+            throw e
+          }
+          return true
+        }),
+      )
+      if (done) await notify(noteId)
+      return done
+    },
+
+    async recordConflicts(noteId, rec) {
+      const added = await locked(noteId, () =>
+        wrapSave(async () => {
+          const [working, , oldSync] = await readRaw(noteId)
+          if (working === undefined) throw new NoteSaveError('the note has no record')
+          const info = oldSync === undefined ? emptySync() : syncFromJson(oldSync)
+          if (!info) throw new NoteSaveError(SYNC_UNREADABLE)
+          const r = recordInto(info, rec, rec.supersedes ?? noRecorded())
+          const puts: Put[] = []
+          for (const d of r.drop) puts.push([SIDECAR_STORE, sidecarRecordKey(noteId, d.pageId, d.rev), DEL])
+          for (const sc of r.store) puts.push([SIDECAR_STORE, sidecarRecordKey(noteId, sc.pageId, sc.rev), sc])
+          puts.push([SYNC_STORE, noteId, syncRecord(r.info)])
+          await apply([SYNC_STORE, SIDECAR_STORE], [[SYNC_STORE, noteId, oldSync]], puts)
+          return r.added
+        }),
+      )
+      await notify(noteId)
+      return added
+    },
+
+    async sidecarSent(noteId, pageId, rev) {
+      await locked(noteId, () =>
+        wrapSave(async () => {
+          const [, , oldSync] = await readRaw(noteId)
+          const info = oldSync === undefined ? emptySync() : syncFromJson(oldSync)
+          if (!info) throw new NoteSaveError(SYNC_UNREADABLE)
+          const next = { ...info, unsentSidecars: info.unsentSidecars.filter((u) => !(u.pageId === pageId && u.rev === rev)) }
+          await apply(
+            [SYNC_STORE, SIDECAR_STORE],
+            [[SYNC_STORE, noteId, oldSync]],
+            [[SIDECAR_STORE, sidecarRecordKey(noteId, pageId, rev), DEL], [SYNC_STORE, noteId, syncRecord(next)]],
+          )
+        }),
+      )
+      await notify(noteId)
+    },
+
+    sidecars: {
+      async get(noteId, pageId, rev) {
+        const v: unknown = await withDb((db) => db.get(SIDECAR_STORE, sidecarRecordKey(noteId, pageId, rev)))
+        return isSidecar(v, noteId) ? v : null
+      },
+    },
+
     async removeNote(noteId, expected) {
       const done = await locked(noteId, () =>
         wrapSave(async () => {
@@ -298,11 +403,15 @@ export function openNoteStore(
           if (oldWorking === undefined) return false
           const cur = (await decodeRecord(noteId, oldWorking)).note
           if (!cur || JSON.stringify(cur) !== JSON.stringify(expected)) return false
+          // Every sidecar record of the note (keys are JSON `[noteId,pageId,rev]`) goes with it.
+          const prefix = JSON.stringify([noteId]).slice(0, -1) + ','
+          const scKeys = (await withDb((db) => db.getAllKeys(SIDECAR_STORE))).map(String).filter((k) => k.startsWith(prefix))
+          const scOld = await Promise.all(scKeys.map(async (k) => [SIDECAR_STORE, k, await withDb((db) => db.get(SIDECAR_STORE, k))] as Expect))
           try {
             await apply(
-              [NOTES_STORE, BASE_STORE, SYNC_STORE],
-              [[NOTES_STORE, noteId, oldWorking], [BASE_STORE, noteId, oldBase], [SYNC_STORE, noteId, oldSync]],
-              [[NOTES_STORE, noteId, DEL], [BASE_STORE, noteId, DEL], [SYNC_STORE, noteId, DEL]],
+              [NOTES_STORE, BASE_STORE, SYNC_STORE, SIDECAR_STORE],
+              [[NOTES_STORE, noteId, oldWorking], [BASE_STORE, noteId, oldBase], [SYNC_STORE, noteId, oldSync], ...scOld],
+              [[NOTES_STORE, noteId, DEL], [BASE_STORE, noteId, DEL], [SYNC_STORE, noteId, DEL], ...scKeys.map((k): Put => [SIDECAR_STORE, k, DEL])],
             )
           } catch (e) {
             if (e instanceof NoteSaveError && e.message === 'record changed while saving') return false

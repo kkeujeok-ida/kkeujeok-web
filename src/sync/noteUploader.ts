@@ -23,10 +23,12 @@ import { type NoteStore, SYNC_UNREADABLE } from '../storage/noteStore'
 import type { SyncDeviceStore } from '../storage/syncDevice'
 import { type JsonMap, type SyncInfo } from '../storage/syncInfo'
 import { md5Hex } from '../util/md5'
+import { conflictLogFields } from './conflicts'
 import { classifyDriveError } from './errorClass'
 import { hasUnsentRule } from './hasUnsent'
 import type { MergeIo } from './mergeIo'
 import { chained } from './noteChain'
+import { createSidecarUploader } from './sidecarUploader'
 import type { SyncLog } from './syncLog'
 import { backoffRule, transition, uploadKindRule, verifyPlanRule } from './syncRules'
 
@@ -49,7 +51,7 @@ const failure = (cls: string, o: Omit<Failure, 'cls'> = {}) => new UploadFailure
 export type UploaderDeps = {
   store: NoteStore
   drive: DriveClient
-  device: Pick<SyncDeviceStore, 'read'>
+  device: Pick<SyncDeviceStore, 'read' | 'update'>
   log: Pick<SyncLog, 'append'>
   merge: MergeIo
   /** The upload gate: root folder ready. */
@@ -73,6 +75,16 @@ const asS = (n: Note) => ({ orderRev: n.orderRev, metaRev: n.metaRev, pages: n.p
 export function createNoteUploader(d: UploaderDeps) {
   const { store, drive, log } = d
   const md5 = d.md5 ?? md5Hex
+  // sync.md step 0 / drive-layout: conflict sidecars go before the note, each by idempotent creation.
+  const sidecars = createSidecarUploader({
+    drive,
+    device: d.device,
+    store,
+    log,
+    md5,
+    call: (noteId, fn, o) => call(noteId, fn, o),
+    failure: (cls, o) => failure(cls, o),
+  })
 
   // ---- state -------------------------------------------------------------
   /** True when `working` has changes `head` does not (sync.hasUnsent against that head). */
@@ -99,9 +111,11 @@ export function createNoteUploader(d: UploaderDeps) {
           let f: string = cur.state
           // A synced note that has edits is `pending` (readSync says so too).
           if (f === 'synced' && o.event === 'upload') f = 'pending'
+          // A conflict note that fails was uploading: conflict -> upload -> syncing -> failed.
+          if (f === 'conflict' && o.event === 'failed') f = 'syncing'
           const unresolved = next.conflicts.filter((c) => c.resolvedAt == null).length
           const t = transition(f, o.event, { unresolved, unsent: o.unsentOf?.() ?? false })
-          from = f
+          from = cur.state === 'conflict' ? 'conflict' : f
           if (t) {
             to = t
             next = { ...next, state: t }
@@ -129,6 +143,13 @@ export function createNoteUploader(d: UploaderDeps) {
     if (!d.allowed() || !d.online()) return 'skipped'
     try {
       if (info.state !== 'syncing') await commit(noteId, (c) => c, { event: 'upload' })
+      // Step 0: sidecars of conflicts go before the note. A resumed upload has its own order.
+      if (!unfinished) await sidecars.upload(noteId)
+      // Nothing but sidecars was unsent (the receiver raised the conflict): the note itself is on Drive.
+      if (!unfinished && s.base && info.fileId !== null && !differs(s.base, (await workingNote(noteId)) ?? working)) {
+        await sidecarsOnlyDone(noteId, s.base)
+        return 'uploaded'
+      }
       await drive_(noteId, working, s)
       return 'uploaded'
     } catch (e) {
@@ -142,6 +163,17 @@ export function createNoteUploader(d: UploaderDeps) {
       }
       throw e
     }
+  }
+
+  /** The sidecars are on Drive and the note has nothing else to send: the upload ends as a verified one. */
+  async function sidecarsOnlyDone(noteId: string, base: Note): Promise<void> {
+    await commit(noteId, (c) => c, {
+      event: 'verified',
+      unsentOf: () => false,
+    })
+    // An edit may have landed meanwhile.
+    const after = await workingNote(noteId)
+    if (after && differs(base, after)) await commit(noteId, (c) => c, { event: 'edit' })
   }
 
   async function fail(noteId: string, f: Failure): Promise<void> {
@@ -243,9 +275,11 @@ export function createNoteUploader(d: UploaderDeps) {
     switch (r.result) {
       case 'merged':
         await log.append('merged', { noteId })
+        if (r.conflicts && r.conflicts.length > 0) {
+          await commit(noteId, (c) => c, { event: 'conflictFound' }) // syncing -> conflict; the other pages go on
+          for (const rev of r.conflicts) await log.append('conflictFound', conflictLogFields(noteId, rev))
+        }
         return
-      case 'conflict':
-        throw failure('fatal', { reason: 'conflictPending', clearVerify: true })
       case 'unsupportedVersion':
         throw failure('unreadable', { reason: 'unsupportedVersion', clearVerify: true, ...(head !== undefined && { head }) })
       default:
@@ -355,7 +389,8 @@ export function createNoteUploader(d: UploaderDeps) {
           }
         }
         if (ours === null) {
-          // Step 2.
+          // Step 2, after the sidecars a merge may just have raised (step 0).
+          await sidecars.upload(noteId)
           const snapshot = (await workingNote(noteId)) ?? working0
           const up = await send(noteId, { fileId, snapshot, parent, round, intent: info.createIntent })
           fileId = up.fileId

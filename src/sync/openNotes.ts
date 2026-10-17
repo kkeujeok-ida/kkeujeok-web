@@ -11,8 +11,14 @@ export type OpenNote = {
   unsaved?(): boolean
   /** The note as the editor has it right now. */
   current(): Note
-  /** Merges `remote` into the editor's note (history, repaint, save). */
-  applyMerge(a: { base: Note | null; localAtStart: Note; remote: Note; ctx: MergeCtx }): RequeueResult
+  /**
+   * Merges `remote` into the editor's note (history, repaint, save). With `expect` (the sidecar keys already
+   * recorded, Story 3.20) the merge is NOT applied and `stale` is answered when it would raise another sidecar
+   * or a stroke has begun. `held`: the page of a stroke that ended just before; it stays on screen.
+   */
+  applyMerge(a: { base: Note | null; localAtStart: Note; remote: Note; ctx: MergeCtx; expect?: readonly string[]; held?: string | null }): RequeueResult | { result: 'stale' }
+  /** Resolves when no stroke is in progress; the value is the page id of a stroke that ended meanwhile, else null. */
+  strokeEnd?(): Promise<string | null>
 }
 
 const open = new Map<string, OpenNote>()

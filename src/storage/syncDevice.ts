@@ -79,6 +79,11 @@ export type SyncDeviceStore = {
   adoptAccount(sub: string, email: string): Promise<boolean>
   /** Rejects when the write fails or the existing record is unreadable. */
   write(d: SyncDevice): Promise<void>
+  /**
+   * Read-modify-write in one transaction (create intents, folder cache): `fn` gets the record and returns
+   * the next one. Rejects when the record is unreadable or the write fails.
+   */
+  update(fn: (d: SyncDevice) => SyncDevice): Promise<SyncDevice>
   /** Removes the record, readable or not. Best effort. */
   clear(): Promise<void>
 }
@@ -139,6 +144,12 @@ export function createSyncDeviceStore(ndb: Db): SyncDeviceStore {
       modify((cur) => {
         if (!cur.readable) throw new NoteSaveError('sync device record is unreadable')
         return { put: d, result: undefined }
+      }),
+    update: (fn) =>
+      modify((cur) => {
+        if (!cur.readable) throw new NoteSaveError('sync device record is unreadable')
+        const next = fn(cur.device)
+        return { put: next, result: next }
       }),
     async clear() {
       try {

@@ -2,6 +2,7 @@
 // records as everything else (`readSync`), kept fresh by the write signal, and
 // read synchronously by the tab-close warning. Holds no timer after `dispose`.
 import type { NoteStore } from '../storage/noteStore'
+import { unresolvedOf } from './conflicts'
 import { onSyncChanged } from './syncSignal'
 import type { SyncStateName } from './syncRules'
 
@@ -11,6 +12,8 @@ export type NoteSyncView = {
   lastError: { class: string; status?: number; reason?: string } | null
   /** The Drive file of the note, for "Drive에서 보기". */
   fileId?: string | null
+  /** The conflicts nobody has resolved yet (Story 3.20): the read-only pages, the banner and its text. */
+  conflicts?: { pageId: string; kind: string; originalIndex: number }[]
 }
 export type SyncSnapshot = { version: number; loaded: boolean; notes: ReadonlyMap<string, NoteSyncView> }
 
@@ -51,6 +54,11 @@ export function createSyncStatus(d: {
       const e = r.info.lastError
       return {
         fileId: r.info.fileId,
+        conflicts: unresolvedOf(r.info).map((c) => ({
+          pageId: String(c.pageId),
+          kind: typeof c.kind === 'string' ? c.kind : 'bothEdited',
+          originalIndex: typeof c.originalIndex === 'number' ? c.originalIndex : 0,
+        })),
         state: r.state,
         hasUnsent: r.hasUnsent,
         lastError: e && typeof e.class === 'string' ? { class: e.class, ...(typeof e.status === 'number' && { status: e.status }), ...(typeof e.reason === 'string' && { reason: e.reason }) } : null,

@@ -30,6 +30,8 @@ export type SyncUi = {
   exportLog: () => Promise<{ name: string; text: string }>
   /** [다시 살리기] of the deleted banner: the file is back on Drive and the note goes up now. */
   revive: (noteId: string) => Promise<void>
+  /** [해결하기] of the conflict banner. Story 3.22 provides the sheet; without it the button stays inert. */
+  resolve?: (noteId: string) => void
   /** [다시 로그인]; one at a time. */
   reauth: () => void
   reauthBusy: boolean
@@ -73,6 +75,7 @@ export function SyncUiProvider({
   exportLog = defaultExport,
   win: winProp,
   doc: docProp,
+  resolve,
   children,
 }: {
   auth: AuthLike
@@ -83,6 +86,7 @@ export function SyncUiProvider({
   exportLog?: () => Promise<{ name: string; text: string }>
   win?: Pick<Window, 'addEventListener' | 'removeEventListener'>
   doc?: Pick<Document, 'addEventListener' | 'removeEventListener' | 'visibilityState'>
+  resolve?: (noteId: string) => void
   children?: ReactNode
 }) {
   const status = useMemo(() => statusProp ?? defaultStatus(), [statusProp])
@@ -125,6 +129,7 @@ export function SyncUiProvider({
       uploads,
       exportLog,
       reauthBusy,
+      ...(resolve && { resolve }),
       async revive(noteId) {
         await receiver?.revive?.(noteId)
         await uploads?.syncNow?.(noteId)
@@ -151,7 +156,7 @@ export function SyncUiProvider({
         })()
       },
     }),
-    [status, net, auth, receiver, uploads, exportLog, reauthBusy],
+    [status, net, auth, receiver, uploads, exportLog, reauthBusy, resolve],
   )
   return <SyncUiContext.Provider value={value}>{children}</SyncUiContext.Provider>
 }
@@ -216,6 +221,19 @@ export function useNoteIssue(noteId: string): NoteIssue | null {
   return issueOf(snap.notes.get(noteId))
 }
 
+export type NoteConflict = { pageId: string; kind: string; originalIndex: number }
+const NONE: NoteConflict[] = []
+
+/** The unresolved conflicts of one note; null while the status store has not read it. */
+export function useNoteConflicts(noteId: string | undefined): readonly NoteConflict[] | null {
+  const st = useSyncUi()?.status ?? NO_STATUS
+  const snap = useSyncExternalStore(st.subscribe, st.getSnapshot, st.getSnapshot)
+  if (noteId === undefined) return null
+  const v = snap.notes.get(noteId)
+  if (!v) return snap.loaded ? NONE : null
+  return v.conflicts ?? NONE
+}
+
 /** The one banner to show now (the editor says whether another tab holds the note, and which note it shows). */
 export function useBannerKind(otherTab: boolean, noteId?: string): BannerKind | null {
   const ui = useSyncUi()
@@ -227,7 +245,9 @@ export function useBannerKind(otherTab: boolean, noteId?: string): BannerKind | 
   const expired = useSyncExternalStore(a.subscribe, () => expiredOf(a), () => false)
   const failed = (cls: string) => [...snap.notes.values()].some((v) => v.state === 'error' && v.lastError?.class === cls)
   const issue = noteId === undefined ? null : issueOf(snap.notes.get(noteId))
+  const conflicted = noteId !== undefined && (snap.notes.get(noteId)?.conflicts?.length ?? 0) > 0
   return pickBanner({
+    conflictReadOnly: conflicted,
     otherTab,
     deleted: issue?.kind === 'deleted',
     newVersion: issue?.kind === 'newVersion',
