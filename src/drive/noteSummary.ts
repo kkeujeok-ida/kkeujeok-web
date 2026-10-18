@@ -17,6 +17,14 @@ export function driveFileNameRule(input: unknown): { name: string } | { error: '
   return typeof t === 'string' && validTitle(t) ? { name: `${t}.kkj` } : { error: 'invalidTitle' }
 }
 
+/** Spec drive.remoteTitle: the title a note takes from its Drive file name, or keep. */
+export function driveRemoteTitleRule(input: { name: string; title: string; baseTitle: string }): { title: string } | { keep: true } {
+  const { name, title, baseTitle } = input
+  const candidate = name.endsWith('.kkj') ? name.slice(0, -4) : name
+  if (!validTitle(candidate) || candidate === title || title !== baseTitle) return { keep: true }
+  return { title: candidate }
+}
+
 const MD5 = /^[0-9a-f]{32}$/
 const TIMESTAMP = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}Z$/
 

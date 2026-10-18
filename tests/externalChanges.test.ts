@@ -432,7 +432,7 @@ describe('the status store', () => {
 })
 
 describe('rename and move in Drive', () => {
-  test('a renamed or moved file with the same head: nothing downloaded, written or sent', async () => {
+  test('a renamed file with the same head: the title follows, nothing else changes, nothing downloaded or sent', async () => {
     const e = await make()
     const { fileId } = await synced(e)
     const work = (await e.store.loadNote(NID))!.note!
@@ -442,27 +442,62 @@ describe('rename and move in Drive', () => {
     e.drive.move(fileId, 'outside-kkeujeok')
     await e.receiver.check()
     expect(downloads(e)).toBe(0)
-    expect((await e.store.loadNote(NID))!.note).toEqual(work)
-    expect(work.meta.title).toBe('수학 노트')
-    expect((await e.store.readSync(NID)).info).toEqual(sync)
+    const after = (await e.store.loadNote(NID))!.note!
+    expect(after).toEqual({ ...work, meta: { ...work.meta, title: 'Drive에서 바꾼 이름' } }) // metaRev and every page rev stay
+    const s = await e.store.readSync(NID)
+    expect(s.info).toEqual(sync)
+    expect(s.base!.meta.title).toBe('Drive에서 바꾼 이름')
+    expect(s.hasUnsent).toBe(false)
     expect(e.drive.uploads).toHaveLength(1)
     expect(await e.uploader.upload(NID)).toBe('skipped') // a rename alone is no change to send
     expect(e.drive.uploads).toHaveLength(1)
     expect(e.events('error')).toEqual([])
   })
 
-  test('the next upload names the file after the title again and leaves the folder alone', async () => {
+  test('the next upload keeps the Drive name and leaves the folder alone', async () => {
     const e = await make()
     const { fileId } = await synced(e)
     e.drive.rename(fileId, 'x.kkj')
     e.drive.move(fileId, 'outside-kkeujeok')
     await e.receiver.check()
-    await edit(e)
+    await e.store.writeNote(withStroke((await e.store.loadNote(NID))!.note!, PA, 'a2'))
     expect(await e.uploader.upload(NID)).toBe('uploaded')
     const f = e.drive.items.get(fileId)!
-    expect(f.name).toBe('수학 노트.kkj')
+    expect(f.name).toBe('x.kkj')
     expect(f.parents).toEqual(['outside-kkeujeok'])
     expect(e.drive.calls.some((c) => c.startsWith('update'))).toBe(false)
+  })
+
+  test('a title changed here and not uploaded wins; the upload renames the Drive file', async () => {
+    const e = await make()
+    const { fileId } = await synced(e)
+    const work = (await e.store.loadNote(NID))!.note!
+    await e.store.writeNote({ ...work, metaRev: 'rev-meta-app', meta: { ...work.meta, title: '앱 이름' } })
+    e.drive.rename(fileId, 'Drive 이름.kkj')
+    await e.receiver.check()
+    expect((await e.store.loadNote(NID))!.note!.meta.title).toBe('앱 이름')
+    expect(await e.uploader.upload(NID)).toBe('uploaded')
+    expect(e.drive.items.get(fileId)!.name).toBe('앱 이름.kkj')
+  })
+
+  test('a name that is no valid title is not taken', async () => {
+    const e = await make()
+    const { fileId } = await synced(e)
+    e.drive.rename(fileId, '끝 공백 .kkj')
+    await e.receiver.check()
+    expect((await e.store.loadNote(NID))!.note!.meta.title).toBe('수학 노트')
+  })
+
+  test('a rename seen while the note is open is applied when it is closed', async () => {
+    const e = await make()
+    const { fileId } = await synced(e)
+    const off = openEditor((await e.store.loadNote(NID))!.note!)
+    e.drive.rename(fileId, '열린 노트 새 이름.kkj')
+    await e.receiver.check()
+    expect((await e.store.loadNote(NID))!.note!.meta.title).toBe('수학 노트')
+    off()
+    await e.receiver.noteClosed(NID)
+    expect((await e.store.loadNote(NID))!.note!.meta.title).toBe('열린 노트 새 이름')
   })
 
   test('a remote-only card follows the Drive name and folder without a download', async () => {

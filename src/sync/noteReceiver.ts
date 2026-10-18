@@ -13,7 +13,8 @@ import {
   type DriveClient,
   type DriveFile,
 } from '../drive/driveClient'
-import { listSummaryRule } from '../drive/noteSummary'
+import { driveRemoteTitleRule, listSummaryRule } from '../drive/noteSummary'
+import { applyMergeToSession } from '../ops/sessionHistories'
 import { decodeKkj } from '../model/kkjCodec'
 import type { Note } from '../model/note'
 import { NoteSaveError } from '../storage/noteDb'
@@ -46,7 +47,7 @@ export type ReceiveState = {
 export type Channel = { post(m: unknown): void; subscribe(fn: (m: unknown) => void): () => void }
 
 export type ReceiverDeps = {
-  store: Pick<NoteStore, 'loadNote' | 'readSync' | 'updateSync' | 'commitReceive' | 'listIds' | 'removeNote' | 'resetSync'>
+  store: Pick<NoteStore, 'loadNote' | 'readSync' | 'updateSync' | 'commitMerge' | 'commitReceive' | 'listIds' | 'removeNote' | 'resetSync'>
   drive: DriveClient
   device: SyncDeviceStore
   remote: RemoteCardStore
@@ -354,6 +355,42 @@ export function createNoteReceiver(d: ReceiverDeps) {
     )
   }
 
+  // ---- the Drive file of a note that is here was renamed (spec drive.remoteTitle) ----
+  /** Renames seen while the note was open here: applied when it is closed. */
+  const renames = new Map<string, { fileId: string; name: string }>()
+
+  /** The title follows the Drive name in working and base copy; `metaRev`, pages, head and state stay. */
+  async function renameLocal(g: Guard, noteId: string, fileId: string, name: string): Promise<void> {
+    if (openIds().includes(noteId)) {
+      renames.set(noteId, { fileId, name })
+      return
+    }
+    renames.delete(noteId)
+    await withNoteLock(
+      noteId,
+      () =>
+        chained(noteId, async (): Promise<Result> => {
+          g.ensure()
+          const s = await store.readSync(noteId)
+          const loaded = await store.loadNote(noteId)
+          const work = loaded?.result === 'ok' && loaded.writable ? loaded.note : undefined
+          if (!work || !s.base || s.info.fileId !== fileId || s.info.pendingVerify !== null || s.info.state === 'error') return 'ok'
+          const r = driveRemoteTitleRule({ name, title: work.meta.title, baseTitle: s.base.meta.title })
+          if (!('title' in r)) return 'ok'
+          const title = r.title
+          const next = { ...work, meta: { ...work.meta, title } }
+          // Working copy first: a base that is ahead would make the app "win" and rename the file back.
+          if (!(await store.commitMerge(noteId, work, next, { conflicts: [], sidecars: [] }))) return 'ok'
+          applyMergeToSession(noteId, next, [])
+          const base = s.base
+          await store.updateSync(noteId, (c) => c, { base: { ...base, meta: { ...base.meta, title } } })
+          bump()
+          return 'ok'
+        }),
+      () => 'ok',
+    )
+  }
+
   // ---- the Drive file of a note that is here is gone (Story 3.18) ----------
   const EPOCH = '1970-01-01T00:00:00.000Z'
 
@@ -624,7 +661,12 @@ export function createNoteReceiver(d: ReceiverDeps) {
       }
       for (const { file, noteId, head } of files) {
         g.ensure()
-        const r = await step(noteId, () => (local.has(noteId) ? receiveLocal(g, noteId, file.id, head) : addRemote(g, file, noteId, head)))
+        const r = await step(noteId, async () => {
+          if (!local.has(noteId)) return addRemote(g, file, noteId, head)
+          const res = await receiveLocal(g, noteId, file.id, head)
+          if (res === 'ok' && file.name !== undefined) await renameLocal(g, noteId, file.id, file.name) // after a receive: the content may carry the old title
+          return res
+        })
         if (r === 'later') {
           ok = false
           break // a failing connection fails the next note too; the token stays and the changes come again
@@ -861,6 +903,8 @@ export function createNoteReceiver(d: ReceiverDeps) {
         const info = (await store.readSync(noteId)).info
         const kind = goneKind(info)
         if (kind !== null && info.fileId !== null) await fileGone(g, noteId, info.fileId, kind)
+        const r = renames.get(noteId)
+        if (r && kind === null) await renameLocal(g, noteId, r.fileId, r.name)
       }),
 
     /** [다시 살리기] of the deleted banner: the file is untrashed or created again by the next upload. */

@@ -23,7 +23,7 @@ import { merge, mergeRequeue, type MergeCtx } from '../src/sync/merge'
 import { resolveConflict } from '../src/ops/resolveConflict'
 import { errorClassRule } from '../src/sync/errorClass'
 import { backoffRule, stateMachineRule, uploadKindRule, verifyPlanRule } from '../src/sync/syncRules'
-import { driveFileNameRule, listSummaryRule } from '../src/drive/noteSummary'
+import { driveFileNameRule, driveRemoteTitleRule, listSummaryRule } from '../src/drive/noteSummary'
 import { restoreNote, restorePage } from '../src/ops/restore'
 import { keepForeverRule, versionListRule } from '../src/sync/versionList'
 
@@ -109,6 +109,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'sync.backoff': ({ input, expected }) => void expect(backoffRule(input)).toEqual(expected),
   'sync.stateMachine': ({ input, expected }) => void expect(stateMachineRule(input)).toEqual(expected),
   'drive.fileName': ({ input, expected }) => void expect(driveFileNameRule(input)).toEqual(expected),
+  'drive.remoteTitle': ({ input, expected }) => void expect(driveRemoteTitleRule(input as Parameters<typeof driveRemoteTitleRule>[0])).toEqual(expected),
   'drive.listSummary': ({ input, expected }) => void expect(listSummaryRule(input)).toEqual(expected),
   'merge.page3way': mergeRunner,
   'merge.staleSeq': mergeRunner,
