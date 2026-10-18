@@ -112,6 +112,8 @@ describe('logout with unsent changes', () => {
     const auth = await mount()
     await click(btn('Log out'))
     expect(dialog()!.textContent).toContain('2 unsent changes. Logging out discards them.')
+    expect(dialog()!.textContent).not.toContain('Log out?') // the warning replaces the question
+    expect(host.querySelectorAll('[role="dialog"]')).toHaveLength(1)
     expect(dialogButtons().map((b) => b.textContent)).toEqual(['Cancel', 'Discard and log out'])
     expect(dialogButtons()[1]!.className).toContain('btn-destructive')
     expect(document.activeElement).toBe(dialogButtons()[0])
@@ -148,7 +150,9 @@ describe('logout with unsent changes', () => {
     await seed([], [N3])
     const auth = await mount()
     await click(btn('Log out'))
+    expect(dialog()!.textContent).toContain('Log out?')
     expect(dialog()!.textContent).toContain('Logging out deletes the note copies in this browser.')
+    expect(dialog()!.getAttribute('aria-describedby')).toBeTruthy()
     await click(dialogButtons()[1]!)
     expect(auth.getState().token).toBeNull()
     expect(await dbExists()).toBe(false)

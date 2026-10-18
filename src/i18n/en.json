@@ -33,6 +33,8 @@
   "settings.logout": "Log out",
   "settings.disconnect": "Disconnect",
   "dialog.cancel": "Cancel",
+  "logout.question": "Log out?",
+  "disconnect.question": "Disconnect?",
   "logout.confirm": "Logging out deletes the note copies in this browser. The note files in your Drive stay as they are.",
   "disconnect.confirm": "The note copies on this device and your sign-in will be deleted. The note files in your Drive stay as they are.",
   "settings.deleteFailed": "Could not delete the note copies in this browser. Please try again",

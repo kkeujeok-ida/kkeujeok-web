@@ -143,7 +143,7 @@ export function Settings({
         <ConfirmDialog
           body={
             unsent === 0
-              ? t(action === 'logout' ? 'logout.confirm' : 'disconnect.confirm')
+              ? `${t(action === 'logout' ? 'logout.question' : 'disconnect.question')} ${t(action === 'logout' ? 'logout.confirm' : 'disconnect.confirm')}`
               : unsent === null
                 ? t(action === 'logout' ? 'unsent.logout.unknown' : 'unsent.disconnect.unknown')
                 : fmt(t(action === 'logout' ? 'unsent.logout' : 'unsent.disconnect'), { n: unsent })
