@@ -115,7 +115,7 @@
   "mismatch.retry": "Try again",
   "sync.label.saved": "Saved",
   "sync.label.pending": "Waiting to save",
-  "sync.label.saving": "Saving",
+  "sync.label.saving": "Syncing",
   "sync.label.twoVersions": "Two versions",
   "sync.label.notSaved": "Not saved",
   "sync.indicator.name": "Sync status: {label}. Show details",

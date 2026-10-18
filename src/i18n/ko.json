@@ -115,7 +115,7 @@
   "mismatch.retry": "다시 시도",
   "sync.label.saved": "저장됨",
   "sync.label.pending": "저장 대기",
-  "sync.label.saving": "저장 중",
+  "sync.label.saving": "동기화 중",
   "sync.label.twoVersions": "두 버전",
   "sync.label.notSaved": "저장 안 됨",
   "sync.indicator.name": "동기화 상태: {label}. 자세히 보기",

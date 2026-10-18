@@ -285,6 +285,22 @@ describe('the library', () => {
     expect(described('A')).toContain('받는 중')
   })
 
+  test('syncing: the top display and the card say "동기화 중" at once, hold for a short sync, then go; polite', async () => {
+    const status = fakeStatus({ [NID]: view('pending') })
+    await mountLibrary({ status })
+    const top = () => m!.q('.library > .library-syncing, .library > [aria-live="polite"]')!
+    expect(top().textContent).toBe('')
+    status.set({ [NID]: view('syncing') })
+    expect(top().textContent).toBe('동기화 중')
+    expect(card('A').querySelector('.cover-badge')!.textContent).toBe('동기화 중')
+    status.set({ [NID]: view('synced', { hasUnsent: false }) }) // a sync that took no time
+    expect(top().textContent).toBe('동기화 중')
+    expect(card('A').querySelector('.cover-badge')).not.toBeNull()
+    await act(async () => void (await new Promise((r) => setTimeout(r, 900))))
+    expect(top().textContent).toBe('')
+    expect(card('A').querySelector('.cover-badge')).toBeNull()
+  })
+
   test('nothing is known yet: no badge', async () => {
     await mountLibrary({ status: fakeStatus({}, false) })
     expect(m!.qa('.cover-badge')).toHaveLength(0)

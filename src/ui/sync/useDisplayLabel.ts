@@ -1,34 +1,31 @@
 import { useEffect, useRef, useState } from 'react'
 import type { DisplayLabel } from '../../sync/syncRules'
 
-/** `saving` is drawn only after this long in `syncing` (UX-DR38). */
-export const SAVING_DELAY_MS = 1000
-/** Once drawn, `saving` stays at least this long. */
-export const SAVING_MIN_MS = 600
+/** Once drawn, a busy label (`saving`, `receiving`) stays at least this long, so a short sync is still seen. */
+export const SAVING_MIN_MS = 800
 /** A polite status announcement at most this often (UX-DR85). */
 export const ANNOUNCE_GAP_MS = 10_000
 
-/** The label to draw: `raw`, except that `saving` is delayed and then held. Timers die with the component. */
+const busy = (l: DisplayLabel) => l === 'saving' || l === 'receiving'
+
+/** The label to draw: `raw`, except that a busy label is drawn at once and then held. Timers die with the component. */
 export function useDisplayLabel(raw: DisplayLabel): DisplayLabel {
   const [shown, setShown] = useState<DisplayLabel>(raw)
-  const since = useRef(0)
+  const since = useRef(Date.now())
   useEffect(() => {
-    let id: ReturnType<typeof setTimeout> | undefined
-    if (raw === 'saving') {
-      if (shown !== 'saving') {
-        id = setTimeout(() => {
-          since.current = Date.now()
-          setShown('saving')
-        }, SAVING_DELAY_MS)
-      }
-    } else if (shown === 'saving') {
-      id = setTimeout(() => setShown(raw), Math.max(0, SAVING_MIN_MS - (Date.now() - since.current)))
-    } else if (shown !== raw) {
+    if (shown === raw) return
+    if (!busy(shown)) {
+      if (busy(raw)) since.current = Date.now()
       setShown(raw)
+      return
     }
+    const id = setTimeout(() => {
+      if (busy(raw)) since.current = Date.now()
+      setShown(raw)
+    }, Math.max(0, SAVING_MIN_MS - (Date.now() - since.current)))
     return () => clearTimeout(id)
   }, [raw, shown])
-  return shown
+  return busy(raw) && !busy(shown) ? raw : shown // a busy label shows in the same render
 }
 
 /**

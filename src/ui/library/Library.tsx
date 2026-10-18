@@ -12,8 +12,9 @@ import { openNoteStore, type NoteStore } from '../../storage/noteStore'
 import { Banner } from '../sync/Banner'
 import { CannotOpenSheet } from '../sync/CannotOpenSheet'
 import { downloadBlob } from '../download'
-import { SyncBadge, useCardStatus, BADGE_KEY } from '../sync/SyncIndicator'
+import { LibrarySyncing, SyncBadge, useCardStatus, BADGE_KEY } from '../sync/SyncIndicator'
 import { useNoteConflicts, useNoteIssue, useOffline } from '../sync/syncUi'
+import { useDisplayLabel } from '../sync/useDisplayLabel'
 import { LibraryFab } from './LibraryFab'
 import { NewNoteDialog } from './NewNoteDialog'
 import { noteHref } from './NoteEditor'
@@ -247,6 +248,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           }}
         />
       )}
+      <LibrarySyncing />
     </section>
   )
 }
@@ -334,6 +336,8 @@ function Card({
   const statusId = useId()
   const sync = useCardStatus(item.noteId).label
   const conflicted = (useNoteConflicts(item.noteId)?.length ?? 0) > 0
+  // The badge of a short sync is held (see useDisplayLabel); `saved` has none.
+  const held = useDisplayLabel(receiving ? 'receiving' : sync ?? 'saved')
   if (item.blocked) return <BlockedCard fileId={item.blocked.fileId} hasUnsent={false} exportCopy={exportCopy} />
   if (issue?.kind === 'unreadable') return <BlockedCard fileId={issue.fileId} hasUnsent={issue.hasUnsent} exportCopy={exportCopy} />
   if (item.title === null) {
@@ -348,7 +352,7 @@ function Card({
   }
   const date = formatDate(item.editedMs, locale)
   // A note that is being received has the badge whatever its record says.
-  const badge = receiving ? 'receiving' : sync
+  const badge = held === 'saved' ? null : held
   const described = [badge ? statusId : null, date ? dateId : null].filter(Boolean).join(' ') || undefined
   const status = badge && <span id={statusId} className="sr-only">{t(BADGE_KEY[badge])}</span>
   if (offline) {

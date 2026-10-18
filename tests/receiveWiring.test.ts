@@ -319,6 +319,7 @@ describe('the library', () => {
     const note = mkNote({ pages: { [PA]: 'a1', [PB]: 'b1' } })
     const { fileId } = await env.seedSynced(note)
     await mountApp()
+    await act(async () => void (await new Promise((r) => setTimeout(r, 900)))) // a badge of the first scan is held
     expect(q('.cover-badge')).toBeNull()
     await env.remoteUpload(foreignEdit(note, PB, 'b2'), { fileId })
     let during: string | null | undefined
@@ -328,6 +329,7 @@ describe('the library', () => {
     await act(async () => void (await env.receiver.check()))
     await flush()
     expect(during).toBe('받는 중')
+    await act(async () => void (await new Promise((r) => setTimeout(r, 900)))) // the badge is held for a moment
     expect(q('.cover-badge')).toBeNull()
   })
 

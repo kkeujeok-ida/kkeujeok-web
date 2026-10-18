@@ -219,6 +219,16 @@ export function useNoteReceiving(noteId: string): boolean {
   return useSyncExternalStore(rx.subscribe, rx.getState, rx.getState).receiving.has(noteId)
 }
 
+/** Some note is being uploaded or received right now (the top display of the library). */
+export function useAnySyncing(): boolean {
+  const ui = useSyncUi()
+  const st = ui?.status ?? NO_STATUS
+  const snap = useSyncExternalStore(st.subscribe, st.getSnapshot, st.getSnapshot)
+  const rx = ui?.receiver ?? NO_RECEIVER
+  const receiving = useSyncExternalStore(rx.subscribe, rx.getState, rx.getState).receiving.size > 0
+  return receiving || [...snap.notes.values()].some((v) => v.state === 'syncing')
+}
+
 /** What Drive did to a note that the screens must say (Story 3.18); null for a note that is fine. */
 export type NoteIssue = { kind: 'deleted' | 'newVersion' | 'unreadable'; fileId: string | null; hasUnsent: boolean }
 

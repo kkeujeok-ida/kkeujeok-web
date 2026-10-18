@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 // The sync indicator of the writing screen: labels from the state machine rule, the timing of
-// "saving", announcements, and the popover with its actions (Story 3.16).
+// "syncing", announcements, and the popover with its actions (Story 3.16).
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { resources } from '../src/i18n'
 import { displayRule } from '../src/sync/syncRules'
 import { SyncIndicator } from '../src/ui/sync/SyncIndicator'
-import { ANNOUNCE_GAP_MS, SAVING_DELAY_MS, SAVING_MIN_MS } from '../src/ui/sync/useDisplayLabel'
+import { ANNOUNCE_GAP_MS, SAVING_MIN_MS } from '../src/ui/sync/useDisplayLabel'
 import { type Mounted, SyncUiProvider, fakeAuth, fakeNet, fakeStatus, mountUi, view } from './syncUiHarness'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -110,41 +110,36 @@ describe('names and labels', () => {
   })
 })
 
-describe('saving is delayed and held', () => {
+describe('syncing is drawn at once and held', () => {
   beforeEach(() => void vi.useFakeTimers())
   const adv = (ms: number) => act(() => void vi.advanceTimersByTime(ms))
 
-  test('1,000 ms of syncing before it is drawn; the old label stays until then', () => {
+  test('"동기화 중" is drawn as soon as the note syncs, with a spinner', () => {
     const s = fakeStatus({ [N]: view('pending') })
     mount(s)
     s.set({ [N]: view('syncing') })
-    adv(SAVING_DELAY_MS - 1)
-    expect(name()).toContain('저장 대기')
-    adv(1)
-    expect(name()).toContain('저장 중')
+    expect(name()).toContain('동기화 중')
     expect(button().querySelector('svg')!.getAttribute('class')).toContain('sync-spin')
   })
 
-  test('a sync shorter than that is never drawn', () => {
+  test('a very short sync stays visible for the minimum time, then reads saved', () => {
     const s = fakeStatus({ [N]: view('pending') })
     mount(s)
     s.set({ [N]: view('syncing') })
-    adv(400)
+    adv(50)
     s.set({ [N]: view('synced', { hasUnsent: false }) })
-    expect(name()).toContain('저장됨')
-    adv(SAVING_DELAY_MS * 2)
+    adv(SAVING_MIN_MS - 51)
+    expect(name()).toContain('동기화 중')
+    adv(1)
     expect(name()).toContain('저장됨')
   })
 
-  test('once drawn it stays at least 600 ms', () => {
+  test('once drawn it stays the minimum time from when it was drawn', () => {
     const s = fakeStatus({ [N]: view('pending') })
     mount(s)
     s.set({ [N]: view('syncing') })
-    adv(SAVING_DELAY_MS)
-    adv(100)
+    adv(SAVING_MIN_MS + 100)
     s.set({ [N]: view('synced', { hasUnsent: false }) })
-    adv(SAVING_MIN_MS - 100 - 1)
-    expect(name()).toContain('저장 중')
     adv(1)
     expect(name()).toContain('저장됨')
   })

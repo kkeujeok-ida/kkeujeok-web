@@ -7,7 +7,7 @@ import type { DisplayLabel } from '../../sync/syncRules'
 import { downloadBlob } from '../download'
 import { DRIVE_STORAGE_URL } from './Banner'
 import { useAnnouncement, useDisplayLabel } from './useDisplayLabel'
-import { useNoteSync, useSyncUi, type NoteSyncDisplay } from './syncUi'
+import { useAnySyncing, useNoteSync, useSyncUi, type NoteSyncDisplay } from './syncUi'
 
 export const LABEL_KEY: Record<DisplayLabel, Key> = {
   saved: 'sync.label.saved',
@@ -69,6 +69,19 @@ export function SyncBadge({ label }: { label: DisplayLabel }) {
       <SyncIcon label={label} />
       <span>{t(BADGE_KEY[label])}</span>
     </span>
+  )
+}
+
+/** The top display of the library: "동기화 중" while any note syncs, held long enough to read; polite for screen readers. */
+export function LibrarySyncing() {
+  const { t } = useI18n()
+  const label = useDisplayLabel(useAnySyncing() ? 'saving' : 'saved')
+  const on = label === 'saving'
+  return (
+    <div aria-live="polite" className={on ? 'library-syncing' : 'sr-only'}>
+      {on && <SyncIcon label="saving" />}
+      {on && <span>{t(LABEL_KEY.saving)}</span>}
+    </div>
   )
 }
 

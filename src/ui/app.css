@@ -334,6 +334,7 @@ h1 {
 
 /* Library */
 .library {
+  position: relative;
   padding-bottom: calc(var(--components-fab-size) + var(--components-fab-inset) * 2);
 }
 
@@ -988,6 +989,16 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   gap: var(--spacing-2);
+}
+
+.library-syncing {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  color: var(--components-sync-indicator-syncing);
 }
 
 .sync-badge {
