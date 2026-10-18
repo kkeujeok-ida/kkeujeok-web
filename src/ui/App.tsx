@@ -45,10 +45,14 @@ function useHash(): string {
 export type SyncUiProps = Pick<ComponentProps<typeof SyncUiProvider>, 'status' | 'net' | 'exportLog' | 'versions'>
 
 export function App({ auth = defaultAuth, root, uploads, receiver, gate, unsentIds, syncUi }: { auth?: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; gate?: GateDeps; unsentIds?: () => Promise<string[] | null>; syncUi?: SyncUiProps }) {
-  const { token, notice, busy } = useSyncExternalStore(auth.subscribe, auth.getState, auth.getState)
+  const { token, notice, busy, expired, restoring } = useSyncExternalStore(auth.subscribe, auth.getState, auth.getState)
+  // Story 11.8: a reload signs in again silently; test stand-ins of Auth may not have `restore`.
+  useEffect(() => void auth.restore?.(), [auth])
   if (isPrivacyPath(globalThis.location?.pathname ?? '/')) return <PrivacyPolicy />
+  if (restoring) return null
   // While the sign-in runs (busy) the account is not known yet: no shell, so nothing syncs before the gate decides.
-  return token && !busy ? (
+  // No token but expired: the silent sign-in failed; the shell opens (local notes) with the [다시 로그인] banner.
+  return (token || expired) && !busy ? (
     <AccountGate auth={auth} {...(gate && { deps: gate })}>
       <Shell auth={auth} root={root} uploads={uploads} receiver={receiver} {...(unsentIds && { unsentIds })} {...(syncUi && { syncUi })} />
     </AccountGate>

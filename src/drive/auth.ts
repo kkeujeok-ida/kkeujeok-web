@@ -25,7 +25,27 @@ export async function fetchUserinfo(token: string): Promise<Account | null> {
   }
 }
 
-export type Outcome = 'granted' | 'denied' | 'cancelled' | 'network' | 'unconfigured'
+// Story 11.8: the only thing kept across a reload is "this browser signed in before"
+// (account sub + e-mail as the login hint). Never a token. Cleared on sign-out and disconnect.
+export const SIGNED_IN_KEY = 'kkeujeok.signedIn'
+const readMark = (): Account | null => {
+  try {
+    const j = JSON.parse(localStorage.getItem(SIGNED_IN_KEY) ?? 'null') as { sub?: unknown; email?: unknown } | null
+    return typeof j?.sub === 'string' && j.sub !== '' ? { sub: j.sub, email: typeof j.email === 'string' ? j.email : '' } : null
+  } catch {
+    return null
+  }
+}
+const writeMark = (a: Account | null) => {
+  try {
+    if (a) localStorage.setItem(SIGNED_IN_KEY, JSON.stringify(a))
+    else localStorage.removeItem(SIGNED_IN_KEY)
+  } catch {
+    // no storage: the next reload asks for a sign-in
+  }
+}
+
+export type Outcome ='granted' | 'denied' | 'cancelled' | 'network' | 'unconfigured'
 export type Notice = 'denied' | 'network' | 'unconfigured' | null
 export interface AuthState {
   token: string | null
@@ -35,6 +55,8 @@ export interface AuthState {
   busy: boolean
   /** A Drive call was refused for the current token (401): it needs a new one (Story 3.16). */
   expired: boolean
+  /** A silent sign-in after a reload is running: neither the shell nor the sign-in screen shows yet. */
+  restoring: boolean
 }
 
 // Only the slice of google.accounts.oauth2 that is used.
@@ -83,10 +105,13 @@ export interface Env {
   revokeTimeoutMs?: number
   /** Looks the account up after a granted sign-in. Absent: the account stays unknown. */
   fetchAccount?: (token: string) => Promise<Account | null>
+  /** How long the silent sign-in may take before it counts as failed. */
+  restoreTimeoutMs?: number
 }
 
-export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000, fetchAccount }: Env) {
-  let state: AuthState = { token: null, account: null, notice: null, busy: false, expired: false }
+export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000, fetchAccount, restoreTimeoutMs = 10_000 }: Env) {
+  let state: AuthState = { token: null, account: null, notice: null, busy: false, expired: false, restoring: !!clientId?.trim() && readMark() !== null }
+  let restoreFlight = false
   const listeners = new Set<() => void>()
   // After a disconnect the next sign-in must show the consent screen again.
   let reconsent = false
@@ -100,7 +125,11 @@ export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000, fet
   async function lookUpAccount(token: string) {
     try {
       const account = (await fetchAccount?.(token)) ?? null
-      if (state.token === token) set({ account }) // not after a sign-out
+      if (state.token === token) {
+        // not after a sign-out
+        set({ account })
+        if (account) writeMark(account)
+      }
     } catch {
       // unknown account: no tag, sign-in still works
     }
@@ -112,7 +141,7 @@ export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000, fet
         .initTokenClient({
           client_id: clientId!.trim(),
           scope: TOKEN_SCOPE,
-          ...(reconsent && { prompt: 'consent' }),
+          prompt: reconsent ? 'consent' : '',
           ...(hint && { hint }),
           callback: (r) => {
             if (r.error || !r.access_token) resolve(r.error === 'access_denied' ? 'denied' : 'network')
@@ -166,7 +195,31 @@ export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000, fet
       return outcome
     },
     // Drop the in-memory token; the gate then shows the sign-in screen.
-    signOut: () => set({ token: null, account: null, notice: null, expired: false }),
+    signOut() {
+      writeMark(null)
+      set({ token: null, account: null, notice: null, expired: false, restoring: false })
+    },
+    // After a reload: a new token without a click (`prompt: ''` + the stored hint). If the browser
+    // does not allow it, the state is "expired" with no token: the shell opens with [다시 로그인].
+    async restore(): Promise<void> {
+      const mark = readMark()
+      if (restoreFlight || state.token || !mark || !clientId?.trim()) return set({ restoring: false })
+      restoreFlight = true
+      set({ restoring: true })
+      let outcome: Outcome
+      try {
+        await loadScript()
+        const oauth2 = gis()
+        const timeout = new Promise<Outcome>((res) => setTimeout(() => res('network'), restoreTimeoutMs))
+        outcome = oauth2 ? await Promise.race([request(oauth2, mark.email || undefined), timeout]) : 'network'
+      } catch {
+        outcome = 'network'
+      }
+      restoreFlight = false
+      if (outcome === 'granted') await lookUpAccount(state.token!)
+      // The hint stands for the account when the lookup failed or nothing was granted.
+      set({ restoring: false, ...(state.account === null && { account: mark }), ...(outcome !== 'granted' && { expired: true }) })
+    },
     // A Drive call was refused (401) for `token`. Only the token in use counts: a late answer
     // for an older token must not expire the new one.
     markExpired(token: string | null) {
@@ -175,7 +228,7 @@ export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000, fet
     // [다시 로그인]: a new token inside the click. Unlike signIn it never sets `busy`, so the
     // shell and the open note stay where they are; a failure leaves everything as it was.
     async reauth(): Promise<Outcome> {
-      if (reauthing || state.busy || !state.token) return 'cancelled'
+      if (reauthing || state.busy || (!state.token && !state.expired)) return 'cancelled'
       reauthing = true
       try {
         await loadScript()
@@ -213,6 +266,7 @@ export function createAuth({ clientId, loadScript, revokeTimeoutMs = 10_000, fet
         })
         if (ok) {
           reconsent = true
+          writeMark(null)
           set({ account: null })
         }
         return ok ? 'revoked' : 'failed'

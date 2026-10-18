@@ -210,7 +210,7 @@ describe('disconnect', () => {
     expect(host.querySelector('nav')).toBeNull()
     expect(await dbExists()).toBe(false)
     await act(async () => void (await auth.signIn()))
-    expect(prompts).toEqual([undefined, 'consent'])
+    expect(prompts).toEqual(['', 'consent'])
   })
 
   test('revoke fails: local data kept, retry revokes again, then succeeds', async () => {

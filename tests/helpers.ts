@@ -38,7 +38,7 @@ export function fakeLocks() {
 }
 
 // An already signed-in auth, for tests of the shell behind the sign-in gate.
-const state = { token: 't', account: null, notice: null, busy: false, expired: false }
+const state = { token: 't', account: null, notice: null, busy: false, expired: false, restoring: false }
 export const signedIn = {
   getState: () => state,
   subscribe: () => () => {},
@@ -48,5 +48,6 @@ export const signedIn = {
   reauth: async () => 'granted',
   markExpired: () => {},
   signOut: () => {},
+  restore: async () => {},
   disconnect: async () => 'revoked',
 } as Auth
