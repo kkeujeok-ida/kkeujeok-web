@@ -13,6 +13,7 @@ import { createSyncDeviceStore } from '../storage/syncDevice'
 import { detectEditedBy } from '../ui/library/useLibrary'
 import { createMergeIo } from './mergeIo'
 import { createNoteUploader } from './noteUploader'
+import { createOtherTime } from './otherTime'
 import { getOpenNote, openNoteIds } from './openNotes'
 import { syncLog } from './syncLog'
 import { type UploadCoordinator, createUploadCoordinator } from './uploadCoordinator'
@@ -51,6 +52,10 @@ export function defaultUploadCoordinator(auth: Auth, root: RootFolderStore): Upl
   }
   return c
 }
+
+/** The best-effort "when was the other device's version uploaded" for the conflict dialog, on the real Drive. */
+export const defaultOtherTime = (auth: Auth) =>
+  createOtherTime({ drive: createAuthedDrive(auth), online: () => globalThis.navigator?.onLine !== false })
 
 /** Attaches the upload triggers while mounted. Nothing runs after unmount. */
 export function attachUploadTriggers(

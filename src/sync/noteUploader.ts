@@ -66,7 +66,12 @@ export type UploaderDeps = {
   md5?: (bytes: Uint8Array) => string
   /** Resumable chunk size (a multiple of 262,144); the spec value by default. */
   chunkSize?: number
+  /** Milliseconds since the epoch, for the 30-day sidecar cleanup. */
+  now?: () => number
 }
+
+/** A resolved conflict's sidecar stays on Drive this long (Story 3.21/3.22). */
+export const SIDECAR_KEEP_MS = 30 * 24 * 60 * 60 * 1000
 
 export type NoteUploader = ReturnType<typeof createNoteUploader>
 
@@ -97,15 +102,15 @@ export function createNoteUploader(d: UploaderDeps) {
   /** One `sync.json` write: `edit` changes the fields, then `event` moves the state. Logs the state change. */
   async function commit(
     noteId: string,
-    edit: (c: SyncInfo) => SyncInfo,
-    o: { event?: string; base?: Note; unsentOf?: () => boolean; committed?: () => Promise<void> } = {},
+    edit: (c: SyncInfo, stored: { working: Note | null; base: Note | null }) => SyncInfo,
+    o: { event?: string; base?: Note; unsentOf?: () => boolean; committed?: () => Promise<void>; after?: (next: SyncInfo, stored: { working: Note | null; base: Note | null }) => SyncInfo } = {},
   ): Promise<SyncInfo> {
     let from = ''
     let to = ''
     const done = await store.updateSync(
       noteId,
-      (cur) => {
-        let next = edit(cur)
+      (cur, stored) => {
+        let next = edit(cur, stored)
         from = to = cur.state
         if (o.event) {
           let f: string = cur.state
@@ -119,6 +124,10 @@ export function createNoteUploader(d: UploaderDeps) {
           if (t) {
             to = t
             next = { ...next, state: t }
+          }
+          if (o.after) {
+            next = o.after(next, stored)
+            to = next.state
           }
         }
         return next
@@ -596,7 +605,124 @@ export function createNoteUploader(d: UploaderDeps) {
     if (after && differs(uploaded, after)) await commit(noteId, (c) => c, { event: 'edit' })
   }
 
+  // ---- resolved conflicts (Story 3.22) -------------------------------------
+  const sameEntry = (a: JsonMap, b: JsonMap) => a.pageId === b.pageId && a.rev === b.rev
+  const sidecarId = (noteId: string, c: JsonMap) => `sc:${noteId}:${String(c.pageId)}:${String(c.rev)}`
+
+  /** A failure of the best-effort sidecar work: logged, never thrown; the next call tries again. */
+  async function ignored(noteId: string, e: unknown): Promise<void> {
+    try {
+      const f = e instanceof UploadFailure ? e.f : { cls: 'fatal', reason: 'sidecarSync' }
+      await log.append('error', {
+        class: f.cls,
+        noteId,
+        ...(f.status !== undefined && { status: f.status }),
+        ...(f.reason !== undefined && { reason: f.reason }),
+      })
+    } catch {
+      // the log is not writable: nothing more to do
+    }
+  }
+
+  /** Sets a local flag key on the entry of a conflict. */
+  const flag = (noteId: string, c: JsonMap, key: string) =>
+    store.updateSync(noteId, (cur) => ({ ...cur, conflicts: cur.conflicts.map((e) => (sameEntry(e, c) ? { ...e, [key]: true } : e)) }))
+
+  /**
+   * A conflict was settled: its entry takes `conflict` (with `resolvedAt`) and the state takes the event `resolve`, in
+   * ONE `sync.json` write. The resolved note must be saved before this runs. Throws when `sync.json` cannot be
+   * written or has no such unresolved conflict. Answers the record as committed.
+   */
+  async function resolved(noteId: string, conflict: JsonMap): Promise<SyncInfo> {
+    return commit(
+      noteId,
+      (c) => {
+        if (!c.conflicts.some((e) => sameEntry(e, conflict) && e.resolvedAt == null)) throw new NoteSaveError('no such conflict')
+        return { ...c, conflicts: c.conflicts.map((e) => (sameEntry(e, conflict) && e.resolvedAt == null ? { ...conflict } : e)) }
+      },
+      {
+        event: 'resolve',
+        // Nothing unsent after the resolve (the other device's deleted page removed): saved, not pending. Decided from
+        // the records of the same transaction.
+        after: (n, s) => {
+          const base = n.baseHeadRevisionId === null ? null : s.base
+          const unsent =
+            !s.working ||
+            (hasUnsentRule({ base, working: s.working, pendingVerify: n.pendingVerify, unsentSidecars: n.unsentSidecars }) as { hasUnsent?: boolean }).hasUnsent !== false
+          return n.state === 'pending' && !unsent && !n.conflicts.some((e) => e.resolvedAt == null) ? { ...n, state: 'synced' } : n
+        },
+      },
+    )
+  }
+
+  /**
+   * Sets `kkjResolved` on the sidecar files of resolved conflicts once the resolving upload is verified (nothing
+   * unsent). A conflict is flagged only when its sidecar was found on Drive; its local record goes then. A failure
+   * is logged per conflict and retried at the next call. Never throws.
+   */
+  async function markResolved(noteId: string): Promise<void> {
+    let todo: JsonMap[]
+    try {
+      const s = await store.readSync(noteId)
+      todo = s.info.conflicts.filter((c) => c.resolvedAt != null && c.sidecarMarked !== true)
+      if (todo.length === 0 || s.hasUnsent || s.info.state === 'error') return
+      if (!d.allowed() || !d.online()) return
+    } catch (e) {
+      return ignored(noteId, e)
+    }
+    for (const c of todo) {
+      try {
+        const at = String(c.resolvedAt)
+        const files = await all(noteId, kkeujeokIdQuery(sidecarId(noteId, c)))
+        for (const f of files) {
+          if (f.appProperties.kkjResolved === at) continue
+          await call(noteId, () => drive.update(f.id, { appProperties: { kkjResolved: at } }))
+        }
+        if (files.length > 0) {
+          await flag(noteId, c, 'sidecarMarked')
+          await store.sidecars.delete(noteId, String(c.pageId), String(c.rev))
+        }
+      } catch (e) {
+        await ignored(noteId, e)
+      }
+    }
+  }
+
+  /** App start: sidecars resolved more than 30 days ago go to the Drive trash (no hard delete). Best effort, never throws. */
+  async function cleanResolvedSidecars(noteIds: Iterable<string>): Promise<void> {
+    const limit = new Date((d.now ?? Date.now)() - SIDECAR_KEEP_MS).toISOString()
+    for (const noteId of noteIds) {
+      await chained(noteId, async () => {
+        let todo: JsonMap[]
+        try {
+          const s = await store.readSync(noteId)
+          // Canonical timestamps compare as text.
+          todo = s.info.conflicts.filter((c) => typeof c.resolvedAt === 'string' && c.resolvedAt <= limit && c.sidecarTrashed !== true)
+          if (todo.length === 0 || !d.allowed() || !d.online()) return
+        } catch (e) {
+          return ignored(noteId, e)
+        }
+        for (const c of todo) {
+          try {
+            const files = await all(noteId, kkeujeokIdQuery(sidecarId(noteId, c)))
+            for (const f of files) await call(noteId, () => drive.update(f.id, { trashed: true }))
+            if (files.length > 0) {
+              await flag(noteId, c, 'sidecarTrashed')
+              await store.sidecars.delete(noteId, String(c.pageId), String(c.rev))
+            }
+          } catch (e) {
+            await ignored(noteId, e)
+          }
+        }
+      })
+    }
+  }
+
   return {
+    /** A conflict was settled in the editor (chained with this note's uploads). */
+    conflictResolved: (noteId: string, conflict: JsonMap) => chained(noteId, () => resolved(noteId, conflict)),
+    markResolved: (noteId: string) => chained(noteId, () => markResolved(noteId)),
+    cleanResolvedSidecars,
     /** Uploads `noteId` when it has unsent changes or an unfinished upload. */
     upload: (noteId: string) => chained(noteId, () => run(noteId, false)),
     /** "Start": finishes an interrupted upload (`pendingVerify` set); a note without one is left to `upload`. */

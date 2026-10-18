@@ -48,8 +48,11 @@ export interface DriveClient {
   /** `files.create` with metadata only (`name`, `mimeType`, `parents`, `appProperties`). */
   create(metadata: Record<string, unknown>): Promise<DriveFile>
   get(id: string, o?: { fields?: string }): Promise<DriveFile>
-  /** `files.update` of metadata: parents moved and/or the file trashed. */
-  update(id: string, o: { addParents?: string; removeParents?: string; trashed?: boolean }): Promise<DriveFile>
+  /** `files.update` of metadata: parents moved, the file trashed and/or `appProperties` set (a `null` value deletes the key). */
+  update(
+    id: string,
+    o: { addParents?: string; removeParents?: string; trashed?: boolean; appProperties?: Record<string, string | null> },
+  ): Promise<DriveFile>
   /**
    * One multipart upload (`fields=id,headRevisionId,md5Checksum`). Creates when `fileId` is
    * undefined, else replaces the content. An update never carries `parents`.
@@ -370,7 +373,10 @@ export function createHttpDriveClient(o: {
             ...(p.addParents && { addParents: p.addParents }),
             ...(p.removeParents && { removeParents: p.removeParents }),
           },
-          p.trashed === undefined ? {} : { trashed: p.trashed },
+          {
+            ...(p.trashed !== undefined && { trashed: p.trashed }),
+            ...(p.appProperties !== undefined && { appProperties: p.appProperties }),
+          },
         ),
         id,
       )

@@ -30,8 +30,10 @@ export type SyncUi = {
   exportLog: () => Promise<{ name: string; text: string }>
   /** [다시 살리기] of the deleted banner: the file is back on Drive and the note goes up now. */
   revive: (noteId: string) => Promise<void>
-  /** [해결하기] of the conflict banner. Story 3.22 provides the sheet; without it the button stays inert. */
+  /** [해결하기] of the conflict banner: opens the resolve dialog of the note. Without it the button stays inert. */
   resolve?: (noteId: string) => void
+  /** When the other device's version was uploaded (ISO) for the note file `fileId`; best effort, null when unknown. */
+  otherTime?: (fileId: string | null) => Promise<string | null>
   /** [다시 로그인]; one at a time. */
   reauth: () => void
   reauthBusy: boolean
@@ -76,6 +78,7 @@ export function SyncUiProvider({
   win: winProp,
   doc: docProp,
   resolve,
+  otherTime,
   children,
 }: {
   auth: AuthLike
@@ -87,6 +90,7 @@ export function SyncUiProvider({
   win?: Pick<Window, 'addEventListener' | 'removeEventListener'>
   doc?: Pick<Document, 'addEventListener' | 'removeEventListener' | 'visibilityState'>
   resolve?: (noteId: string) => void
+  otherTime?: (fileId: string | null) => Promise<string | null>
   children?: ReactNode
 }) {
   const status = useMemo(() => statusProp ?? defaultStatus(), [statusProp])
@@ -130,6 +134,7 @@ export function SyncUiProvider({
       exportLog,
       reauthBusy,
       ...(resolve && { resolve }),
+      ...(otherTime && { otherTime }),
       async revive(noteId) {
         await receiver?.revive?.(noteId)
         await uploads?.syncNow?.(noteId)
@@ -156,7 +161,7 @@ export function SyncUiProvider({
         })()
       },
     }),
-    [status, net, auth, receiver, uploads, exportLog, reauthBusy, resolve],
+    [status, net, auth, receiver, uploads, exportLog, reauthBusy, resolve, otherTime],
   )
   return <SyncUiContext.Provider value={value}>{children}</SyncUiContext.Provider>
 }

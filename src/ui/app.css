@@ -1009,3 +1009,142 @@ h1 {
   background: var(--components-badge-error-background);
   color: var(--components-badge-error-text);
 }
+
+/* Conflict resolve dialog (Story 3.22). Colors from the conflict-sheet tokens; buttons wrap, text never clips. */
+.dialog-scrim.conflict-scrim {
+  background: var(--components-conflict-sheet-scrim);
+}
+
+.dialog.conflict-sheet {
+  width: 100%;
+  max-width: calc(var(--spacing-cover-column-min) * 4);
+  max-height: 100%;
+  overflow-y: auto;
+  border-radius: var(--components-conflict-sheet-rounded);
+  background: var(--components-conflict-sheet-background);
+}
+
+.conflict-sheet .btn {
+  justify-content: center;
+  height: auto;
+  padding-block: var(--spacing-1);
+  text-align: center;
+  white-space: normal;
+}
+
+.conflict-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.conflict-nav {
+  display: flex;
+  gap: var(--spacing-1);
+}
+
+.dialog .conflict-question {
+  font-size: var(--typography-label-font-size);
+  font-weight: var(--typography-label-font-weight);
+  line-height: var(--typography-label-line-height);
+}
+
+.conflict-sides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-4);
+}
+
+.conflict-side {
+  display: flex;
+  flex: 1 1 var(--spacing-cover-column-min);
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+.conflict-tag {
+  align-self: flex-start;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--rounded-sm);
+  background: var(--components-conflict-sheet-tag-background);
+  color: var(--components-conflict-sheet-tag-text);
+  font-size: var(--typography-label-font-size);
+  font-weight: var(--typography-label-font-weight);
+  line-height: var(--typography-label-line-height);
+}
+
+.conflict-preview {
+  align-self: center;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--components-conflict-sheet-preview-border);
+  border-radius: var(--rounded-sm);
+}
+
+.conflict-preview canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.conflict-deleted {
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-height: calc(var(--spacing-cover-column-min) * 1.5);
+  padding: var(--spacing-3);
+  border: 1px solid var(--components-conflict-sheet-preview-border);
+  border-radius: var(--rounded-sm);
+  text-align: center;
+}
+
+.conflict-when {
+  font-size: var(--typography-caption-font-size);
+  line-height: var(--typography-caption-line-height);
+}
+
+.conflict-newer {
+  color: var(--color-status-warning-text);
+  font-size: var(--typography-label-font-size);
+  font-weight: var(--typography-label-font-weight);
+  line-height: var(--typography-label-line-height);
+}
+
+.btn.conflict-primary {
+  border-color: transparent;
+  border-radius: var(--components-conflict-sheet-primary-rounded);
+  background: var(--components-conflict-sheet-primary-background);
+  color: var(--components-conflict-sheet-primary-text);
+}
+
+.btn.conflict-version {
+  border-color: var(--components-conflict-sheet-version-button-border);
+  border-radius: var(--components-conflict-sheet-version-button-rounded);
+  background: var(--components-conflict-sheet-version-button-background);
+  color: var(--components-conflict-sheet-version-button-text);
+}
+
+.conflict-rest {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--spacing-2);
+}
+
+.btn.conflict-rest-button,
+.btn.conflict-later {
+  border-color: transparent;
+  background: transparent;
+}
+
+.dialog .conflict-note {
+  color: var(--color-ink-secondary);
+  font-size: var(--typography-caption-font-size);
+  line-height: var(--typography-caption-line-height);
+  text-align: center;
+}

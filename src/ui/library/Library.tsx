@@ -13,10 +13,11 @@ import { Banner } from '../sync/Banner'
 import { CannotOpenSheet } from '../sync/CannotOpenSheet'
 import { downloadBlob } from '../download'
 import { SyncBadge, useCardStatus, BADGE_KEY } from '../sync/SyncIndicator'
-import { useNoteIssue, useOffline } from '../sync/syncUi'
+import { useNoteConflicts, useNoteIssue, useOffline } from '../sync/syncUi'
 import { LibraryFab } from './LibraryFab'
 import { NewNoteDialog } from './NewNoteDialog'
 import { noteHref } from './NoteEditor'
+import { requestResolve } from './resolveRequest'
 import { useLibrary, type LibraryItem } from './useLibrary'
 
 // One per page session, so what was created last wins over a failed save.
@@ -332,6 +333,7 @@ function Card({
   const dateId = useId()
   const statusId = useId()
   const sync = useCardStatus(item.noteId).label
+  const conflicted = (useNoteConflicts(item.noteId)?.length ?? 0) > 0
   if (item.blocked) return <BlockedCard fileId={item.blocked.fileId} hasUnsent={false} exportCopy={exportCopy} />
   if (issue?.kind === 'unreadable') return <BlockedCard fileId={issue.fileId} hasUnsent={issue.hasUnsent} exportCopy={exportCopy} />
   if (item.title === null) {
@@ -373,7 +375,12 @@ function Card({
         aria-labelledby={titleId}
         aria-describedby={described}
         title={item.title}
-        onClick={(e) => blocked() && e.preventDefault()}
+        onClick={(e) => {
+          if (blocked()) return e.preventDefault()
+          // A conflicted note opens with the resolve dialog already up (Story 3.22).
+          const plain = e.button === 0 && !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
+          if (conflicted && plain) requestResolve(item.noteId)
+        }}
       >
         <span className="cover-thumb-wrap">
           <Thumb page={item.page} />

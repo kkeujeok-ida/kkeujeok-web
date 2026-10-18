@@ -12,10 +12,13 @@ import type { NoteReceiver } from '../../sync/noteReceiver'
 import type { UploadCoordinator } from '../../sync/uploadCoordinator'
 import { Banner } from '../sync/Banner'
 import { unresolvedOf } from '../../sync/conflicts'
-import { useNoteConflicts, useNoteIssue } from '../sync/syncUi'
+import type { Conflict } from '../../sync/merge'
+import { useNoteConflicts, useNoteIssue, useSyncUi } from '../sync/syncUi'
 import { SyncIndicator } from '../sync/SyncIndicator'
+import { ConflictDialog, type ConflictItem, type ResolveOutcome, pageNo, resultKey } from './ConflictDialog'
 import { PenPopover } from './PenPopover'
 import { PenToolbar } from './PenToolbar'
+import { onResolveRequest, takeResolveRequest } from './resolveRequest'
 import { detectEditedBy } from './useLibrary'
 import { ZOOM_MAX, ZOOM_MIN } from '../../render/pagePainter'
 import { ARROW_STEP, Writer, ZOOM_STEP, type ViewInfo, type WriterMessage } from './writer'
@@ -85,8 +88,8 @@ export function NoteEditor({
   noteId: string
   openStore?: () => NoteStore
   penStore?: PenSlotsStore
-  /** Told when the note is closed, after its last save and its lock are released (Story 3.12). */
-  uploads?: Pick<UploadCoordinator, 'noteClosed'>
+  /** Told when the note is closed, after its last save and its lock are released (Story 3.12); records a resolved conflict (Story 3.22). */
+  uploads?: Pick<UploadCoordinator, 'noteClosed'> & Partial<Pick<UploadCoordinator, 'conflictResolved' | 'syncNow'>>
   /** Receives remote changes before the editor opens and checks the remote head after (Story 3.14). */
   receiver?: Pick<NoteReceiver, 'beforeOpen' | 'noteOpened'> & Partial<Pick<NoteReceiver, 'noteClosed'>>
 }) {
@@ -115,6 +118,20 @@ export function NoteEditor({
   const tRef = useRef(t)
   tRef.current = t
   const lastBlockedAlert = useRef(-Infinity)
+  // The conflict resolve dialog (Story 3.22): the items it shows, who had focus before, the polite result words.
+  const ui = useSyncUi()
+  const [dialog, setDialog] = useState<ConflictItem[] | null>(null)
+  const dialogOpener = useRef<HTMLElement | null>(null)
+  const dialogOpening = useRef(false)
+  const [resultText, setResultText] = useState('')
+  // Resolutions that are in the note but whose `sync.json` write failed, by page id and rev: a retry only writes
+  // `sync.json` again, so the note is never resolved twice (keep-both would add a page).
+  const unrecorded = useRef(new Map<string, { conflict: Conflict; used: string }>())
+  // Pages this editor just settled: an older status snapshot that still lists them must not lock them again.
+  const settledPages = useRef(new Set<string>())
+  // Unresolved entries the dialog could not show (no sidecar / no page).
+  const skipped = useRef(0)
+  const wantResolve = useRef(false)
 
   const section = useRef<HTMLElement>(null)
   const back = useRef<HTMLButtonElement>(null)
@@ -132,6 +149,8 @@ export function NoteEditor({
   useEffect(() => {
     mounted.current = true
     mountedNotes.add(noteId)
+    // A request made for this open is taken now (and any other is dropped): it never outlives it.
+    wantResolve.current ||= takeResolveRequest(noteId)
     let live = true
     let writer: Writer | null = null
     let unregister: () => void = () => {}
@@ -310,9 +329,12 @@ export function NoteEditor({
   // a conflict that appears while the editor is open is announced at once.
   const conflicts = useNoteConflicts(noteId)
   const knownConflicts = useRef<Set<string> | null>(null)
+  const conflictsRef = useRef(conflicts)
+  conflictsRef.current = conflicts
   useEffect(() => {
     if (!conflicts) return
-    loaded?.writer.history.lockPages(conflicts.map((c) => c.pageId))
+    for (const id of settledPages.current) if (!conflicts.some((c) => c.pageId === id)) settledPages.current.delete(id)
+    loaded?.writer.history.lockPages(conflicts.map((c) => c.pageId).filter((id) => !settledPages.current.has(id)))
     const known = knownConflicts.current
     const fresh = known ? conflicts.find((c) => !known.has(c.pageId)) : undefined
     knownConflicts.current = new Set(conflicts.map((c) => c.pageId))
@@ -327,6 +349,11 @@ export function NoteEditor({
     const id = setTimeout(() => setAlert((a) => ({ ...a, text: '' })), ALERT_MS)
     return () => clearTimeout(id)
   }, [alert])
+  useEffect(() => {
+    if (!resultText) return
+    const id = setTimeout(() => setResultText(''), ALERT_MS)
+    return () => clearTimeout(id)
+  }, [resultText])
   // Read-only began while the popover was open: close it.
   useEffect(() => {
     if (readOnly) setPopover(null)
@@ -405,6 +432,20 @@ export function NoteEditor({
         return
       }
       if (!onCanvas) return
+      // PgUp / PgDn / Home / End move between the pages of a note that has more than one.
+      if (!e.ctrlKey && !e.metaKey && !e.shiftKey && writer.history.note.pages.length > 1) {
+        const last = writer.history.note.pages.length - 1
+        if (e.key === 'PageDown' || e.key === 'PageUp') {
+          e.preventDefault()
+          writer.pageStep(e.key === 'PageDown' ? 1 : -1)
+          return
+        }
+        if (e.key === 'Home' || e.key === 'End') {
+          e.preventDefault()
+          writer.goToPage(e.key === 'Home' ? 0 : last)
+          return
+        }
+      }
       if (e.ctrlKey || e.metaKey) {
         const zoomIn = e.key === '=' || e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd'
         const zoomOut = e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract'
@@ -491,6 +532,142 @@ export function NoteEditor({
     void Promise.race([done, giveUp]).then(() => mounted.current && backToLibrary())
   }
 
+  /**
+   * The unresolved conflicts with both versions at hand. An entry whose sidecar record is gone, or whose page is gone
+   * (other than a page the other device deleted), is skipped: there is nothing to compare.
+   */
+  const loadItems = async (l: Loaded): Promise<{ items: ConflictItem[]; unresolved: number }> => {
+    const s = await l.writer.store.readSync(noteId) // never throws; an unreadable record has no conflicts
+    const un = unresolvedOf(s.info)
+    const items: ConflictItem[] = []
+    if (un.length === 0) return { items, unresolved: 0 }
+    const otherTime = await (ui?.otherTime?.(s.info.fileId ?? null) ?? Promise.resolve(null)).catch(() => null)
+    for (const c of un) {
+      try {
+        const sc = await l.writer.store.sidecars.get(noteId, String(c.pageId), String(c.rev))
+        if (!sc) continue
+        const cur = l.writer.history.note.pages.find((p) => p.id === c.pageId) ?? null
+        if (!cur && c.kind !== 'remoteDeleted') continue
+        const entry = { ...c, originalIndex: typeof c.originalIndex === 'number' ? c.originalIndex : 0 } as unknown as Conflict
+        items.push({ entry, sidecar: sc, current: cur, otherTime })
+      } catch {
+        // a damaged entry is skipped; the others can still be settled
+      }
+    }
+    return { items, unresolved: un.length }
+  }
+
+  /** [해결하기] and a library card of a conflicted note. */
+  const openDialog = async () => {
+    if (!loaded || loaded.readOnly || loaded.writer.leaving || dialog || dialogOpening.current) return
+    dialogOpening.current = true
+    try {
+      const { items, unresolved } = await loadItems(loaded)
+      if (!mounted.current) return
+      // The record says there is nothing to settle while the status store still shows a conflict: an unreadable record.
+      if (unresolved === 0) return (conflictsRef.current?.length ?? 0) > 0 ? say(t('conflict.resolveFailed')) : undefined
+      if (items.length === 0) return say(t('conflict.resolveFailed')) // no silent dead end
+      dialogOpener.current = document.activeElement as HTMLElement | null
+      skipped.current = unresolved - items.length
+      setDialog(items)
+    } finally {
+      dialogOpening.current = false
+    }
+  }
+  const openDialogRef = useRef(openDialog)
+  openDialogRef.current = openDialog
+  // A request asked for before the note was loaded (a card) is served once it is.
+  const loadedRef = useRef(loaded)
+  loadedRef.current = loaded
+  useEffect(() => {
+    if (!loaded || loaded.readOnly || !wantResolve.current) return
+    wantResolve.current = false
+    void openDialogRef.current()
+  }, [loaded])
+  useEffect(
+    () =>
+      onResolveRequest((id) => {
+        if (id !== noteId || !takeResolveRequest(noteId)) return
+        if (loadedRef.current) void openDialogRef.current()
+        else wantResolve.current = true
+      }),
+    [noteId],
+  )
+
+  /**
+   * One `resolveConflict` through the editor's queue, then `sync.json`. Answers the choice that was applied, or null
+   * when nothing was settled. The pages are unlocked from the record as committed, never from a read that failed.
+   */
+  const resolveOne = async (item: ConflictItem, choice: string): Promise<string | null> => {
+    // Nothing is applied when the result could not be recorded afterwards.
+    if (!loaded || !uploads?.conflictResolved) return null
+    const { writer } = loaded
+    const key = `${item.entry.pageId}:${item.entry.rev}`
+    let saved = unrecorded.current.get(key)
+    if (!saved) {
+      const out = writer.applyResolved(item.entry, item.sidecar, choice)
+      if (out.result !== 'resolved') return null
+      saved = { conflict: out.conflict, used: out.used }
+      unrecorded.current.set(key, saved)
+    }
+    // The resolved note is on disk before `sync.json` says so.
+    if (!(await writer.flushSaves())) return null
+    const record = () => uploads.conflictResolved!(noteId, saved!.conflict as unknown as Record<string, unknown>)
+    let info
+    try {
+      info = await record()
+    } catch {
+      try {
+        info = await record() // once more, then the result stays in memory
+      } catch {
+        // A write that succeeded and then threw: the entry is resolved already, which is what we wanted.
+        const now = await writer.store.readSync(noteId).catch(() => null)
+        const done = now?.info.conflicts.some((c) => c.pageId === item.entry.pageId && c.rev === item.entry.rev && c.resolvedAt != null)
+        if (!now || !done) return null
+        info = now.info
+      }
+    }
+    unrecorded.current.delete(key)
+    settledPages.current.add(item.entry.pageId)
+    writer.setLocked(unresolvedOf(info).map((c) => String(c.pageId)))
+    return saved.used
+  }
+
+  /** Settles the chosen conflicts one after the other; the first failure stops the rest. */
+  const resolveChoices = async (choices: [ConflictItem, string][]): Promise<ResolveOutcome> => {
+    const settled = new Set<string>()
+    let message: string | null = null
+    for (const [item, choice] of choices) {
+      const used = await resolveOne(item, choice)
+      if (used === null) break
+      settled.add(item.entry.pageId)
+      if (choices.length === 1) message = fmt(t(resultKey(used)), { n: pageNo(item) })
+    }
+    if (settled.size === 0) return { settled, message }
+    if (choices.length > 1) message = t(settled.size === 1 ? 'conflict.resolvedAllOne' : 'conflict.resolvedAll').replace('{n}', String(settled.size))
+    if (mounted.current) setResultText(message ?? '')
+    // The resolution goes up (the note stays open).
+    void Promise.resolve()
+      .then(() => uploads?.syncNow?.(noteId))
+      .catch(() => {})
+    return { settled, message }
+  }
+
+  const closeDialog = (all: boolean) => {
+    setDialog(null)
+    // Entries without both versions are still open: not finished, and the person is told.
+    const left = skipped.current
+    const done = all && left === 0
+    if (all && left > 0) say(fmt(t('conflict.skipped'), { n: left }))
+    // The last conflict is settled: back to the page. Otherwise to where the dialog came from.
+    const back = dialogOpener.current
+    queueMicrotask(() => {
+      if (!mounted.current) return
+      if (!done && back?.isConnected) back.focus()
+      else canvas.current?.focus()
+    })
+  }
+
   const scale = view?.scale ?? 1
   const percent = Math.round(scale * 100)
   const atMin = scale <= ZOOM_MIN + 1e-9
@@ -510,15 +687,21 @@ export function NoteEditor({
     more.current?.focus()
   }
 
-  const page = loaded?.writer.history.note.pages[0]
-  const total = loaded?.writer.history.note.pages.length ?? 0
-  const pageLabel = page
-    ? fmt(t('editor.page'), {
-        n: 1,
-        total,
-        orientation: t(page.width > page.height ? 'library.orientation.landscape' : 'library.orientation.portrait'),
-      })
-    : undefined
+  const pages = loaded?.writer.history.note.pages ?? []
+  const total = pages.length
+  // The page in view (a page key or scrolling moved it); 0 until the view is laid out.
+  const at = Math.min(view?.page ?? 0, Math.max(0, total - 1))
+  const labelOf = (i: number) => {
+    const page = pages[i]
+    return page
+      ? fmt(t('editor.page'), {
+          n: i + 1,
+          total,
+          orientation: t(page.width > page.height ? 'library.orientation.landscape' : 'library.orientation.portrait'),
+        })
+      : undefined
+  }
+  const pageLabel = labelOf(at)
 
   return (
     <section ref={section} className="editor" aria-label={loaded?.title} aria-busy={!loaded}>
@@ -636,6 +819,15 @@ export function NoteEditor({
             <span id={descId} className="sr-only">
               {loaded.writer.pageLocked ? `${t('editor.handwriting')}. ${t('editor.conflictDescription')}` : t('editor.handwriting')}
             </span>
+            {total > 1 && (
+              <ul className="sr-only" aria-label={t('editor.pages')}>
+                {pages.map((p, i) => (
+                  <li key={p.id} aria-current={i === at ? 'page' : undefined}>
+                    {labelOf(i)}
+                  </li>
+                ))}
+              </ul>
+            )}
             {view?.y && (
               <span className="editor-scroll editor-scroll-y" aria-hidden="true">
                 <span style={{ top: `${view.y.start * 100}%`, height: `${view.y.size * 100}%` }} />
@@ -653,9 +845,13 @@ export function NoteEditor({
           <div role="status" aria-live="polite" className="sr-only">
             {announce}
           </div>
+          <div role="status" aria-live="polite" className="sr-only" data-result="">
+            {resultText}
+          </div>
           <div role="alert" className="sr-only" key={alert.n}>
             {alert.text}
           </div>
+          {dialog && <ConflictDialog items={dialog} skipped={skipped.current} onResolve={resolveChoices} onClose={closeDialog} />}
           {popover !== null && !readOnly && pens[popover] && (
             <PenPopover
               pen={pens[popover]}

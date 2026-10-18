@@ -76,7 +76,7 @@ describe('a conflict found while uploading', () => {
     ])
     expect(s.info.unsentSidecars).toEqual([])
     expect(s.hasUnsent).toBe(false)
-    expect(await e.store.sidecars.get(NID, PA, 'a2')).toBeNull() // gone only after the upload was confirmed
+    expect(await e.store.sidecars.get(NID, PA, 'a2')).not.toBeNull() // unresolved: kept for the resolve dialog (Story 3.22)
     expect((await e.device.read()).conflictsFolderId).toBe(conflicts.id)
     expect((await e.device.read()).createIntents).toEqual([])
     expect(e.invalid).toEqual([])
@@ -161,7 +161,7 @@ describe('the sidecar must be on Drive before the device lets go', () => {
     const after = await e.sync()
     expect(after.info.unsentSidecars).toEqual([])
     expect(after.info.state).toBe('conflict')
-    expect(await e.store.sidecars.get(NID, PA, 'a2')).toBeNull()
+    expect(await e.store.sidecars.get(NID, PA, 'a2')).not.toBeNull()
   })
 
   test('a file whose checksum is not ours: the record and the list entry are kept, the note is not uploaded', async () => {
@@ -204,7 +204,7 @@ describe('the sidecar must be on Drive before the device lets go', () => {
     expect(e.drive.uploads.filter((u) => u.metadata.name === `${PA}-a2.json`)).toHaveLength(sidecarCreates)
     expect(e.drive.byKkeujeokId(kid(PA, 'a2'))).toHaveLength(1)
     expect((await e.sync()).info.unsentSidecars).toEqual([])
-    expect(await e.store.sidecars.get(NID, PA, 'a2')).toBeNull()
+    expect(await e.store.sidecars.get(NID, PA, 'a2')).not.toBeNull()
   })
 
   test('the listing lags behind the creates: the response ids are used, no duplicates appear', async () => {

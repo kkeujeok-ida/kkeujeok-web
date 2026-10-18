@@ -21,6 +21,12 @@ export class History {
   isLocked(pageId: string): boolean {
     return this.locked.has(pageId)
   }
+  /** The next undo / redo record belongs to a locked page (it would be refused). */
+  topLocked(kind: 'undo' | 'redo'): boolean {
+    const s = kind === 'undo' ? this.undoStack : this.redoStack
+    const top = s[s.length - 1]
+    return !!top && this.touchesLocked(top)
+  }
   private touchesLocked(op: Op): boolean {
     return typeof op.pageId === 'string' && this.locked.has(op.pageId)
   }

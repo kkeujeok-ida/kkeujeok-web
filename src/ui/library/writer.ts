@@ -6,9 +6,10 @@ import type { Page, Stroke } from '../../model/note'
 import type { Pen } from '../../model/pen'
 import type { History } from '../../ops/history'
 import type { Note } from '../../model/note'
+import { type ResolveResult, resolveConflict } from '../../ops/resolveConflict'
 import { commitMerge } from '../../sync/commitMerge'
 import { sidecarKey } from '../../sync/conflicts'
-import { type MergeCtx, type RequeueResult, mergeRequeue } from '../../sync/merge'
+import { type Conflict, type MergeCtx, type RequeueResult, type Sidecar, mergeRequeue } from '../../sync/merge'
 import {
   clampScale,
   clampViewport,
@@ -28,7 +29,8 @@ import { SaveQueue, markUnsaved, trackSave } from '../../storage/saveQueue'
 
 export type WriterMessage = 'saveFailed' | 'strokeNotAdded' | 'historyNotApplied'
 
-type Drawing = { id: number; strokeId: string; type: string; t0: number; points: number[][]; pageId: string }
+/** `ox`, `oy`: where the page of the stroke starts in the continuous scroll; `points` are in that page's coordinates. */
+type Drawing = { id: number; strokeId: string; type: string; t0: number; points: number[][]; pageId: string; ox: number; oy: number }
 const POINTER_TYPES = ['pen', 'mouse', 'touch']
 /** A second finger this soon after the first turns the stroke into a gesture. */
 const SECOND_FINGER_MS = 150
@@ -36,17 +38,23 @@ const ANIMATION_MS = 150
 const WHEEL_ZOOM = 0.002
 export const ZOOM_STEP = 1.25
 export const ARROW_STEP = 40
+/** Space between two pages of the continuous scroll, in page points. */
+export const PAGE_GAP = 16
 
 export type FitMode = 'width' | 'page' | 'free'
 // Who owns the pointers: nobody, a touch stroke, a touch outside the page, a
 // two-finger gesture, fingers to ignore until all lift, a pen/mouse, a pan drag.
 type Mode = 'none' | 'stroke' | 'idle' | 'gesture' | 'ignored' | 'pen' | 'pan'
-export type ViewInfo = { scale: number; x: Thumb | null; y: Thumb | null }
+/** `page`: index of the current page (the one in view, or the one a page key moved to); `pages`: how many there are. */
+export type ViewInfo = { scale: number; x: Thumb | null; y: Thumb | null; page: number; pages: number }
+/** A page and where it starts in the document: all pages stacked vertically, centered, `PAGE_GAP` apart. */
+type Slot = { page: Page; x: number; y: number }
+export type ResolveApplied = Extract<ResolveResult, { result: 'resolved' }> & { used: string }
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n))
 
 export class Writer {
-  readonly cache = new StrokePathCache()
+  private caches = new Map<string, StrokePathCache>() // one per page; a page off screen is not painted
   private queue: SaveQueue
   private canvas: HTMLCanvasElement | null = null
   private drawing: Drawing | null = null
@@ -83,10 +91,12 @@ export class Writer {
    */
   private held: Page | null = null
   private strokeWaiters: ((pageId: string | null) => void)[] = []
+  /** The page a page key moved to; it stays current until the person scrolls. */
+  private forced: string | null = null // a page id
 
   constructor(
     readonly history: History,
-    private store: NoteStore,
+    readonly store: NoteStore,
     private pen: () => Pen,
     private message: (m: WriterMessage) => void,
     private editedBy: () => string,
@@ -99,8 +109,53 @@ export class Writer {
     return this.finalizing !== null
   }
 
+  /** Every page in the continuous scroll (the held version stands in for its page), with its place. */
+  private slots(): { list: Slot[]; w: number; h: number } {
+    const list: Slot[] = []
+    const pages = this.history.note.pages
+    let w = 0
+    let h = 0
+    for (const [i, p0] of pages.entries()) {
+      const p = this.held && this.held.id === p0.id ? this.held : p0
+      list.push({ page: p, x: 0, y: h + i * PAGE_GAP })
+      w = i === 0 ? p.width : Math.max(w, p.width)
+      h += p.height
+    }
+    const total = h + Math.max(0, pages.length - 1) * PAGE_GAP
+    for (const s of list) s.x = (w - s.page.width) / 2
+    return { list, w, h: total }
+  }
+
+  /** Index in `list` of the current page: the one a page key moved to, else the one at the middle of the view. */
+  private currentIndex(list: Slot[]): number {
+    if (list.length < 2) return 0
+    if (this.forced !== null) {
+      const f = list.findIndex((s) => s.page.id === this.forced)
+      if (f >= 0) return f
+    }
+    const mid = toPage(this.viewport, 0, this.cssH / 2)[1]
+    const i = list.findIndex((s) => mid < s.y + s.page.height + PAGE_GAP / 2)
+    return i < 0 ? list.length - 1 : i
+  }
+
+  private get current(): Slot | undefined {
+    const { list } = this.slots()
+    return list[this.currentIndex(list)]
+  }
+
   private get page(): Page | undefined {
-    return this.held ?? this.history.note.pages[0]
+    return this.current?.page
+  }
+
+  /** The page under a document point, or undefined between pages and outside them. */
+  private hit(dx: number, dy: number): Slot | undefined {
+    return this.slots().list.find((s) => dx >= s.x && dy >= s.y && dx <= s.x + s.page.width && dy <= s.y + s.page.height)
+  }
+
+  private cacheOf(pageId: string): StrokePathCache {
+    let c = this.caches.get(pageId)
+    if (!c) this.caches.set(pageId, (c = new StrokePathCache()))
+    return c
   }
 
   /** The page on screen has an unresolved conflict: no stroke, no undo (Story 3.20). */
@@ -176,8 +231,7 @@ export class Writer {
    */
   layout(): void {
     const c = this.canvas
-    const page = this.page
-    if (!c || !page) return
+    if (!c || !this.page) return
     const r = c.getBoundingClientRect()
     const oldW = this.cssW
     const oldH = this.cssH
@@ -215,22 +269,55 @@ export class Writer {
   }
 
   private fitFor(mode: 'width' | 'page'): PageViewport {
-    const page = this.page!
-    const f = mode === 'width' ? fitWidthViewport : fitPageViewport
-    return f(this.cssW, this.cssH, page.width, page.height, this.ins)
+    const d = this.slots()
+    if (mode === 'width') return fitWidthViewport(this.cssW, this.cssH, d.w, d.h, this.ins)
+    // A whole page, the current one; with one page that is the whole document.
+    const cur = this.current!
+    const v = fitPageViewport(this.cssW, this.cssH, cur.page.width, cur.page.height, this.ins)
+    return this.clamp({ scale: v.scale, offsetX: v.offsetX, offsetY: v.offsetY - cur.y * v.scale })
   }
 
   private clamp(v: PageViewport): PageViewport {
-    const page = this.page!
-    return clampViewport(v, this.cssW, this.cssH, page.width, page.height, this.ins)
+    const d = this.slots()
+    return clampViewport(v, this.cssW, this.cssH, d.w, d.h, this.ins)
   }
 
-  /** The scale to show (the target while animating) and the scrollbars of what is on screen. */
+  /** The scale to show (the target while animating), the scrollbars of what is on screen and the current page. */
   info(): ViewInfo {
-    const page = this.page
+    const d = this.slots()
     const v = this.anim?.to ?? this.viewport
-    const m = page ? scrollMetrics(v, this.cssW, this.cssH, page.width, page.height, this.ins) : { x: null, y: null }
-    return { scale: v.scale, ...m }
+    const m = d.list.length > 0 ? scrollMetrics(v, this.cssW, this.cssH, d.w, d.h, this.ins) : { x: null, y: null }
+    return { scale: v.scale, ...m, page: this.currentIndex(d.list), pages: d.list.length }
+  }
+
+  /** The size of the document changed (a page came or went): the view is fitted or clamped again. */
+  private docChanged(before: string): void {
+    if (this.docKey() === before || !this.canvas || !this.page) return this.redraw()
+    this.snap()
+    this.viewport = this.fitMode === 'free' ? this.clamp(this.viewport) : this.fitFor(this.fitMode)
+    this.redraw()
+    this.onView(this.info())
+  }
+
+  private docKey(): string {
+    const d = this.slots()
+    return `${d.list.length}:${d.w}x${d.h}`
+  }
+
+  /** Moves so that page `i` (0-based) starts the view. */
+  goToPage(i: number): void {
+    const { list } = this.slots()
+    if (list.length === 0 || this.busy()) return
+    const k = Math.min(list.length - 1, Math.max(0, i))
+    const v = this.anim?.to ?? this.viewport
+    this.forced = list[k]!.page.id
+    this.goTo(this.clamp({ scale: v.scale, offsetX: v.offsetX, offsetY: this.ins.gap - list[k]!.y * v.scale }), 'free')
+  }
+
+  /** PgUp / PgDn: the page before / after the current one. */
+  pageStep(d: -1 | 1): void {
+    const { list } = this.slots()
+    if (list.length > 0) this.goToPage(this.currentIndex(list) + d)
   }
 
   private setView(v: PageViewport, fit: FitMode): void {
@@ -317,6 +404,7 @@ export class Writer {
 
   private movePan(dx: number, dy: number): void {
     if (!this.page) return
+    this.forced = null // scrolling by hand: the page in view is the current one again
     this.snap()
     const v = this.viewport
     this.changeView(this.clamp({ ...v, offsetX: v.offsetX - dx, offsetY: v.offsetY - dy }))
@@ -363,8 +451,7 @@ export class Writer {
 
   redraw(): void {
     const c = this.canvas
-    const page = this.page
-    if (!c || !page) return
+    if (!c || !this.page) return
     let ctx: CanvasRenderingContext2D | null = null
     try {
       ctx = c.getContext('2d')
@@ -377,7 +464,17 @@ export class Writer {
     // ponytail: the stroke in progress is rebuilt from all its points on every
     // event (O(n)), and wheel/pinch repaint per event; make both incremental /
     // rAF-coalesced if 2.15 measures them slow.
-    paintPage(ctx, page, this.viewport, this.cache, this.drawing ? this.build(this.drawing.points, this.drawing.strokeId) : null)
+    const vp = this.viewport
+    for (const id of [...this.caches.keys()]) if (!this.history.note.pages.some((p) => p.id === id)) this.caches.delete(id)
+    const live = this.drawing ? this.build(this.drawing.points, this.drawing.strokeId) : null
+    for (const s of this.slots().list) {
+      // A page that is off screen is not painted.
+      const top = vp.offsetY + s.y * vp.scale
+      const left = vp.offsetX + s.x * vp.scale
+      if (top > this.cssH || top + s.page.height * vp.scale < 0 || left > this.cssW || left + s.page.width * vp.scale < 0) continue
+      const at = { scale: vp.scale, offsetX: left, offsetY: top }
+      paintPage(ctx, s.page, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null)
+    }
   }
 
   private build(points: number[][], id: string): Stroke {
@@ -390,10 +487,12 @@ export class Writer {
     return [x - r.left, y - r.top]
   }
 
-  /** `[x, y, pressure, t]` of an event, or null when its position is not a number. */
-  private point(e: PointerEvent, t0: number, pressure?: number): number[] | null {
+  /** `[x, y, pressure, t]` of an event in the coordinates of the page that starts at `o`, or null when its position is not a number. */
+  private point(e: PointerEvent, t0: number, pressure?: number, o: { x: number; y: number } = { x: 0, y: 0 }): number[] | null {
     if (!this.canvas) return null
-    const [x, y] = toPage(this.viewport, ...this.local(e.clientX, e.clientY))
+    const [dx, dy] = toPage(this.viewport, ...this.local(e.clientX, e.clientY))
+    const x = dx - o.x
+    const y = dy - o.y
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null
     let q = pressure
     if (q === undefined) {
@@ -403,9 +502,10 @@ export class Writer {
     return [x, y, q, Number.isFinite(dt) ? Math.max(0, dt) : 0]
   }
 
-  private inPage(p: number[]): boolean {
-    const page = this.page
-    return !!page && p[0]! >= 0 && p[1]! >= 0 && p[0]! <= page.width && p[1]! <= page.height
+  /** The page under the pointer of `e`, if any. */
+  private under(e: PointerEvent): Slot | undefined {
+    const p = this.point(e, e.timeStamp)
+    return p ? this.hit(p[0]!, p[1]!) : undefined
   }
 
   private capture(e: PointerEvent): void {
@@ -420,16 +520,17 @@ export class Writer {
   /** Starts a stroke at `e` when it is on the page. */
   private begin(e: PointerEvent): void {
     if (this.readOnly) return
-    const p = this.point(e, e.timeStamp)
-    if (!p || !this.inPage(p)) return
-    if (this.pageLocked) return this.onBlocked() // a page waiting for its conflict to be settled
+    const s = this.under(e)
+    if (!s) return
+    if (this.history.isLocked(s.page.id)) return this.onBlocked() // a page waiting for its conflict to be settled
+    const p = this.point(e, e.timeStamp, undefined, s)!
     e.preventDefault()
     try {
       this.canvas?.focus({ preventScroll: true })
     } catch {
       // focus is a convenience
     }
-    this.drawing = { id: e.pointerId, strokeId: newId(), type: e.pointerType, t0: e.timeStamp, points: [p], pageId: this.page!.id }
+    this.drawing = { id: e.pointerId, strokeId: newId(), type: e.pointerType, t0: e.timeStamp, points: [p], pageId: s.page.id, ox: s.x, oy: s.y }
     this.redraw()
   }
 
@@ -474,11 +575,10 @@ export class Writer {
     this.begin(e)
   }
 
-  /** `e` lands on the page and the page is locked by a conflict. */
+  /** `e` lands on a page that is locked by a conflict. */
   private onLockedPage(e: PointerEvent): boolean {
-    if (!this.pageLocked) return false
-    const p = this.point(e, e.timeStamp)
-    return !!p && this.inPage(p)
+    const s = this.under(e)
+    return !!s && this.history.isLocked(s.page.id)
   }
 
   private touchDown(e: PointerEvent): void {
@@ -555,7 +655,7 @@ export class Writer {
     const coalesced = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : []
     // Not clipped here: points outside the page are kept.
     for (const ev of coalesced.length > 0 ? coalesced : [e]) {
-      const p = this.point(ev, d.t0)
+      const p = this.point(ev, d.t0, undefined, { x: d.ox, y: d.oy })
       if (p) d.points.push(p)
     }
     this.redraw()
@@ -566,7 +666,7 @@ export class Writer {
     if (!this.leaving && d && e.pointerId === d.id) {
       // A pen reports pressure 0 on release: the last point's pressure stays.
       const last = d.points[d.points.length - 1]!
-      const p = this.point(e, d.t0, last[2])
+      const p = this.point(e, d.t0, last[2], { x: d.ox, y: d.oy })
       if (p && (p[0] !== last[0] || p[1] !== last[1])) d.points.push(p)
       this.finishStroke()
     }
@@ -599,9 +699,8 @@ export class Writer {
   /** Ends the stroke in progress with the points so far. */
   private finishStroke(): void {
     const d = this.drawing
-    const page = this.page
     this.drawing = null
-    if (this.readOnly || !d || !page) return this.releaseStrokeWaiters(null)
+    if (this.readOnly || !d) return this.releaseStrokeWaiters(null)
     const err = this.history.doOp({ op: 'addStroke', pageId: d.pageId, stroke: this.build(d.points, d.strokeId) }, this.ctx())
     this.redraw()
     if (err) this.message('strokeNotAdded')
@@ -618,10 +717,10 @@ export class Writer {
   }
 
   get canUndo() {
-    return !this.readOnly && !this.pageLocked && this.history.undoDepth > 0
+    return !this.readOnly && !this.pageLocked && this.history.undoDepth > 0 && !this.history.topLocked('undo')
   }
   get canRedo() {
-    return !this.readOnly && !this.pageLocked && this.history.redoDepth > 0
+    return !this.readOnly && !this.pageLocked && this.history.redoDepth > 0 && !this.history.topLocked('redo')
   }
 
   /** Undoes the last edit; false when nothing happened. */
@@ -634,7 +733,7 @@ export class Writer {
 
   private replay(kind: 'undo' | 'redo'): boolean {
     const depth = kind === 'undo' ? this.history.undoDepth : this.history.redoDepth
-    if (this.pageLocked && !this.readOnly && !this.leaving) {
+    if ((this.pageLocked || this.history.topLocked(kind)) && !this.readOnly && !this.leaving) {
       this.onBlocked() // the record of a conflicted page is gone; nothing else is undone under it
       return false
     }
@@ -681,6 +780,7 @@ export class Writer {
       if (pre.result === 'merged' && (this.drawing !== null || pre.sidecars.some((s) => !keys.has(sidecarKey(s))))) return { result: 'stale' }
     }
     const before = this.history.note
+    const key = this.docKey()
     const r = commitMerge(this.history, a)
     if (r.result === 'merged') {
       if (r.conflicts.length > 0) {
@@ -689,7 +789,7 @@ export class Writer {
         if (held && r.conflicts.some((c) => c.pageId === held.id)) this.held = structuredClone(held)
       }
       try {
-        this.redraw()
+        this.docChanged(key)
       } catch {
         // the next layout repaints
       }
@@ -697,6 +797,41 @@ export class Writer {
       this.onChange() // undo/redo buttons re-read their aria-disabled state
     }
     return r
+  }
+
+  /**
+   * [Story 3.22] Settles one conflict through the same serial path as a merge (AD-16): `resolveConflict` runs on the
+   * note as it is now, the history adopts the result and drops the undo records of the pages it touched, the page is
+   * redrawn and the note joins the save queue. No await in between. `identicalVersions` keeps the other device's
+   * version. Nothing changes on an error.
+   */
+  applyResolved(conflict: Conflict, sidecar: Sidecar, choice: string): ResolveApplied | { error: string; result?: undefined } {
+    if (this.readOnly || this.leaving || this.drawing !== null) return { error: 'notApplied' }
+    const ctx = { now: new Date().toISOString(), orderRev: newId(), rev: newId(), editedBy: this.editedBy(), lastSeenRemoteSeq: 0 }
+    let used = choice
+    let out = resolveConflict(this.history.note, conflict, sidecar, used, ctx)
+    if (out.result !== 'resolved' && out.error === 'identicalVersions') {
+      used = 'theirs' // the same version on both sides: keep one
+      out = resolveConflict(this.history.note, conflict, sidecar, used, ctx)
+    }
+    if (out.result !== 'resolved') return { error: out.error }
+    const key = this.docKey()
+    this.history.applyMerged(out.note, out.undoDrop)
+    if (this.held && out.undoDrop.includes(this.held.id)) this.held = null
+    try {
+      this.docChanged(key)
+    } catch {
+      // the next layout repaints
+    }
+    this.queue.commit(this.history.note)
+    this.onChange()
+    return { ...out, used }
+  }
+
+  /** The conflicts are settled or changed: the locks follow the pages that still have one. */
+  setLocked(pageIds: Iterable<string>): void {
+    this.history.setLocked(pageIds)
+    this.onChange()
   }
 
   /**

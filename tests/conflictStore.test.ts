@@ -147,11 +147,11 @@ describe('recordConflicts', () => {
 })
 
 describe('sidecarSent', () => {
-  test('the list entry and the record leave together; the conflict entry stays until it is resolved', async () => {
+  test('the list entry leaves; the record stays while the conflict is unresolved and goes with the list entry once it is resolved', async () => {
     await store.recordConflicts(NID, rec())
     await store.sidecarSent(NID, PA, 'a2')
     expect((await store.readSync(NID)).info.unsentSidecars).toEqual([])
-    expect(await store.sidecars.get(NID, PA, 'a2')).toBeNull()
+    expect(await store.sidecars.get(NID, PA, 'a2')).not.toBeNull()
     expect((await store.readSync(NID)).info.conflicts).toHaveLength(1)
   })
 
@@ -166,6 +166,30 @@ describe('sidecarSent', () => {
     await expect(store.sidecarSent(NID, PA, 'a2')).rejects.toBeInstanceOf(NoteSaveError)
     expect(await store.sidecars.get(NID, PA, 'a2')).not.toBeNull()
     expect((await store.readSync(NID)).info.unsentSidecars).toHaveLength(1)
+  })
+
+  test('a resolved conflict: sidecarSent removes the record with the list entry (Story 3.22 retention rule)', async () => {
+    await store.recordConflicts(NID, rec())
+    await store.updateSync(NID, (c) => ({ ...c, conflicts: c.conflicts.map((x) => ({ ...x, resolvedAt: '2026-10-13T00:00:00.000Z' })) }))
+    await store.sidecarSent(NID, PA, 'a2')
+    expect(await store.sidecars.get(NID, PA, 'a2')).toBeNull()
+    expect((await store.readSync(NID)).info.unsentSidecars).toEqual([])
+  })
+
+  test('a conflict of another rev does not keep this record; a different page does not either', async () => {
+    await store.recordConflicts(NID, rec(PA, 'a2'))
+    await store.recordConflicts(NID, rec(PB, 'b2'))
+    await store.sidecarSent(NID, PB, 'b2')
+    expect(await store.sidecars.get(NID, PB, 'b2')).not.toBeNull() // its own conflict is unresolved
+    expect(await store.sidecars.get(NID, PA, 'a2')).not.toBeNull()
+  })
+
+  test('sidecars.delete removes one record and only that one', async () => {
+    await store.recordConflicts(NID, { conflicts: [conf(PA, 'a2'), conf(PB, 'b2')], sidecars: [side(PA, 'a2'), side(PB, 'b2')] })
+    await store.sidecars.delete(NID, PA, 'a2')
+    expect(await store.sidecars.get(NID, PA, 'a2')).toBeNull()
+    expect(await store.sidecars.get(NID, PB, 'b2')).not.toBeNull()
+    await store.sidecars.delete(NID, PA, 'a2') // already gone: fine
   })
 
   test('the record of another note or a garbage record is not returned', async () => {

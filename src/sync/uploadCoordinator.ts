@@ -8,6 +8,7 @@
 //     `kkeujeok-sync`, and only when no tab holds the note's own lock (an editor
 //     elsewhere has it open).
 import type { NoteStore } from '../storage/noteStore'
+import type { SyncInfo } from '../storage/syncInfo'
 import type { NoteUploader } from './noteUploader'
 import { openNoteIds } from './openNotes'
 import type { SyncLog } from './syncLog'
@@ -24,7 +25,7 @@ const RETRY_ONCE = new Set(['verifyExhausted', 'sessionLost', 'mergeFailed'])
 
 export type CoordinatorDeps = {
   store: Pick<NoteStore, 'listIds' | 'readSync' | 'updateSync'>
-  uploader: Pick<NoteUploader, 'upload' | 'resume'>
+  uploader: Pick<NoteUploader, 'upload' | 'resume'> & Partial<Pick<NoteUploader, 'conflictResolved' | 'markResolved' | 'cleanResolvedSidecars'>>
   log: Pick<SyncLog, 'append'>
   allowed: () => boolean
   online: () => boolean
@@ -73,20 +74,27 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
     return !locks || (await withLock(noteLockName(noteId), true, async () => {}))
   }
 
-  async function needsUpload(noteId: string): Promise<boolean> {
+  /** From one read: an upload is needed, a resolved sidecar is still to be marked on Drive. */
+  async function needs(noteId: string): Promise<{ upload: boolean; mark: boolean }> {
     const s = await d.store.readSync(noteId)
-    return s.info.state !== 'error' && (s.hasUnsent || s.info.pendingVerify !== null)
+    return {
+      upload: s.info.state !== 'error' && (s.hasUnsent || s.info.pendingVerify !== null),
+      mark: s.info.conflicts.some((c) => c.resolvedAt != null && c.sidecarMarked !== true),
+    }
   }
+  const needsUpload = async (noteId: string) => (await needs(noteId)).upload
 
   async function one(noteId: string, o: { recover?: boolean; openHere?: boolean } = {}): Promise<void> {
     try {
-      if (!(await needsUpload(noteId))) return
-      if (!d.allowed() || !d.online()) return // stays pending; the next trigger picks it up
+      const { upload, mark } = await needs(noteId)
+      if (!upload && !mark) return
+      if (upload && (!d.allowed() || !d.online())) return // stays pending; the next trigger picks it up
       if (!o.openHere && !(await closedEverywhere(noteId))) return // open in another tab: its tab uploads it
       await withLock(SYNC_LOCK_NAME, false, async () => {
         // Re-check inside the lock: another tab may have uploaded it while this one waited.
-        if (!(await needsUpload(noteId))) return
-        await (o.recover ? d.uploader.resume(noteId) : d.uploader.upload(noteId))
+        if (await needsUpload(noteId)) await (o.recover ? d.uploader.resume(noteId) : d.uploader.upload(noteId))
+        // With nothing to send the resolve is already on Drive: the sidecar is marked under the same guards.
+        if (mark) await d.uploader.markResolved?.(noteId)
       })
     } catch {
       // Whatever went wrong is in sync.json and the log, or it was a crash; "Start" repeats the step.
@@ -149,6 +157,22 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
     async start(): Promise<void> {
       started = true
       await all({ includeOpen: false, recover: true, mode: 'start' })
+      // Resolved sidecars older than 30 days go to the Drive trash (best effort).
+      void (async () => {
+        const ids = await d.store.listIds()
+        await withLock(SYNC_LOCK_NAME, false, async () => void (await d.uploader.cleanResolvedSidecars?.(ids)))
+      })().catch(() => {
+        // the next start tries again
+      })
+    },
+
+    /**
+     * A conflict was settled in the editor (Story 3.22): its `sync.json` entry and the state follow in one write.
+     * Rejects when that could not be written. The caller then runs `syncNow`.
+     */
+    async conflictResolved(noteId: string, conflict: Record<string, unknown>): Promise<SyncInfo> {
+      if (!d.uploader.conflictResolved) throw new Error('conflictResolved is not available')
+      return d.uploader.conflictResolved(noteId, conflict as Parameters<NonNullable<typeof d.uploader.conflictResolved>>[1])
     },
 
     /** [지금 동기화] / [다시 시도] of one note: its open editor is flushed, an error is retried, then it uploads. */

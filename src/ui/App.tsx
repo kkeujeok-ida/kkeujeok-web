@@ -11,7 +11,8 @@ import { defaultRootFolder, type RootFolderStore } from '../drive/rootFolderStor
 import type { UploadCoordinator } from '../sync/uploadCoordinator'
 import type { NoteReceiver } from '../sync/noteReceiver'
 import { defaultReceiver, useReceiveTriggers } from '../sync/receiveWiring'
-import { defaultUploadCoordinator, useUploadTriggers } from '../sync/uploadWiring'
+import { defaultOtherTime, defaultUploadCoordinator, useUploadTriggers } from '../sync/uploadWiring'
+import { requestResolve } from './library/resolveRequest'
 import { ReviveSnackbar } from './sync/ReviveSnackbar'
 import { SyncUiProvider } from './sync/syncUi'
 
@@ -64,6 +65,8 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
     [uploadsProp, rootProp, auth, root],
   )
   useUploadTriggers(uploads, root)
+  // When the other device's version of a conflicted page was uploaded (Story 3.22); real Drive only with the default root.
+  const otherTime = useMemo(() => (rootProp ? undefined : defaultOtherTime(auth)), [rootProp, auth])
   // Same rule for receiving remote changes (Story 3.14).
   const receiver = useMemo(
     () => receiverProp ?? (rootProp ? undefined : defaultReceiver(auth, root)),
@@ -86,7 +89,7 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
   const hidden = expanded ? undefined : 'sr-only'
 
   return (
-    <SyncUiProvider auth={auth} uploads={uploads} receiver={receiver} {...syncUi}>
+    <SyncUiProvider auth={auth} uploads={uploads} receiver={receiver} resolve={requestResolve} {...(otherTime && { otherTime })} {...syncUi}>
     <div className="shell">
       {/* The writing screen covers the window; the sidebar is not reachable behind it. */}
       <nav

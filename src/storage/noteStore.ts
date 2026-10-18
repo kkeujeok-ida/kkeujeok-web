@@ -56,7 +56,11 @@ export type NoteStore = {
    * Changes one note's sync record (and base copy) without touching the working
    * copy. `change` gets the record read under the note's lock. Returns what was committed.
    */
-  updateSync(noteId: string, change: (cur: SyncInfo) => SyncInfo, opts?: { base?: Note }): Promise<SyncInfo>
+  updateSync(
+    noteId: string,
+    change: (cur: SyncInfo, stored: { working: Note | null; base: Note | null }) => SyncInfo,
+    opts?: { base?: Note },
+  ): Promise<SyncInfo>
   /**
    * Deletes the note's three records (Story 3.18: deleted in Drive, nothing unsent), only while the
    * stored working copy still is `expected`. False, nothing deleted, when it moved or is gone.
@@ -77,10 +81,16 @@ export type NoteStore = {
     noteId: string,
     rec: { conflicts: readonly Conflict[]; sidecars: readonly Sidecar[]; supersedes?: Recorded },
   ): Promise<Recorded>
-  /** The sidecar is on Drive: it leaves `unsentSidecars` and the store in one transaction. */
+  /**
+   * The sidecar is on Drive: it leaves `unsentSidecars`. Its record leaves the store in the same
+   * transaction unless the conflict is unresolved (Story 3.22: the resolve dialog reads it back).
+   */
   sidecarSent(noteId: string, pageId: string, rev: string): Promise<void>
-  /** Sidecar records that are not uploaded yet. */
-  sidecars: { get(noteId: string, pageId: string, rev: string): Promise<Sidecar | null> }
+  /** Sidecar records kept on this device. `delete` once the conflict is resolved and its Drive file is marked or trashed. */
+  sidecars: {
+    get(noteId: string, pageId: string, rev: string): Promise<Sidecar | null>
+    delete(noteId: string, pageId: string, rev: string): Promise<void>
+  }
   /** Forgets the Drive file: pending, no fileId/base/pendingVerify/session/intent/error. */
   resetSync(noteId: string): Promise<void>
   /** Never throws. */
@@ -379,10 +389,12 @@ export function openNoteStore(
           const info = oldSync === undefined ? emptySync() : syncFromJson(oldSync)
           if (!info) throw new NoteSaveError(SYNC_UNREADABLE)
           const next = { ...info, unsentSidecars: info.unsentSidecars.filter((u) => !(u.pageId === pageId && u.rev === rev)) }
+          // Unresolved: the record stays, the dialog compares this device's version with it.
+          const keep = info.conflicts.some((c) => c.pageId === pageId && c.rev === rev && c.resolvedAt == null)
           await apply(
             [SYNC_STORE, SIDECAR_STORE],
             [[SYNC_STORE, noteId, oldSync]],
-            [[SIDECAR_STORE, sidecarRecordKey(noteId, pageId, rev), DEL], [SYNC_STORE, noteId, syncRecord(next)]],
+            [...(keep ? [] : [[SIDECAR_STORE, sidecarRecordKey(noteId, pageId, rev), DEL] as Put]), [SYNC_STORE, noteId, syncRecord(next)]],
           )
         }),
       )
@@ -393,6 +405,9 @@ export function openNoteStore(
       async get(noteId, pageId, rev) {
         const v: unknown = await withDb((db) => db.get(SIDECAR_STORE, sidecarRecordKey(noteId, pageId, rev)))
         return isSidecar(v, noteId) ? v : null
+      },
+      async delete(noteId, pageId, rev) {
+        await locked(noteId, () => wrapSave(() => apply([SIDECAR_STORE], [], [[SIDECAR_STORE, sidecarRecordKey(noteId, pageId, rev), DEL]])))
       },
     },
 
@@ -433,9 +448,11 @@ export function openNoteStore(
           // an empty record: that would drop the fileId and the base.
           const cur = oldSync === undefined ? emptySync() : syncFromJson(oldSync)
           if (!cur) throw new NoteSaveError(SYNC_UNREADABLE)
-          let next = change(cur)
+          const baseNote = (await decodeRecord(noteId, oldBase)).note ?? null
+          const workingNote = (await decodeRecord(noteId, working)).note ?? null
+          let next = change(cur, { working: workingNote, base: baseNote })
           let id = next.baseHeadRevisionId
-          const stored = !!(await decodeRecord(noteId, oldBase)).note
+          const stored = !!baseNote
           // The base the old record names is gone and no new base comes: forget it, so
           // the note recovers instead of failing every commit (as readSync does).
           if (!o.base && !stored && id !== null && id === cur.baseHeadRevisionId) {

@@ -61,6 +61,15 @@ describe('requests', () => {
     expect(JSON.parse(init.body as string)).toEqual({ trashed: true })
   })
 
+  test('update sends appProperties in the PATCH body (a null value deletes the key), with or without trashed', async () => {
+    const { c, seen } = client(() => json({ id: 'f1' }))
+    await c.update('f1', { appProperties: { kkjResolved: '2026-10-13T00:00:00.000Z', old: null } })
+    expect(seen[0]!.init.method).toBe('PATCH')
+    expect(JSON.parse(seen[0]!.init.body as string)).toEqual({ appProperties: { kkjResolved: '2026-10-13T00:00:00.000Z', old: null } })
+    await c.update('f1', { addParents: 'k' })
+    expect(JSON.parse(seen[1]!.init.body as string)).toEqual({})
+  })
+
   test('get falls back to the asked id when the answer has none', async () => {
     const { c } = client(() => json({ trashed: true }))
     expect(await c.get('x', { fields: 'trashed' })).toMatchObject({ id: 'x', trashed: true })

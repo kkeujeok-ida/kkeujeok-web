@@ -65,7 +65,7 @@ describe('receiving a conflicting change', () => {
     const s = await e.store.readSync(NID)
     expect(s.info).toMatchObject({ state: 'conflict', unsentSidecars: [] })
     expect(s.hasUnsent).toBe(false)
-    expect(await e.store.sidecars.get(NID, PA, 'a2')).toBeNull()
+    expect(await e.store.sidecars.get(NID, PA, 'a2')).not.toBeNull() // unresolved: kept for the resolve dialog
   })
 
   test('a note that already is a conflict note takes another remote change and stays a conflict note', async () => {
