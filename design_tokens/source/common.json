@@ -169,7 +169,7 @@
     },
     "tool-selected": {
       "indicator": {
-        "$value": "{color.accent}"
+        "$value": "{color.accent-text}"
       },
       "width": {
         "$type": "dimension",
@@ -256,7 +256,7 @@
     },
     "focus-ring": {
       "color": {
-        "$value": "{color.accent}"
+        "$value": "{color.accent-text}"
       },
       "width": {
         "$type": "dimension",
@@ -308,13 +308,13 @@
     },
     "selection": {
       "outline": {
-        "$value": "{color.accent}"
+        "$value": "{color.accent-text}"
       },
       "handle-fill": {
         "$value": "{color.surface-raised}"
       },
       "handle-border": {
-        "$value": "{color.accent}"
+        "$value": "{color.accent-text}"
       }
     },
     "popover": {
@@ -339,7 +339,7 @@
         "$value": "{color.border-hairline}"
       },
       "current-ring": {
-        "$value": "{color.accent}"
+        "$value": "{color.accent-text}"
       },
       "menu-button": {
         "$value": "{spacing.hit-min-web}"
@@ -645,7 +645,7 @@
         "$value": "{color.border-hairline}"
       },
       "progress": {
-        "$value": "{color.accent}"
+        "$value": "{color.accent-text}"
       },
       "text": {
         "fontFamily": {

@@ -49,15 +49,15 @@ class KkjTokens {
 class KkjLight {
     KkjLight._();
 
-    static const colorAccent = Color(0xFF2F6FEB);
-    static const colorAccentSoft = Color(0xFFE6EEFD);
-    static const colorAccentText = Color(0xFF2459C9);
+    static const colorAccent = Color(0xFFFDD55D);
+    static const colorAccentSoft = Color(0xFFFFF3C4);
+    static const colorAccentText = Color(0xFF7A5A00);
     static const colorBorderControl = Color(0xFF84827C);
     static const colorBorderHairline = Color(0xFFE4E1DA);
     static const colorInkDisabled = Color(0xFFB4B2AC);
     static const colorInkPrimary = Color(0xFF22242A);
     static const colorInkSecondary = Color(0xFF6B6A66);
-    static const colorOnAccent = Color(0xFFFFFFFF);
+    static const colorOnAccent = Color(0xFF22242A);
     static const colorOnError = Color(0xFFFFFFFF);
     static const colorOnWarning = Color(0xFF141517);
     static const colorPenGlyphOutline = Color(0xFF6B6A66);
@@ -85,9 +85,9 @@ class KkjLight {
     static const componentsButtonDestructiveBackground = Color(0xFFB23A33);
     static const componentsButtonDestructiveRounded = 6.0;
     static const componentsButtonDestructiveText = Color(0xFFFFFFFF);
-    static const componentsButtonPrimaryBackground = Color(0xFF2F6FEB);
+    static const componentsButtonPrimaryBackground = Color(0xFFFDD55D);
     static const componentsButtonPrimaryRounded = 6.0;
-    static const componentsButtonPrimaryText = Color(0xFFFFFFFF);
+    static const componentsButtonPrimaryText = Color(0xFF22242A);
     static const componentsButtonSecondaryBackground = Color(0xFFFFFFFF);
     static const componentsButtonSecondaryBorder = Color(0xFF84827C);
     static const componentsButtonSecondaryRounded = 6.0;
@@ -95,13 +95,13 @@ class KkjLight {
     static const componentsConflictSheetBackground = Color(0xFFFFFFFF);
     static const componentsConflictSheetChangeOutline = Color(0xFFB7791F);
     static const componentsConflictSheetPreviewBorder = Color(0xFFE4E1DA);
-    static const componentsConflictSheetPrimaryBackground = Color(0xFF2F6FEB);
+    static const componentsConflictSheetPrimaryBackground = Color(0xFFFDD55D);
     static const componentsConflictSheetPrimaryRounded = 6.0;
-    static const componentsConflictSheetPrimaryText = Color(0xFFFFFFFF);
+    static const componentsConflictSheetPrimaryText = Color(0xFF22242A);
     static const componentsConflictSheetRounded = 16.0;
     static const componentsConflictSheetScrim = Color(0x6B22242A);
-    static const componentsConflictSheetTagBackground = Color(0xFFE6EEFD);
-    static const componentsConflictSheetTagText = Color(0xFF2459C9);
+    static const componentsConflictSheetTagBackground = Color(0xFFFFF3C4);
+    static const componentsConflictSheetTagText = Color(0xFF7A5A00);
     static const componentsConflictSheetVersionButtonBackground = Color(0xFFFFFFFF);
     static const componentsConflictSheetVersionButtonBorder = Color(0xFF84827C);
     static const componentsConflictSheetVersionButtonRounded = 6.0;
@@ -122,8 +122,8 @@ class KkjLight {
     static const componentsEditorCornerTitleFontSize = 13.0;
     static const componentsEditorCornerTitleFontWeight = FontWeight.w500;
     static const componentsEditorCornerTitleLineHeight = 18.0;
-    static const componentsFabBackground = Color(0xFF2F6FEB);
-    static const componentsFabIcon = Color(0xFFFFFFFF);
+    static const componentsFabBackground = Color(0xFFFDD55D);
+    static const componentsFabIcon = Color(0xFF22242A);
     static const componentsFabInset = 24.0;
     static const componentsFabItemBackground = Color(0xFFFFFFFF);
     static const componentsFabItemGap = 12.0;
@@ -138,7 +138,7 @@ class KkjLight {
     static const componentsFabSize = 56.0;
     static const componentsFabVeil = Color(0xFFF7F6F3);
     static const componentsFabVeilOpacity = 0.85;
-    static const componentsFocusRingColor = Color(0xFF2F6FEB);
+    static const componentsFocusRingColor = Color(0xFF7A5A00);
     static const componentsFocusRingOffset = 2.0;
     static const componentsFocusRingWidth = 2.0;
     static const componentsInlineHintColor = Color(0xFF6B6A66);
@@ -150,7 +150,7 @@ class KkjLight {
     static const componentsInputPlaceholder = Color(0xFF6B6A66);
     static const componentsInputRounded = 6.0;
     static const componentsPageThumbnailBorder = Color(0xFFE4E1DA);
-    static const componentsPageThumbnailCurrentRing = Color(0xFF2F6FEB);
+    static const componentsPageThumbnailCurrentRing = Color(0xFF7A5A00);
     static const componentsPageThumbnailMenuButton = 32.0;
     static const componentsPageThumbnailRounded = 6.0;
     static const componentsPdfPlaceholderBackground = Color(0xFFEFEDE8);
@@ -161,7 +161,7 @@ class KkjLight {
     static const componentsPdfPlaceholderTextLineHeight = 16.0;
     static const componentsPenSlotAddIcon = Color(0xFF6B6A66);
     static const componentsPenSlotAddSize = 48.0;
-    static const componentsPenSlotCaret = Color(0xFF2459C9);
+    static const componentsPenSlotCaret = Color(0xFF7A5A00);
     static const componentsPenSlotGlyphHeight = 36.0;
     static const componentsPenSlotGlyphStroke = 1.75;
     static const componentsPenSlotGlyphWidth = 20.0;
@@ -169,7 +169,7 @@ class KkjLight {
     static const componentsPenSlotSelectedDuration = Duration(milliseconds: 150);
     static const componentsPenSlotSelectedEasing = [0.2, 0.0, 0.0, 1.0];
     static const componentsPenSlotSelectedHeight = 3.0;
-    static const componentsPenSlotSelectedIndicator = Color(0xFF2F6FEB);
+    static const componentsPenSlotSelectedIndicator = Color(0xFF7A5A00);
     static const componentsPenSlotSelectedOffset = 4.0;
     static const componentsPenSlotSelectedRounded = 9999.0;
     static const componentsPenSlotSelectedWidth = 16.0;
@@ -178,7 +178,7 @@ class KkjLight {
     static const componentsPopoverPadding = 12.0;
     static const componentsPopoverRounded = 16.0;
     static const componentsPopoverShadow = "0 2px 12px #22242A29";
-    static const componentsPullToAddProgress = Color(0xFF2F6FEB);
+    static const componentsPullToAddProgress = Color(0xFF7A5A00);
     static const componentsPullToAddSize = 32.0;
     static const componentsPullToAddStroke = 3.0;
     static const componentsPullToAddTextFontFamily = "Pretendard";
@@ -186,10 +186,10 @@ class KkjLight {
     static const componentsPullToAddTextFontWeight = FontWeight.w400;
     static const componentsPullToAddTextLineHeight = 16.0;
     static const componentsPullToAddTrack = Color(0xFFE4E1DA);
-    static const componentsSelectionHandleBorder = Color(0xFF2F6FEB);
+    static const componentsSelectionHandleBorder = Color(0xFF7A5A00);
     static const componentsSelectionHandleFill = Color(0xFFFFFFFF);
-    static const componentsSelectionOutline = Color(0xFF2F6FEB);
-    static const componentsSnackbarAction = Color(0xFF7AA5F5);
+    static const componentsSelectionOutline = Color(0xFF7A5A00);
+    static const componentsSnackbarAction = Color(0xFFFDD55D);
     static const componentsSnackbarBackground = Color(0xFF22242A);
     static const componentsSnackbarText = Color(0xFFFFFFFF);
     static const componentsSyncIndicatorConflictIcon = Color(0xFFB7791F);
@@ -209,7 +209,7 @@ class KkjLight {
     static const componentsTextFormatBarRounded = 16.0;
     static const componentsTextFormatBarShadow = "0 2px 12px #22242A29";
     static const componentsToolSelectedHeight = 3.0;
-    static const componentsToolSelectedIndicator = Color(0xFF2F6FEB);
+    static const componentsToolSelectedIndicator = Color(0xFF7A5A00);
     static const componentsToolSelectedRounded = 9999.0;
     static const componentsToolSelectedWidth = 16.0;
     static const componentsToolbarBackground = Color(0xFFFFFFFF);
@@ -225,9 +225,9 @@ class KkjLight {
 class KkjDark {
     KkjDark._();
 
-    static const colorAccent = Color(0xFF7AA5F5);
-    static const colorAccentSoft = Color(0xFF22324F);
-    static const colorAccentText = Color(0xFF7AA5F5);
+    static const colorAccent = Color(0xFFFDD55D);
+    static const colorAccentSoft = Color(0xFF4A3B0A);
+    static const colorAccentText = Color(0xFFFDD55D);
     static const colorBorderControl = Color(0xFF75736E);
     static const colorBorderHairline = Color(0xFF33353A);
     static const colorInkDisabled = Color(0xFF5D5C58);
@@ -261,7 +261,7 @@ class KkjDark {
     static const componentsButtonDestructiveBackground = Color(0xFFEB7A72);
     static const componentsButtonDestructiveRounded = 6.0;
     static const componentsButtonDestructiveText = Color(0xFF141517);
-    static const componentsButtonPrimaryBackground = Color(0xFF7AA5F5);
+    static const componentsButtonPrimaryBackground = Color(0xFFFDD55D);
     static const componentsButtonPrimaryRounded = 6.0;
     static const componentsButtonPrimaryText = Color(0xFF141517);
     static const componentsButtonSecondaryBackground = Color(0xFF25272B);
@@ -271,13 +271,13 @@ class KkjDark {
     static const componentsConflictSheetBackground = Color(0xFF25272B);
     static const componentsConflictSheetChangeOutline = Color(0xFFE0A64A);
     static const componentsConflictSheetPreviewBorder = Color(0xFF33353A);
-    static const componentsConflictSheetPrimaryBackground = Color(0xFF7AA5F5);
+    static const componentsConflictSheetPrimaryBackground = Color(0xFFFDD55D);
     static const componentsConflictSheetPrimaryRounded = 6.0;
     static const componentsConflictSheetPrimaryText = Color(0xFF141517);
     static const componentsConflictSheetRounded = 16.0;
     static const componentsConflictSheetScrim = Color(0x99000000);
-    static const componentsConflictSheetTagBackground = Color(0xFF22324F);
-    static const componentsConflictSheetTagText = Color(0xFF7AA5F5);
+    static const componentsConflictSheetTagBackground = Color(0xFF4A3B0A);
+    static const componentsConflictSheetTagText = Color(0xFFFDD55D);
     static const componentsConflictSheetVersionButtonBackground = Color(0xFF25272B);
     static const componentsConflictSheetVersionButtonBorder = Color(0xFF75736E);
     static const componentsConflictSheetVersionButtonRounded = 6.0;
@@ -298,7 +298,7 @@ class KkjDark {
     static const componentsEditorCornerTitleFontSize = 13.0;
     static const componentsEditorCornerTitleFontWeight = FontWeight.w500;
     static const componentsEditorCornerTitleLineHeight = 18.0;
-    static const componentsFabBackground = Color(0xFF7AA5F5);
+    static const componentsFabBackground = Color(0xFFFDD55D);
     static const componentsFabIcon = Color(0xFF141517);
     static const componentsFabInset = 24.0;
     static const componentsFabItemBackground = Color(0xFF25272B);
@@ -314,7 +314,7 @@ class KkjDark {
     static const componentsFabSize = 56.0;
     static const componentsFabVeil = Color(0xFF1B1C1F);
     static const componentsFabVeilOpacity = 0.85;
-    static const componentsFocusRingColor = Color(0xFF7AA5F5);
+    static const componentsFocusRingColor = Color(0xFFFDD55D);
     static const componentsFocusRingOffset = 2.0;
     static const componentsFocusRingWidth = 2.0;
     static const componentsInlineHintColor = Color(0xFFA3A19B);
@@ -326,7 +326,7 @@ class KkjDark {
     static const componentsInputPlaceholder = Color(0xFFA3A19B);
     static const componentsInputRounded = 6.0;
     static const componentsPageThumbnailBorder = Color(0xFF33353A);
-    static const componentsPageThumbnailCurrentRing = Color(0xFF7AA5F5);
+    static const componentsPageThumbnailCurrentRing = Color(0xFFFDD55D);
     static const componentsPageThumbnailMenuButton = 32.0;
     static const componentsPageThumbnailRounded = 6.0;
     static const componentsPdfPlaceholderBackground = Color(0xFF141517);
@@ -337,7 +337,7 @@ class KkjDark {
     static const componentsPdfPlaceholderTextLineHeight = 16.0;
     static const componentsPenSlotAddIcon = Color(0xFFA3A19B);
     static const componentsPenSlotAddSize = 48.0;
-    static const componentsPenSlotCaret = Color(0xFF7AA5F5);
+    static const componentsPenSlotCaret = Color(0xFFFDD55D);
     static const componentsPenSlotGlyphHeight = 36.0;
     static const componentsPenSlotGlyphStroke = 1.75;
     static const componentsPenSlotGlyphWidth = 20.0;
@@ -345,7 +345,7 @@ class KkjDark {
     static const componentsPenSlotSelectedDuration = Duration(milliseconds: 150);
     static const componentsPenSlotSelectedEasing = [0.2, 0.0, 0.0, 1.0];
     static const componentsPenSlotSelectedHeight = 3.0;
-    static const componentsPenSlotSelectedIndicator = Color(0xFF7AA5F5);
+    static const componentsPenSlotSelectedIndicator = Color(0xFFFDD55D);
     static const componentsPenSlotSelectedOffset = 4.0;
     static const componentsPenSlotSelectedRounded = 9999.0;
     static const componentsPenSlotSelectedWidth = 16.0;
@@ -354,7 +354,7 @@ class KkjDark {
     static const componentsPopoverPadding = 12.0;
     static const componentsPopoverRounded = 16.0;
     static const componentsPopoverShadow = "0 2px 12px #00000066";
-    static const componentsPullToAddProgress = Color(0xFF7AA5F5);
+    static const componentsPullToAddProgress = Color(0xFFFDD55D);
     static const componentsPullToAddSize = 32.0;
     static const componentsPullToAddStroke = 3.0;
     static const componentsPullToAddTextFontFamily = "Pretendard";
@@ -362,10 +362,10 @@ class KkjDark {
     static const componentsPullToAddTextFontWeight = FontWeight.w400;
     static const componentsPullToAddTextLineHeight = 16.0;
     static const componentsPullToAddTrack = Color(0xFF33353A);
-    static const componentsSelectionHandleBorder = Color(0xFF7AA5F5);
+    static const componentsSelectionHandleBorder = Color(0xFFFDD55D);
     static const componentsSelectionHandleFill = Color(0xFF25272B);
-    static const componentsSelectionOutline = Color(0xFF7AA5F5);
-    static const componentsSnackbarAction = Color(0xFF2459C9);
+    static const componentsSelectionOutline = Color(0xFFFDD55D);
+    static const componentsSnackbarAction = Color(0xFF7A5A00);
     static const componentsSnackbarBackground = Color(0xFFECEBE7);
     static const componentsSnackbarText = Color(0xFF1B1C1F);
     static const componentsSyncIndicatorConflictIcon = Color(0xFFE0A64A);
@@ -385,7 +385,7 @@ class KkjDark {
     static const componentsTextFormatBarRounded = 16.0;
     static const componentsTextFormatBarShadow = "0 2px 12px #00000066";
     static const componentsToolSelectedHeight = 3.0;
-    static const componentsToolSelectedIndicator = Color(0xFF7AA5F5);
+    static const componentsToolSelectedIndicator = Color(0xFFFDD55D);
     static const componentsToolSelectedRounded = 9999.0;
     static const componentsToolSelectedWidth = 16.0;
     static const componentsToolbarBackground = Color(0xFF25272B);

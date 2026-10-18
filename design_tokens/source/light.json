@@ -26,19 +26,19 @@
     },
     "accent": {
       "$type": "color",
-      "$value": "#2F6FEB"
+      "$value": "#FDD55D"
     },
     "accent-soft": {
       "$type": "color",
-      "$value": "#E6EEFD"
+      "$value": "#FFF3C4"
     },
     "accent-text": {
       "$type": "color",
-      "$value": "#2459C9"
+      "$value": "#7A5A00"
     },
     "on-accent": {
       "$type": "color",
-      "$value": "#FFFFFF"
+      "$value": "#22242A"
     },
     "border-hairline": {
       "$type": "color",
@@ -93,7 +93,7 @@
       },
       "action": {
         "$type": "color",
-        "$value": "#7AA5F5"
+        "$value": "#FDD55D"
       }
     }
   }

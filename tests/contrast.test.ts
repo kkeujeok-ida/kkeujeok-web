@@ -39,7 +39,7 @@ const pairs: { name: string; fg: string; bg: string; min: number }[] = [
   { name: 'ink-primary / surface', fg: 'color.ink-primary', bg: '*surface', min: TEXT },
   { name: 'ink-secondary / surface', fg: 'color.ink-secondary', bg: '*surface', min: TEXT },
   { name: 'border-control / surface', fg: 'color.border-control', bg: '*surface', min: NON_TEXT },
-  { name: 'accent ring / surface', fg: 'color.accent', bg: '*surface', min: NON_TEXT },
+  { name: 'accent ring / surface', fg: 'color.accent-text', bg: '*surface', min: NON_TEXT },
   { name: 'status-warning icon / surface', fg: 'color.status-warning', bg: '*surface', min: NON_TEXT },
   { name: 'snackbar text / background', fg: 'components.snackbar.text', bg: 'components.snackbar.background', min: TEXT },
   { name: 'snackbar action / background', fg: 'components.snackbar.action', bg: 'components.snackbar.background', min: TEXT },

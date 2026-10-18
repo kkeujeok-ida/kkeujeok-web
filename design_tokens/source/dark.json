@@ -26,15 +26,15 @@
     },
     "accent": {
       "$type": "color",
-      "$value": "#7AA5F5"
+      "$value": "#FDD55D"
     },
     "accent-soft": {
       "$type": "color",
-      "$value": "#22324F"
+      "$value": "#4A3B0A"
     },
     "accent-text": {
       "$type": "color",
-      "$value": "#7AA5F5"
+      "$value": "#FDD55D"
     },
     "on-accent": {
       "$type": "color",
@@ -93,7 +93,7 @@
       },
       "action": {
         "$type": "color",
-        "$value": "#2459C9"
+        "$value": "#7A5A00"
       }
     }
   }
