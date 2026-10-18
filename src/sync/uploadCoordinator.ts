@@ -7,6 +7,7 @@
 //   - a closed note is uploaded by the one tab that holds the sync-only lock
 //     `kkeujeok-sync`, and only when no tab holds the note's own lock (an editor
 //     elsewhere has it open).
+import type { DriveError } from '../drive/driveClient'
 import type { NoteStore } from '../storage/noteStore'
 import type { SyncInfo } from '../storage/syncInfo'
 import type { NoteUploader } from './noteUploader'
@@ -25,7 +26,7 @@ const RETRY_ONCE = new Set(['verifyExhausted', 'sessionLost', 'mergeFailed'])
 
 export type CoordinatorDeps = {
   store: Pick<NoteStore, 'listIds' | 'readSync' | 'updateSync'>
-  uploader: Pick<NoteUploader, 'upload' | 'resume'> & Partial<Pick<NoteUploader, 'conflictResolved' | 'markResolved' | 'cleanResolvedSidecars'>>
+  uploader: Pick<NoteUploader, 'upload' | 'resume'> & Partial<Pick<NoteUploader, 'conflictResolved' | 'markResolved' | 'cleanResolvedSidecars' | 'uploadVerified' | 'reportFailure'>>
   log: Pick<SyncLog, 'append'>
   allowed: () => boolean
   online: () => boolean
@@ -173,6 +174,34 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
     async conflictResolved(noteId: string, conflict: Record<string, unknown>): Promise<SyncInfo> {
       if (!d.uploader.conflictResolved) throw new Error('conflictResolved is not available')
       return d.uploader.conflictResolved(noteId, conflict as Parameters<NonNullable<typeof d.uploader.conflictResolved>>[1])
+    },
+
+    /**
+     * Restore step 2 (Story 3.25): the open note's saves reach the disk (`flush` false or throwing = nothing may be
+     * pinned), then the note is uploaded and verified. Answers the revision id that holds the state, or null when that
+     * failed. Never throws.
+     */
+    async uploadForRestore(noteId: string, flush?: () => Promise<boolean>): Promise<string | null> {
+      try {
+        if (!d.uploader.uploadVerified) return null
+        if (flush && !(await flush())) return null
+        await retry(noteId, 'manual') // a note still in `error` ends below
+        if (!d.allowed() || !d.online()) return null
+        let head: string | null = null
+        const ran = await withLock(SYNC_LOCK_NAME, false, async () => void (head = await d.uploader.uploadVerified!(noteId)))
+        return ran ? head : null
+      } catch {
+        return null
+      }
+    },
+
+    /** A Drive call of a restore (the pin) failed: the note takes the sync error (Story 3.25). Never throws. */
+    async reportFailure(noteId: string, e: DriveError): Promise<void> {
+      try {
+        await d.uploader.reportFailure?.(noteId, e)
+      } catch {
+        // nothing more to do
+      }
     },
 
     /** [지금 동기화] / [다시 시도] of one note: its open editor is flushed, an error is retried, then it uploads. */

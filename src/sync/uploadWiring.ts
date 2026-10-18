@@ -17,6 +17,8 @@ import { createOtherTime } from './otherTime'
 import { getOpenNote, openNoteIds } from './openNotes'
 import { syncLog } from './syncLog'
 import { type UploadCoordinator, createUploadCoordinator } from './uploadCoordinator'
+import { type Versions, createVersionRestorer, createVersionSource } from './versionHistory'
+import { connectivity } from '../drive/connectivity'
 
 const coordinators = new WeakMap<RootFolderStore, UploadCoordinator>()
 
@@ -56,6 +58,26 @@ export function defaultUploadCoordinator(auth: Auth, root: RootFolderStore): Upl
 /** The best-effort "when was the other device's version uploaded" for the conflict dialog, on the real Drive. */
 export const defaultOtherTime = (auth: Auth) =>
   createOtherTime({ drive: createAuthedDrive(auth), online: () => globalThis.navigator?.onLine !== false })
+
+/** The version history of a note on the real Drive (Story 3.25): list, previews, restore. */
+const versionSets = new WeakMap<UploadCoordinator, Versions>()
+export function defaultVersions(auth: Auth, uploads: UploadCoordinator): Versions {
+  // One store connection per coordinator: App's useMemo may call this again.
+  let v = versionSets.get(uploads)
+  if (!v) versionSets.set(uploads, (v = makeVersions(auth, uploads)))
+  return v
+}
+
+function makeVersions(auth: Auth, uploads: UploadCoordinator): Versions {
+  const drive = createAuthedDrive(auth)
+  const source = createVersionSource(drive)
+  const store = openNoteStore(undefined, { getAccount: () => auth.getState().account })
+  return {
+    source,
+    restorer: createVersionRestorer({ drive, store, coordinator: uploads, source, editedBy: detectEditedBy }),
+    probe: async () => globalThis.navigator?.onLine !== false && !connectivity().getState().offline,
+  }
+}
 
 /** Attaches the upload triggers while mounted. Nothing runs after unmount. */
 export function attachUploadTriggers(

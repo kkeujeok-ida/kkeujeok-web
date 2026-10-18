@@ -828,6 +828,28 @@ export class Writer {
     return { ...out, used }
   }
 
+  /**
+   * [Story 3.25] A restore joins the queue as one edit (AD-16): `run` sees the note as it is now, synchronously; the
+   * history adopts its result and drops the undo records of the pages it touched, the note is redrawn and saved. No
+   * await in between. False, nothing changed, when read-only, leaving, a stroke or gesture is going on, or `run` says no.
+   */
+  applyRestored(run: (live: Note) => { note: Note; undoDrop: string[] } | null): boolean {
+    if (this.readOnly || this.leaving || this.busy()) return false
+    const out = run(this.history.note)
+    if (!out) return false
+    const key = this.docKey()
+    this.history.applyMerged(out.note, out.undoDrop)
+    if (this.held && out.undoDrop.includes(this.held.id)) this.held = null
+    try {
+      this.docChanged(key)
+    } catch {
+      // the next layout repaints
+    }
+    this.queue.commit(this.history.note)
+    this.onChange()
+    return true
+  }
+
   /** The conflicts are settled or changed: the locks follow the pages that still have one. */
   setLocked(pageIds: Iterable<string>): void {
     this.history.setLocked(pageIds)

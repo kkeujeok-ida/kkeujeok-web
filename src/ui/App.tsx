@@ -11,7 +11,7 @@ import { defaultRootFolder, type RootFolderStore } from '../drive/rootFolderStor
 import type { UploadCoordinator } from '../sync/uploadCoordinator'
 import type { NoteReceiver } from '../sync/noteReceiver'
 import { defaultReceiver, useReceiveTriggers } from '../sync/receiveWiring'
-import { defaultOtherTime, defaultUploadCoordinator, useUploadTriggers } from '../sync/uploadWiring'
+import { defaultOtherTime, defaultUploadCoordinator, defaultVersions, useUploadTriggers } from '../sync/uploadWiring'
 import { requestResolve } from './library/resolveRequest'
 import { ReviveSnackbar } from './sync/ReviveSnackbar'
 import { SyncUiProvider } from './sync/syncUi'
@@ -42,7 +42,7 @@ function useHash(): string {
 }
 
 // No router library: the path alone picks the static policy page or the shell.
-export type SyncUiProps = Pick<ComponentProps<typeof SyncUiProvider>, 'status' | 'net' | 'exportLog'>
+export type SyncUiProps = Pick<ComponentProps<typeof SyncUiProvider>, 'status' | 'net' | 'exportLog' | 'versions'>
 
 export function App({ auth = defaultAuth, root, uploads, receiver, gate, unsentIds, syncUi }: { auth?: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; gate?: GateDeps; unsentIds?: () => Promise<string[] | null>; syncUi?: SyncUiProps }) {
   const { token, notice, busy } = useSyncExternalStore(auth.subscribe, auth.getState, auth.getState)
@@ -67,6 +67,8 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
   useUploadTriggers(uploads, root)
   // When the other device's version of a conflicted page was uploaded (Story 3.22); real Drive only with the default root.
   const otherTime = useMemo(() => (rootProp ? undefined : defaultOtherTime(auth)), [rootProp, auth])
+  // The version history (Story 3.25): real Drive only with the default root.
+  const versions = useMemo(() => (rootProp || !uploads ? undefined : defaultVersions(auth, uploads)), [rootProp, auth, uploads])
   // Same rule for receiving remote changes (Story 3.14).
   const receiver = useMemo(
     () => receiverProp ?? (rootProp ? undefined : defaultReceiver(auth, root)),
@@ -89,7 +91,7 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
   const hidden = expanded ? undefined : 'sr-only'
 
   return (
-    <SyncUiProvider auth={auth} uploads={uploads} receiver={receiver} resolve={requestResolve} {...(otherTime && { otherTime })} {...syncUi}>
+    <SyncUiProvider auth={auth} uploads={uploads} receiver={receiver} resolve={requestResolve} {...(otherTime && { otherTime })} {...(versions && { versions })} {...syncUi}>
     <div className="shell">
       {/* The writing screen covers the window; the sidebar is not reachable behind it. */}
       <nav

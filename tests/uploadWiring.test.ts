@@ -14,7 +14,9 @@ import { clearSessionHistories } from '../src/ops/sessionHistories'
 import { deleteNoteDatabase } from '../src/storage/noteDb'
 import { savesSettled } from '../src/storage/saveQueue'
 import { getOpenNote, openNoteIds } from '../src/sync/openNotes'
-import { attachUploadTriggers } from '../src/sync/uploadWiring'
+import { connectivity } from '../src/drive/connectivity'
+import { type Versions, createVersionRestorer, createVersionSource } from '../src/sync/versionHistory'
+import { attachUploadTriggers, defaultVersions } from '../src/sync/uploadWiring'
 import { createUploadCoordinator } from '../src/sync/uploadCoordinator'
 import { SYNC_LOG_DB } from '../src/sync/syncLog'
 import { App } from '../src/ui/App'
@@ -209,6 +211,44 @@ describe('triggers through the app', () => {
     await flush()
     expect(env.drive.calls.length).toBe(calls)
     root = createRoot(host) // for afterEach
+  })
+})
+
+describe('defaultVersions (Story 3.25)', () => {
+  const uploads = { noteClosed: async () => {} } as never
+  test('returns the source, the restorer and a probe; the probe follows navigator.onLine and the connectivity; one instance per coordinator', async () => {
+    const v = defaultVersions(signedIn as never, uploads)
+    expect(Object.keys(v).sort()).toEqual(['probe', 'restorer', 'source'])
+    expect(typeof v.restorer.restore).toBe('function')
+    expect(typeof v.source.load).toBe('function')
+    expect(defaultVersions(signedIn as never, uploads)).toBe(v) // no second store connection
+    expect(await v.probe()).toBe(true)
+    connectivity().networkFailed()
+    expect(await v.probe()).toBe(false)
+    connectivity().networkOk()
+    expect(await v.probe()).toBe(true)
+    const nav = vi.spyOn(globalThis.navigator, 'onLine', 'get').mockReturnValue(false)
+    expect(await v.probe()).toBe(false)
+    nav.mockRestore()
+  })
+
+  test('the app offers [버전 기록] in the editor menu when it has the feature', async () => {
+    const store = rootStore()
+    env = await makeEnv({ allowed: () => uploadsAllowed(store) })
+    await env.store.writeNote(mkNote())
+    const source = createVersionSource(env.drive)
+    const versions: Versions = {
+      source,
+      restorer: createVersionRestorer({ drive: env.drive, store: env.store, coordinator: {} as never, source, editedBy: () => 'x' }),
+      probe: async () => true,
+    }
+    act(() => root.render(createElement(I18nContext.Provider, { value: i18n() }, createElement(App, { auth: signedIn, root: store, syncUi: { versions } }))))
+    await flush()
+    location.hash = `#/notes/${NID}`
+    await flush()
+    await flush()
+    click(q('button[aria-label="더 보기"]')!)
+    expect([...host.querySelectorAll('[role="menuitem"]')].map((x) => x.textContent)).toContain('버전 기록')
   })
 })
 

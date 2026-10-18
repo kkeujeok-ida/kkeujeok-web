@@ -148,21 +148,41 @@ describe('revisions', () => {
     const { c, seen } = client((r) =>
       r.url.searchParams.get('pageToken') === 'p2'
         ? json({ revisions: [{ id: 'r3', modifiedTime: 't3' }] })
-        : json({ revisions: [{ id: 'r1', modifiedTime: 't1' }, { id: 'r2', modifiedTime: 't2' }], nextPageToken: 'p2' }),
+        : json({ revisions: [{ id: 'r1', modifiedTime: 't1', keepForever: true }, { id: 'r2', modifiedTime: 't2' }], nextPageToken: 'p2' }),
     )
     expect(await c.listRevisions('f1')).toEqual([
-      { id: 'r1', modifiedTime: 't1' },
-      { id: 'r2', modifiedTime: 't2' },
-      { id: 'r3', modifiedTime: 't3' },
+      { id: 'r1', modifiedTime: 't1', keepForever: true },
+      { id: 'r2', modifiedTime: 't2', keepForever: false },
+      { id: 'r3', modifiedTime: 't3', keepForever: false },
     ])
     expect(seen[0]!.url.pathname).toBe('/v3/files/f1/revisions')
     expect(seen[0]!.url.searchParams.get('pageSize')).toBe('1000')
-    expect(seen[0]!.url.searchParams.get('fields')).toBe('nextPageToken,revisions(id,modifiedTime)')
+    expect(seen[0]!.url.searchParams.get('fields')).toBe('nextPageToken,revisions(id,modifiedTime,keepForever)')
   })
 
   test('a revision without an id is parse', async () => {
     const { c } = client(() => json({ revisions: [{ modifiedTime: 't' }] }))
     expect(await rejection(c.listRevisions('f1'))).toMatchObject({ kind: 'parse' })
+  })
+
+  test('updateRevision PATCHes keepForever on the revision (Story 3.25)', async () => {
+    const { c, seen } = client(() => json({ id: 'r 1', modifiedTime: 't1', keepForever: true }))
+    expect(await c.updateRevision('f1', 'r 1', { keepForever: true })).toEqual({ id: 'r 1', modifiedTime: 't1', keepForever: true })
+    expect(seen[0]!.init.method).toBe('PATCH')
+    expect(seen[0]!.url.pathname).toBe('/v3/files/f1/revisions/r%201')
+    expect(JSON.parse(seen[0]!.init.body as string)).toEqual({ keepForever: true })
+  })
+
+  test('updateRevision of a purged revision is a 404 DriveError', async () => {
+    const { c } = client(() => json({ error: { errors: [{ reason: 'notFound' }] } }, 404))
+    expect(await rejection(c.updateRevision('f1', 'r1', { keepForever: false }))).toMatchObject({ kind: 'http', status: 404 })
+  })
+
+  test('downloadFile reads alt=media bytes of a file (a sidecar)', async () => {
+    const { c, seen } = client(() => new Response(new Uint8Array([1, 2])))
+    expect([...(await c.downloadFile('f 1'))]).toEqual([1, 2])
+    expect(seen[0]!.url.pathname).toBe('/v3/files/f%201')
+    expect(seen[0]!.url.searchParams.get('alt')).toBe('media')
   })
 
   test('downloadRevision reads alt=media bytes', async () => {

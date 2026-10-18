@@ -718,7 +718,49 @@ export function createNoteUploader(d: UploaderDeps) {
     }
   }
 
+  // ---- restore (Story 3.25) ---------------------------------------------------
+  /**
+   * Restore step 2: uploads `noteId` until `verified`, also when nothing is unsent (then it only confirms that Drive's
+   * head is the base). Answers the revision id that holds the state now (the `baseHeadRevisionId` after the commit),
+   * or null when it could not be reached; a failure is in `sync.json` and the log like any upload error.
+   */
+  async function verifiedHead(noteId: string): Promise<string | null> {
+    try {
+      const s = await store.readSync(noteId)
+      if (s.info.state === 'error') return null
+      if (s.hasUnsent || s.info.pendingVerify !== null) {
+        if ((await run(noteId, false)) !== 'uploaded') return null
+        return (await store.readSync(noteId)).info.baseHeadRevisionId
+      }
+      const { baseHeadRevisionId: base, fileId } = s.info
+      if (base === null || fileId === null) return null
+      if (!d.allowed() || !d.online()) return null
+      const f = await call(noteId, () => drive.get(fileId, { fields: 'headRevisionId,trashed' }))
+      if (f.trashed) throw failure('deleted', { reason: 'trashed' })
+      // Another device's newer head is not the state to pin.
+      return f.headRevisionId === base ? base : null
+    } catch (e) {
+      if (e instanceof UploadFailure) {
+        await fail(noteId, e.f)
+        return null
+      }
+      if (e instanceof NoteSaveError) return null
+      throw e
+    }
+  }
+
+  /** A Drive call outside the upload failed (the pin of a restore): handled as a sync error of the note, like an upload failure. */
+  async function failed(noteId: string, e: DriveError): Promise<void> {
+    try {
+      await fail(noteId, { cls: classifyDriveError(e), ...(e.status !== undefined && { status: e.status }), ...((e.kind === 'parse' ? 'parse' : e.reason) !== undefined && { reason: e.kind === 'parse' ? 'parse' : e.reason }) })
+    } catch {
+      // the log or sync.json is not writable: nothing more to do here
+    }
+  }
+
   return {
+    uploadVerified: (noteId: string) => chained(noteId, () => verifiedHead(noteId)),
+    reportFailure: (noteId: string, e: DriveError) => chained(noteId, () => failed(noteId, e)),
     /** A conflict was settled in the editor (chained with this note's uploads). */
     conflictResolved: (noteId: string, conflict: JsonMap) => chained(noteId, () => resolved(noteId, conflict)),
     markResolved: (noteId: string) => chained(noteId, () => markResolved(noteId)),

@@ -1148,3 +1148,129 @@ h1 {
   line-height: var(--typography-caption-line-height);
   text-align: center;
 }
+
+/* Version history dialog (Story 3.25). Tokens only; rows wrap and text never clips at 200% zoom. */
+.dialog.version-history {
+  width: 100%;
+  max-width: calc(var(--spacing-cover-column-min) * 3);
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.version-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.version-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.version-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-3);
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: var(--rounded-md);
+  background: var(--color-surface-raised);
+}
+
+.version-item:focus-visible {
+  outline: 2px solid var(--color-border-control);
+  outline-offset: 2px;
+}
+
+.version-placeholder {
+  min-height: calc(var(--spacing-hit-min-web) * 2);
+  background: var(--color-surface-sunken);
+}
+
+.version-preview-slot {
+  flex: 0 0 calc(var(--spacing-hit-min-web) * 2);
+}
+
+.version-preview {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--color-border-hairline);
+  border-radius: var(--rounded-sm);
+}
+
+.version-preview canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.version-preview-empty {
+  background: var(--color-surface-sunken);
+  color: var(--color-ink-secondary);
+  font-size: var(--typography-caption-font-size);
+  line-height: var(--typography-caption-line-height);
+  text-align: center;
+}
+
+.version-body {
+  display: flex;
+  flex: 1 1 var(--spacing-cover-column-min);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+.version-time {
+  font-weight: var(--typography-label-font-weight);
+}
+
+.version-device {
+  color: var(--color-ink-secondary);
+  font-size: var(--typography-caption-font-size);
+  line-height: var(--typography-caption-line-height);
+  overflow-wrap: anywhere;
+}
+
+.version-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+}
+
+.version-tag {
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--rounded-sm);
+  background: var(--components-badge-neutral-background);
+  color: var(--components-badge-neutral-text);
+  font-size: var(--typography-label-font-size);
+  font-weight: var(--typography-label-font-weight);
+}
+
+.version-restore {
+  height: auto;
+  padding-block: var(--spacing-1);
+  text-align: start;
+  white-space: normal;
+}
+
+.version-restore[aria-disabled='true'] {
+  color: var(--color-ink-disabled);
+  cursor: default;
+}
+
+.dialog .version-message {
+  color: var(--color-ink-secondary);
+  text-align: center;
+}

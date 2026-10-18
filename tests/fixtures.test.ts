@@ -23,6 +23,8 @@ import { resolveConflict } from '../src/ops/resolveConflict'
 import { errorClassRule } from '../src/sync/errorClass'
 import { backoffRule, stateMachineRule, uploadKindRule, verifyPlanRule } from '../src/sync/syncRules'
 import { driveFileNameRule, listSummaryRule } from '../src/drive/noteSummary'
+import { restoreNote, restorePage } from '../src/ops/restore'
+import { keepForeverRule, versionListRule } from '../src/sync/versionList'
 
 // `tolerance` is the fixture file's top-level value, copied onto each case.
 type Case = { name: string; input: unknown; expected: unknown; tolerance?: number }
@@ -133,6 +135,16 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     const [an, bn] = [(a as { note: Note }).note, (b as { note: Note }).note]
     expect({ a, b, ab: merge(i.base, an, bn, i.ctx), ba: merge(i.base, bn, an, i.ctx) }).toEqual(expected)
   },
+  'version.list': ({ input, expected }) => void expect(versionListRule(input)).toEqual(expected),
+  'version.keepForever': ({ input, expected }) => void expect(keepForeverRule(input)).toEqual(expected),
+  'ops.restoreNote': ({ input, expected }) => {
+    const j = input as { note: Parameters<typeof restoreNote>[0]; op: Parameters<typeof restoreNote>[1]; ctx: Parameters<typeof restoreNote>[2]; conflicts: Parameters<typeof restoreNote>[3] }
+    expect(restoreNote(j.note, j.op, j.ctx, j.conflicts)).toEqual(expected)
+  },
+  'ops.restorePage': ({ input, expected }) => {
+    const j = input as { note: Parameters<typeof restorePage>[0]; op: Parameters<typeof restorePage>[1]; ctx: Parameters<typeof restorePage>[2]; conflicts: Parameters<typeof restorePage>[3] }
+    expect(restorePage(j.note, j.op, j.ctx, j.conflicts)).toEqual(expected)
+  },
   'synclog.entry': ({ input, expected }) => {
     expect(checkLogEntry((input as { entry: unknown }).entry)).toEqual(expected)
   },
@@ -141,12 +153,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Rules whose fixture must exist and be valid but have no runner yet.
 // Sync rules (Story 3.2) arrive with the web sync stories (3.4, 3.6, 3.10, ...);
 // each story removes its rule here when it adds the runner.
-const PENDING: string[] = [
-  'version.list',
-  'version.keepForever',
-  'ops.restoreNote',
-  'ops.restorePage',
-]
+const PENDING: string[] = []
 
 function mergeRunner({ input, expected }: Case) {
   const i = input as { base: Note | null; local: Note; remote: Note; ctx: MergeCtx }
@@ -295,9 +302,9 @@ describe('harness refuses a broken setup', () => {
   test('two-dot rule id accepted; listed pending rule needs no runner; unlisted still fails', () => {
     const fx = (rule: string) => JSON.stringify({ rule, cases: [{ name: 'a', input: 1, expected: 1 }] })
     expect(loadFixtures(sharedDir).has('stroke.outline.pen')).toBe(true)
-    expect(PENDING.every((id) => loadFixtures(sharedDir).has(id))).toBe(false) // pending rules have no runner
     expect(loadFixtures(sharedDir).get('stroke.outline.pen')![0]!.tolerance).toBe(0.02)
-    const only = [...PENDING, 'stroke.hitTest']
+    // a synthetic pending id: PENDING itself is empty now
+    const only = ['stroke.hitTest']
     expect(loadFixtures(mkOnly({ ...real, 'stroke.hitTest.json': fx('stroke.hitTest') }), only).has('stroke.hitTest')).toBe(false)
     expect(() => loadWith({ 'stroke.hitTest.json': fx('stroke.hitTest') })).toThrow('"stroke.hitTest"')
   })

@@ -36,7 +36,8 @@ export type DriveFile = {
 export type DriveChange = { fileId: string; removed: boolean; file?: DriveFile }
 export type DriveChanges = { changes: DriveChange[]; nextPageToken?: string; newStartPageToken?: string }
 
-export type DriveRevision = { id: string; modifiedTime: string }
+/** `keepForever`: pinned ("복원 전"); `revisions.list` is asked for it. */
+export type DriveRevision = { id: string; modifiedTime: string; keepForever?: boolean }
 
 /** Answer of one resumable PUT: `file` when finished (200/201), else `received` bytes are held (308). */
 export type ResumableResult = { received: number; file?: DriveFile }
@@ -66,6 +67,10 @@ export interface DriveClient {
   listRevisions(fileId: string): Promise<DriveRevision[]>
   /** `revisions.get` with `alt=media`. */
   downloadRevision(fileId: string, revisionId: string): Promise<Uint8Array>
+  /** `revisions.update` of `keepForever` (Story 3.25). 404 = the revision is gone. */
+  updateRevision(fileId: string, revisionId: string, o: { keepForever: boolean }): Promise<DriveRevision>
+  /** `files.get` with `alt=media`: the content of a file, e.g. a conflict sidecar's JSON. */
+  downloadFile(fileId: string): Promise<Uint8Array>
   /** `changes.getStartPageToken`. */
   getStartPageToken(): Promise<string>
   /** One page of `changes.list` from `pageToken`; a rejected token is a DriveError 400, 404 or 410. */
@@ -301,14 +306,14 @@ export function createHttpDriveClient(o: {
       let token: string | undefined
       do {
         const j = (await send('GET', `${file(fileId)}/revisions`, {
-          fields: 'nextPageToken,revisions(id,modifiedTime)',
+          fields: 'nextPageToken,revisions(id,modifiedTime,keepForever)',
           pageSize: '1000',
           ...(token && { pageToken: token }),
         })) as { revisions?: unknown; nextPageToken?: unknown }
         if (!Array.isArray(j?.revisions)) throw new DriveError('parse')
-        for (const r of j.revisions as { id?: unknown; modifiedTime?: unknown }[]) {
+        for (const r of j.revisions as { id?: unknown; modifiedTime?: unknown; keepForever?: unknown }[]) {
           if (typeof r?.id !== 'string' || typeof r.modifiedTime !== 'string') throw new DriveError('parse')
-          out.push({ id: r.id, modifiedTime: r.modifiedTime })
+          out.push({ id: r.id, modifiedTime: r.modifiedTime, keepForever: r.keepForever === true })
         }
         token = typeof j.nextPageToken === 'string' && j.nextPageToken !== '' ? j.nextPageToken : undefined
       } while (token)
@@ -316,6 +321,20 @@ export function createHttpDriveClient(o: {
     },
     async downloadRevision(fileId, revisionId) {
       const u = new URL(`${base}${file(fileId)}/revisions/${encodeURIComponent(revisionId)}`)
+      u.searchParams.set('alt', 'media')
+      return (await raw('GET', u)).bytes
+    },
+    async updateRevision(fileId, revisionId, p) {
+      const j = (await send('PATCH', `${file(fileId)}/revisions/${encodeURIComponent(revisionId)}`, { fields: 'id,modifiedTime,keepForever' }, { keepForever: p.keepForever })) as {
+        id?: unknown
+        modifiedTime?: unknown
+        keepForever?: unknown
+      }
+      if (typeof j?.id !== 'string' || typeof j.modifiedTime !== 'string') throw new DriveError('parse')
+      return { id: j.id, modifiedTime: j.modifiedTime, keepForever: j.keepForever === true }
+    },
+    async downloadFile(fileId) {
+      const u = new URL(`${base}${file(fileId)}`)
       u.searchParams.set('alt', 'media')
       return (await raw('GET', u)).bytes
     },

@@ -13,11 +13,14 @@ import type { UploadCoordinator } from '../../sync/uploadCoordinator'
 import { Banner } from '../sync/Banner'
 import { unresolvedOf } from '../../sync/conflicts'
 import type { Conflict } from '../../sync/merge'
-import { useNoteConflicts, useNoteIssue, useSyncUi } from '../sync/syncUi'
+import { useNoteConflicts, useNoteIssue, useNoteReceiving, useSyncUi } from '../sync/syncUi'
+import type { RestoreFailure } from '../../sync/versionHistory'
+import type { VersionEntry } from '../../sync/versionList'
 import { SyncIndicator } from '../sync/SyncIndicator'
 import { ConflictDialog, type ConflictItem, type ResolveOutcome, pageNo, resultKey } from './ConflictDialog'
 import { PenPopover } from './PenPopover'
 import { PenToolbar } from './PenToolbar'
+import { VersionHistory } from './VersionHistory'
 import { onResolveRequest, takeResolveRequest } from './resolveRequest'
 import { detectEditedBy } from './useLibrary'
 import { ZOOM_MAX, ZOOM_MIN } from '../../render/pagePainter'
@@ -132,6 +135,11 @@ export function NoteEditor({
   // Unresolved entries the dialog could not show (no sidecar / no page).
   const skipped = useRef(0)
   const wantResolve = useRef(false)
+  // The version history dialog (Story 3.25).
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const receiving = useNoteReceiving(noteId)
+  const receivingRef = useRef(receiving)
+  receivingRef.current = receiving
 
   const section = useRef<HTMLElement>(null)
   const back = useRef<HTMLButtonElement>(null)
@@ -325,6 +333,8 @@ export function NoteEditor({
     if (newer && loaded) loaded.writer.readOnly = true
   }, [newer, loaded])
   const readOnly = (loaded?.readOnly ?? false) || newer
+  const readOnlyRef = useRef(readOnly)
+  readOnlyRef.current = readOnly
   // Conflict pages (Story 3.20): the writer learns about pages the status store knows (never unlocks), and
   // a conflict that appears while the editor is open is announced at once.
   const conflicts = useNoteConflicts(noteId)
@@ -668,6 +678,48 @@ export function NoteEditor({
     })
   }
 
+  const openHistory = () => {
+    if (receiving || !ui?.versions) return
+    setMenuOpen(false)
+    setHistoryOpen(true)
+  }
+  const closeHistory = (restored: boolean) => {
+    setHistoryOpen(false)
+    if (restored) setResultText(t('version.restored'))
+    // Focus goes back to the ⋯ button, which opened it.
+    queueMicrotask(() => mounted.current && more.current?.focus())
+  }
+
+  /**
+   * One restore (spec version-history): the procedure runs in the restorer; the note changes through the writer's queue.
+   * The pages whose conflicts the restore settled are unlocked from the record as committed, never from a read.
+   */
+  const restoreVersion = async (entry: VersionEntry, fileId: string): Promise<RestoreFailure | null> => {
+    const versions = ui?.versions
+    if (!loaded || !versions || leaving.current || loaded.writer.leaving || readOnly || receiving) return 'notApplied'
+    const { writer } = loaded
+    if (writer.busy()) return 'busy'
+    const r = await versions.restorer.restore({
+      noteId,
+      fileId,
+      entry,
+      live: () => writer.history.note,
+      // Checked again at the moment of the apply: a tab or a receive may have started during the upload.
+      apply: (run) => !readOnlyRef.current && !receivingRef.current && !leaving.current && writer.applyRestored(run),
+      flush: () => writer.flushSaves(),
+    })
+    if (r.failure !== null) return r.failure === 'notApplied' && writer.busy() ? 'busy' : r.failure
+    if (r.locked) {
+      for (const c of conflictsRef.current ?? []) if (!r.locked.includes(c.pageId)) settledPages.current.add(c.pageId)
+      if (mounted.current) writer.setLocked(r.locked)
+    }
+    // The restored note goes up like any edit.
+    void Promise.resolve()
+      .then(() => uploads?.syncNow?.(noteId))
+      .catch(() => {})
+    return null
+  }
+
   const scale = view?.scale ?? 1
   const percent = Math.round(scale * 100)
   const atMin = scale <= ZOOM_MIN + 1e-9
@@ -803,6 +855,18 @@ export function NoteEditor({
                   <button type="button" role="menuitem" className="editor-menu-item" onClick={() => choose('page')}>
                     {t('editor.fitPage')}
                   </button>
+                  {ui?.versions && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="editor-menu-item"
+                      aria-disabled={receiving}
+                      {...(receiving ? { title: t('sync.receivingLatest') } : {})}
+                      onClick={openHistory}
+                    >
+                      {t('version.title')}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -851,6 +915,18 @@ export function NoteEditor({
           <div role="alert" className="sr-only" key={alert.n}>
             {alert.text}
           </div>
+          {historyOpen && ui?.versions && (
+            <VersionHistory
+              noteId={noteId}
+              source={ui.versions.source}
+              probe={ui.versions.probe}
+              readFileId={async () => (await loaded.writer.store.readSync(noteId)).info.fileId}
+              restoreBlocked={readOnly || receiving}
+              blockedTitle={t(readOnly ? 'editor.readOnlyTip' : 'sync.receivingLatest')}
+              onRestore={restoreVersion}
+              onClose={closeHistory}
+            />
+          )}
           {dialog && <ConflictDialog items={dialog} skipped={skipped.current} onResolve={resolveChoices} onClose={closeDialog} />}
           {popover !== null && !readOnly && pens[popover] && (
             <PenPopover

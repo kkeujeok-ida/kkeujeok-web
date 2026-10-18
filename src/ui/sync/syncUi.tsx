@@ -11,6 +11,7 @@ import { createSyncStatus, type NoteSyncView, type SyncStatus } from '../../sync
 import { syncLog } from '../../sync/syncLog'
 import { defaultUnsentStore } from '../../sync/unsent'
 import type { UploadCoordinator } from '../../sync/uploadCoordinator'
+import type { Versions } from '../../sync/versionHistory'
 import { pickBanner, type BannerKind } from './bannerPriority'
 
 type ReceiverLike = {
@@ -34,6 +35,8 @@ export type SyncUi = {
   resolve?: (noteId: string) => void
   /** When the other device's version was uploaded (ISO) for the note file `fileId`; best effort, null when unknown. */
   otherTime?: (fileId: string | null) => Promise<string | null>
+  /** The version history of a note (Story 3.25); without it the editor has no [버전 기록]. */
+  versions?: Versions
   /** [다시 로그인]; one at a time. */
   reauth: () => void
   reauthBusy: boolean
@@ -79,6 +82,7 @@ export function SyncUiProvider({
   doc: docProp,
   resolve,
   otherTime,
+  versions,
   children,
 }: {
   auth: AuthLike
@@ -91,6 +95,7 @@ export function SyncUiProvider({
   doc?: Pick<Document, 'addEventListener' | 'removeEventListener' | 'visibilityState'>
   resolve?: (noteId: string) => void
   otherTime?: (fileId: string | null) => Promise<string | null>
+  versions?: Versions
   children?: ReactNode
 }) {
   const status = useMemo(() => statusProp ?? defaultStatus(), [statusProp])
@@ -135,6 +140,7 @@ export function SyncUiProvider({
       reauthBusy,
       ...(resolve && { resolve }),
       ...(otherTime && { otherTime }),
+      ...(versions && { versions }),
       async revive(noteId) {
         await receiver?.revive?.(noteId)
         await uploads?.syncNow?.(noteId)
@@ -161,7 +167,7 @@ export function SyncUiProvider({
         })()
       },
     }),
-    [status, net, auth, receiver, uploads, exportLog, reauthBusy, resolve, otherTime],
+    [status, net, auth, receiver, uploads, exportLog, reauthBusy, resolve, otherTime, versions],
   )
   return <SyncUiContext.Provider value={value}>{children}</SyncUiContext.Provider>
 }
@@ -205,6 +211,12 @@ export function useNoteSync(noteId: string): NoteSyncDisplay {
                 : 'unreadable'
               : 'other'
   return { label, reason }
+}
+
+/** The note is being received from Drive right now (its text is about to change). */
+export function useNoteReceiving(noteId: string): boolean {
+  const rx = useSyncUi()?.receiver ?? NO_RECEIVER
+  return useSyncExternalStore(rx.subscribe, rx.getState, rx.getState).receiving.has(noteId)
 }
 
 /** What Drive did to a note that the screens must say (Story 3.18); null for a note that is fine. */

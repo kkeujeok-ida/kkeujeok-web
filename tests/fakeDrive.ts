@@ -8,7 +8,7 @@ import {
   type DriveFile,
 } from '../src/drive/driveClient'
 
-type Rev = { id: string; modifiedTime: string; bytes: Uint8Array }
+type Rev = { id: string; modifiedTime: string; bytes: Uint8Array; keepForever?: boolean }
 type Session = { fileId?: string; metadata: Record<string, unknown>; size: number; received: number; chunks: Uint8Array[] }
 type Item = DriveFile & { createdTime: string; foreign?: boolean; hidden?: boolean; revs: Rev[]; thumb?: boolean }
 
@@ -167,7 +167,7 @@ export function createFakeDrive(o: { pageSize?: number; changePageSize?: number 
       if (!i) throw new DriveError('http', 404, 'notFound')
       const shown = hiddenRevs > 0 ? i.revs.slice(0, i.revs.length - 1) : i.revs
       if (hiddenRevs > 0) hiddenRevs--
-      return shown.map((r) => ({ id: r.id, modifiedTime: r.modifiedTime }))
+      return shown.map((r) => ({ id: r.id, modifiedTime: r.modifiedTime, keepForever: r.keepForever === true }))
     },
     async getStartPageToken() {
       enter('getStartPageToken')
@@ -187,6 +187,22 @@ export function createFakeDrive(o: { pageSize?: number; changePageSize?: number 
         return !i || i.foreign ? { fileId: id, removed: true } : { fileId: id, removed: false, file: view(i) }
       })
       return end < changeLog.length ? { changes, nextPageToken: String(end) } : { changes, newStartPageToken: String(end) }
+    },
+    async updateRevision(fileId, revisionId, p) {
+      enter('updateRevision', `${fileId} ${revisionId} ${p.keepForever}`)
+      const i = items.get(fileId)
+      const r = i?.revs.find((x) => x.id === revisionId)
+      if (!i || !r) throw new DriveError('http', 404, 'notFound')
+      // Drive allows at most 200 pinned revisions per file.
+      if (p.keepForever && !r.keepForever && i.revs.filter((x) => x.keepForever).length >= 200) throw new DriveError('http', 403, 'keepForeverRevisionLimitExceeded')
+      r.keepForever = p.keepForever
+      return { id: r.id, modifiedTime: r.modifiedTime, keepForever: p.keepForever }
+    },
+    async downloadFile(fileId) {
+      enter('downloadFile', fileId)
+      const i = items.get(fileId)
+      if (!i || i.trashed || i.revs.length === 0) throw new DriveError('http', 404, 'notFound')
+      return i.revs.at(-1)!.bytes
     },
     async downloadRevision(fileId, revisionId) {
       enter('downloadRevision', `${fileId} ${revisionId}`)
