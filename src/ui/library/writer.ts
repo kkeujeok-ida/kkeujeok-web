@@ -19,6 +19,7 @@ import {
   scrollMetrics,
   StrokePathCache,
   toPage,
+  snapScale,
   zoomAbout,
   type PageViewport,
   type Thumb,
@@ -69,6 +70,7 @@ export class Writer {
   private handUsed = false
   private viewport: PageViewport = { scale: 1, offsetX: 0, offsetY: 0 }
   private fitMode: FitMode = 'width'
+  private wheelAsk: { shown: number; value: number } | null = null
   private laidOut = false
   private layoutKey = ''
   private ins: ViewInsets = { gap: 0, extraBottom: 0 }
@@ -386,7 +388,7 @@ export class Writer {
   zoomBy(factor: number): void {
     if (!this.page || this.busy()) return
     const base = this.anim?.to ?? this.viewport
-    const z = zoomAbout(base, this.cssW / 2, this.cssH / 2, base.scale * factor)
+    const z = zoomAbout(base, this.cssW / 2, this.cssH / 2, snapScale(base.scale * factor, this.fitFor('width').scale))
     this.goTo(this.clamp(z), 'free')
   }
 
@@ -438,7 +440,12 @@ export class Writer {
     if (e.ctrlKey) {
       if (this.busy()) return
       const [fx, fy] = this.local(e.clientX, e.clientY)
-      const z = zoomAbout(this.viewport, fx, fy, this.viewport.scale * Math.exp(-dy * WHEEL_ZOOM))
+      // The wheel keeps counting from the scale it asked for, so it leaves the snap (spec zoom.snap).
+      const cur = this.viewport.scale
+      const asked = clampScale((this.wheelAsk?.shown === cur ? this.wheelAsk.value : cur) * Math.exp(-dy * WHEEL_ZOOM))
+      const shown = snapScale(asked, this.fitFor('width').scale)
+      this.wheelAsk = { shown, value: asked }
+      const z = zoomAbout(this.viewport, fx, fy, shown)
       this.setView(this.clamp(z), 'free')
       return
     }
@@ -622,7 +629,7 @@ export class Writer {
     const pb = g && this.touches.get(g.b)
     if (!g || !pa || !pb) return
     const [fx, fy] = this.local((pa.x + pb.x) / 2, (pa.y + pb.y) / 2)
-    const s = clampScale((g.s0 * Math.hypot(pa.x - pb.x, pa.y - pb.y)) / g.d0)
+    const s = snapScale((g.s0 * Math.hypot(pa.x - pb.x, pa.y - pb.y)) / g.d0, this.fitFor('width').scale)
     this.changeView(this.clamp({ scale: s, offsetX: fx - g.p0[0] * s, offsetY: fy - g.p0[1] * s }))
   }
 

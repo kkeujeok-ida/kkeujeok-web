@@ -56,6 +56,8 @@ function backToLibrary() {
 }
 
 const SNACKBAR_MS = 4000
+/** The scale badge stays this long after the last zoom. */
+const ZOOM_BADGE_MS = 1500
 /** An assertive announcement stays in its live region this long. */
 const ALERT_MS = 5000
 /** A blocked write is announced at most this often. */
@@ -728,10 +730,16 @@ export function NoteEditor({
   const levelText = fmt(t('editor.zoomLevel'), { percent })
   const [announce, setAnnounce] = useState('')
   const lastPercent = useRef(percent)
+  // The small scale badge at the top right shows after a zoom and goes away shortly after.
+  const [badge, setBadge] = useState(false)
   useEffect(() => {
     const changed = lastPercent.current !== percent
     lastPercent.current = percent
     setAnnounce(menuOpen || changed ? levelText : '')
+    if (!changed) return
+    setBadge(true)
+    const id = setTimeout(() => setBadge(false), ZOOM_BADGE_MS)
+    return () => clearTimeout(id)
   }, [percent, menuOpen, levelText])
   const choose = (fit: 'width' | 'page') => {
     loaded?.writer.fit(fit)
@@ -816,6 +824,11 @@ export function NoteEditor({
                   </svg>
                 </button>
               </div>
+              {badge && !menuOpen && (
+                <span className="editor-zoom-badge" data-testid="zoom-badge" aria-hidden="true">
+                  {percent}%
+                </span>
+              )}
               {menuOpen && (
                 <div ref={menu} role="menu" aria-label={t('editor.more')} className="editor-menu" onKeyDown={onMenuKeyDown}>
                   <div role="none" className="editor-menu-row">

@@ -12,6 +12,7 @@ import type { Note } from '../src/model/note'
 import { round2 } from '../src/model/number'
 import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
+import { snapScale } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
 import { strokeOutline } from '../src/render/strokeOutline'
 import { hasUnsentRule } from '../src/sync/hasUnsent'
@@ -147,6 +148,10 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   },
   'synclog.entry': ({ input, expected }) => {
     expect(checkLogEntry((input as { entry: unknown }).entry)).toEqual(expected)
+  },
+  'zoom.snap': ({ input, expected }) => {
+    const i = input as { scale: number; fitScale: number }
+    expect(snapScale(i.scale, i.fitScale)).toBe(expected)
   },
 }
 

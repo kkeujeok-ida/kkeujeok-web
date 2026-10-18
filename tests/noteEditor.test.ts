@@ -1249,6 +1249,21 @@ describe('zoom and pan', () => {
     closeTo(await pageAt(350, 250), center![0], center![1])
   })
 
+  test('a zoom near the width fit snaps to it, shows a scale badge, and a long wheel leaves the snap', async () => {
+    await mountEditor()
+    canvas().focus()
+    press(canvas(), '-', { ctrlKey: true, code: 'Minus' }) // 80% of the fit: outside the band
+    wheel({ deltaY: -100, ctrlKey: true }) // x1.22 -> 97.7% of the fit: snaps
+    expect(q('[data-testid="zoom-badge"]')!.textContent).toBe(`${Math.round(fit() * 100)}%`)
+    wheel({ deltaY: -40, ctrlKey: true }) // still asks for less than +10% in total: stays snapped
+    await openMenu()
+    expect(level()).toBe(`${Math.round(fit() * 100)}%`)
+    act(() => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    wheel({ deltaY: -100, ctrlKey: true }) // the asked scale is past 110%: leaves the snap
+    await openMenu()
+    expect(Number.parseInt(level(), 10)).toBeGreaterThan(Math.round(fit() * 110))
+  })
+
   test('reduced motion changes at once', async () => {
     const frames: FrameRequestCallback[] = []
     vi.stubGlobal('requestAnimationFrame', (f: FrameRequestCallback) => frames.push(f))

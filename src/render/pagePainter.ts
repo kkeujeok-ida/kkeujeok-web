@@ -28,6 +28,12 @@ export type ViewInsets = { gap: number; extraBottom: number }
 export type Thumb = { start: number; size: number }
 
 export const clampScale = (s: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, s))
+/** Spec zoom.snap: a scale within 10% of the width-fit scale shows as that scale. */
+export function snapScale(scale: number, fitScale: number): number {
+  const f = clampScale(fitScale)
+  const s = clampScale(scale)
+  return f * 0.9 <= s && s <= f * 1.1 ? f : s
+}
 const IDENTITY: PageViewport = { scale: 1, offsetX: 0, offsetY: 0 }
 
 /** The padded area (left, top, width, height without extraBottom), or null when nothing fits. */

@@ -773,6 +773,20 @@ h1 {
   box-shadow: var(--components-popover-shadow);
 }
 
+.editor-zoom-badge {
+  position: absolute;
+  top: calc(100% + var(--spacing-2));
+  right: 0;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--components-popover-rounded);
+  background: var(--components-popover-background);
+  box-shadow: var(--components-popover-shadow);
+  color: var(--color-ink-primary);
+  font-size: var(--typography-label-font-size);
+  font-weight: var(--typography-label-font-weight);
+  pointer-events: none;
+}
+
 .editor-menu-row {
   display: flex;
   align-items: center;
