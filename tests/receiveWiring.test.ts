@@ -304,12 +304,14 @@ async function mountApp(o: { receiver?: unknown } = {}) {
 const cardTitles = () => [...host.querySelectorAll('.cover-title')].map((e) => e.textContent)
 
 describe('the library', () => {
-  test('page load: the first check draws a remote card from the summary, no note is downloaded', async () => {
+  test('page load: the first check draws a remote card from the summary, then its note is downloaded for the thumbnail', async () => {
     env = await makeRxEnv()
     await env.remoteUpload(mkNote({ title: '다른 기기 노트' }))
     await mountApp()
+    await flush()
     expect(cardTitles()).toEqual(['다른 기기 노트'])
-    expect(env.drive.count('downloadRevision')).toBe(0)
+    expect(env.drive.count('downloadRevision')).toBe(1)
+    expect(await env.store.remote.get(NID)).toBeNull()
     expect(q('.cover-badge')).toBeNull()
     expect(q('a.cover-card')!.getAttribute('href')).toBe(`#/notes/${NID}`)
   })
@@ -458,8 +460,8 @@ describe('opening a note', () => {
   test('a card whose download fails goes back to the library', async () => {
     env = await makeRxEnv()
     await env.remoteUpload(mkNote({ title: '카드 노트' }))
-    await mountApp()
     env.drive.failAlways('downloadRevision', new (await import('../src/drive/driveClient')).DriveError('http', 404, 'notFound'))
+    await mountApp()
     location.hash = `#/notes/${NID}`
     await flush()
     await flush()

@@ -385,7 +385,7 @@ describe('sheet keyboard', () => {
 })
 
 describe('list', () => {
-  test('newest first; cards are one link named by title and described by the date; unreadable is not a link', async () => {
+  test('by name (the default); cards are one link named by title and described by the date; unreadable is not a link', async () => {
     await seed([
       mk('a', '오래된 노트', '2026-01-02T00:00:00.000Z'),
       mk('b', '최근 노트', '2026-10-05T00:00:00.000Z'),
@@ -396,20 +396,20 @@ describe('list', () => {
 
     const cards = qa('.cover-grid > li > *')
     expect(cards.map((c) => c.querySelector('.cover-title')!.textContent)).toEqual([
-      '최근 노트',
-      '오래된 노트',
       '날짜 이상',
+      '오래된 노트',
+      '최근 노트',
       'Cannot open',
     ])
     const links = qa<HTMLAnchorElement>('a.cover-card')
     expect(links).toHaveLength(3)
-    expect(links[0]!.getAttribute('href')).toBe('#/notes/b')
-    expect(document.getElementById(links[0]!.getAttribute('aria-labelledby')!)!.textContent).toBe('최근 노트')
-    expect(document.getElementById(links[0]!.getAttribute('aria-describedby')!)!.textContent).toBe(
+    expect(links[2]!.getAttribute('href')).toBe('#/notes/b')
+    expect(document.getElementById(links[2]!.getAttribute('aria-labelledby')!)!.textContent).toBe('최근 노트')
+    expect(document.getElementById(links[2]!.getAttribute('aria-describedby')!)!.textContent).toBe(
       new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(new Date('2026-10-05T00:00:00.000Z')),
     )
-    expect(links[2]!.hasAttribute('aria-describedby')).toBe(false) // no valid date
-    expect(links[2]!.querySelector('.cover-date')).toBeNull()
+    expect(links[0]!.hasAttribute('aria-describedby')).toBe(false) // no valid date
+    expect(links[0]!.querySelector('.cover-date')).toBeNull()
     expect(cards[3]!.tagName).not.toBe('A')
     expect(cards[3]!.querySelector('a, button')).toBeNull()
     // no new-note card once there are notes
@@ -508,7 +508,7 @@ describe('writing screen route', () => {
     await flush()
     expect(location.hash).toMatch(/^#\/notes\//)
     expect(q('.library')).toBeNull()
-    expect(q('.editor-title')!.textContent).toBe('내 노트')
+    expect(q('.editor-title')).toBeNull()
     expect(document.activeElement).toBe(q('.editor-back'))
 
     click(q('.editor-back')!)

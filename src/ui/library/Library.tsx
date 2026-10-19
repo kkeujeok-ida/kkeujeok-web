@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { NoteReceiver, ReceiveState } from '../../sync/noteReceiver'
 import type { Page } from '../../model/note'
 import { StrokePathCache, fitViewport, paintPage } from '../../render/pagePainter'
@@ -19,7 +19,7 @@ import { LibraryFab } from './LibraryFab'
 import { NewNoteDialog } from './NewNoteDialog'
 import { noteHref } from './NoteEditor'
 import { requestResolve } from './resolveRequest'
-import { useLibrary, type LibraryItem } from './useLibrary'
+import { LIBRARY_SORTS, sortBy, useLibrary, type LibraryItem, type LibrarySort } from './useLibrary'
 
 // One per page session, so what was created last wins over a failed save.
 let shared: ReturnType<typeof createNewNoteDefaults> | undefined
@@ -149,11 +149,22 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     wasAsking.current = asking
   }, [asking])
 
-  const { items, status } = lib
+  const [sort, setSort] = useState<LibrarySort>('nameAsc') // by name at every start
+  const items = useMemo(() => sortBy(lib.items, sort), [lib.items, sort])
+  const { status } = lib
   const offline = useOffline()
   return (
     <section ref={section} className="library" aria-label={t('library.label')} aria-busy={status === 'loading'}>
       <Banner />
+      <div className="library-toolbar">
+        <select className="field-input library-sort" aria-label={t('library.sort')} value={sort} onChange={(e) => setSort(e.target.value as LibrarySort)}>
+          {LIBRARY_SORTS.map((s) => (
+            <option key={s} value={s}>
+              {t(`library.sort.${s}`)}
+            </option>
+          ))}
+        </select>
+      </div>
       {unsaved && (
         <p role="status" className="cover-status">
           {t('library.saveFailed')}

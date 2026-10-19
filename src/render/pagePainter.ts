@@ -20,7 +20,7 @@ export function fitViewport(width: number, height: number, pageW: number, pageH:
 }
 
 export const ZOOM_MIN = 0.5
-export const ZOOM_MAX = 4
+export const ZOOM_MAX = 8
 
 /** `gap` around the visible area; `extraBottom` more room under a page that is scrolled to its end. */
 export type ViewInsets = { gap: number; extraBottom: number }

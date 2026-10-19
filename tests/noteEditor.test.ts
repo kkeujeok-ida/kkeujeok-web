@@ -167,7 +167,7 @@ afterEach(async () => {
 describe('semantics', () => {
   test('corner, toolbar, radiogroup slot and the page canvas', async () => {
     await mountEditor()
-    expect(q('.editor-title')!.textContent).toBe('필기 노트')
+    expect(q('.editor-title')).toBeNull()
     const tb = q('[role="toolbar"]')!
     expect(tb.getAttribute('aria-label')).toBe('툴바')
     expect(tb.querySelector('.toolbar-grip')!.getAttribute('aria-hidden')).toBe('true')
@@ -1061,7 +1061,7 @@ describe('zoom and pan', () => {
     expect(await pageAt(300, end + 3)).toBeNull()
   })
 
-  test('Ctrl+wheel keeps the page point under the pointer, 50-400%, default prevented', async () => {
+  test('Ctrl+wheel keeps the page point under the pointer, 50-800%, default prevented', async () => {
     await mountEditor()
     const s = fit()
     const px = (400 - GAP) / s
@@ -1072,7 +1072,7 @@ describe('zoom and pan', () => {
     await openMenu()
     expect(Number.parseInt(level()!)).toBe(Math.round(s * Math.exp(0.46) * 100))
     for (let i = 0; i < 5; i++) wheel({ deltaY: -2000, ctrlKey: true })
-    expect(level()).toBe('400%')
+    expect(level()).toBe('800%')
     for (let i = 0; i < 5; i++) wheel({ deltaY: 5000, ctrlKey: true })
     expect(level()).toBe('50%')
   })
@@ -1199,8 +1199,8 @@ describe('zoom and pan', () => {
     click(plus)
     expect(q('[role="menu"]')).not.toBeNull()
     expect(level()).toBe(`${Math.round(fit() * 125)}%`)
-    for (let i = 0; i < 8; i++) click(plus)
-    expect(level()).toBe('400%')
+    for (let i = 0; i < 12; i++) click(plus)
+    expect(level()).toBe('800%')
     expect(plus.getAttribute('aria-disabled')).toBe('true')
     expect(items[0]!.getAttribute('aria-disabled')).toBe('false')
 

@@ -147,6 +147,23 @@ h1 {
   accent-color: var(--color-accent);
 }
 
+.bg-preview {
+  flex: none;
+  border: 1px solid var(--color-border-hairline);
+  background: #fff;
+}
+
+.bg-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-3);
+}
+
+.option-tile {
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
 .privacy {
   box-sizing: border-box;
   max-width: calc(var(--spacing-cover-column-min) * 4);
@@ -336,6 +353,17 @@ h1 {
 .library {
   position: relative;
   padding-bottom: calc(var(--components-fab-size) + var(--components-fab-inset) * 2);
+}
+
+.library-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: var(--spacing-3);
+}
+
+.library-sort {
+  width: auto;
+  min-height: var(--spacing-hit-min-web);
 }
 
 .cover-grid {
@@ -547,15 +575,6 @@ h1 {
   border-color: transparent;
   border-radius: var(--rounded-full);
   background: transparent;
-}
-
-.editor-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--typography-label-font-size);
-  font-weight: var(--typography-label-font-weight);
-  line-height: var(--typography-label-line-height);
 }
 
 .editor-banner {

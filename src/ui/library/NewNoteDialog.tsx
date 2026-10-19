@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { useI18n, type Key } from '../../i18n'
 import { BACKGROUNDS } from '../../model/note'
 import { MAX_TITLE_LENGTH } from '../../model/noteTitle'
+import { pageBackground } from '../../render/pageBackground'
 import { ORIENTATIONS, type Background, type NewNoteDefaults, type Orientation } from '../../storage/newNoteDefaults'
 
 const BACKGROUND_LABEL: Record<(typeof BACKGROUNDS)[number], Key> = {
@@ -13,6 +14,47 @@ const BACKGROUND_LABEL: Record<(typeof BACKGROUNDS)[number], Key> = {
 const ORIENTATION_LABEL: Record<(typeof ORIENTATIONS)[number], Key> = {
   portrait: 'library.orientation.portrait',
   landscape: 'library.orientation.landscape',
+}
+
+const PREVIEW_LONG = 72 // css px of the long side; the page keeps its A4 proportions
+
+/** The page background drawn small, so the choice is seen rather than read. Hairlines stay one pixel. */
+function BackgroundPreview({ kind, orientation }: { kind: string; orientation: Orientation }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  const landscape = orientation === 'landscape'
+  const pageW = landscape ? 842 : 595
+  const pageH = landscape ? 595 : 842
+  const w = Math.round(landscape ? PREVIEW_LONG : (PREVIEW_LONG * pageW) / pageH)
+  const h = Math.round(landscape ? (PREVIEW_LONG * pageH) / pageW : PREVIEW_LONG)
+  useEffect(() => {
+    const c = ref.current
+    const ctx = c?.getContext('2d')
+    if (!c || !ctx) return // no canvas (a test DOM): an empty tile
+    const dpr = globalThis.devicePixelRatio > 0 ? globalThis.devicePixelRatio : 1
+    c.width = Math.round(w * dpr)
+    c.height = Math.round(h * dpr)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    const bg = pageBackground(kind, pageW, pageH)
+    const k = w / pageW
+    ctx.fillStyle = bg.paper
+    ctx.fillRect(0, 0, w, h)
+    ctx.strokeStyle = bg.lineColor
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    for (const [x1, y1, x2, y2] of bg.lines) {
+      ctx.moveTo(x1! * k, y1! * k)
+      ctx.lineTo(x2! * k, y2! * k)
+    }
+    ctx.stroke()
+    ctx.fillStyle = bg.dotColor
+    ctx.beginPath()
+    for (const [x, y] of bg.dots) {
+      ctx.moveTo(x! * k + 1, y! * k)
+      ctx.arc(x! * k, y! * k, 1, 0, Math.PI * 2)
+    }
+    ctx.fill()
+  }, [kind, pageW, pageH, w, h])
+  return <canvas ref={ref} className="bg-preview" style={{ width: w, height: h }} aria-hidden="true" />
 }
 
 type Props = {
@@ -132,10 +174,10 @@ export function NewNoteDialog({ defaults, onCreate, onClose }: Props) {
             }}
           />
         </div>
-        <fieldset className="settings-group">
+        <fieldset className="settings-group bg-group">
           <legend>{t('library.pageBackground')}</legend>
           {BACKGROUNDS.map((b) => (
-            <label key={b} className="option">
+            <label key={b} className="option option-tile">
               <input
                 type="radio"
                 name={ids.bg}
@@ -147,6 +189,7 @@ export function NewNoteDialog({ defaults, onCreate, onClose }: Props) {
                   setBackground(b)
                 }}
               />
+              <BackgroundPreview kind={b} orientation={orientation} />
               {t(BACKGROUND_LABEL[b])}
             </label>
           ))}

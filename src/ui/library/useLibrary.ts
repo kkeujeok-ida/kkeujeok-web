@@ -59,6 +59,34 @@ export function sortItems(items: LibraryItem[]): LibraryItem[] {
   )
 }
 
+export const LIBRARY_SORTS = ['nameAsc', 'nameDesc', 'createdDesc', 'createdAsc', 'editedDesc', 'editedAsc'] as const
+export type LibrarySort = (typeof LIBRARY_SORTS)[number]
+
+/** The creation time inside a UUIDv7 note id (48-bit milliseconds), or null. */
+export function createdMs(noteId: string): number | null {
+  const ms = parseInt(noteId.replaceAll('-', '').slice(0, 12), 16)
+  return Number.isFinite(ms) ? ms : null
+}
+
+/** The order the person picked; unreadable notes stay last, a missing date after the dated ones, ties by noteId. */
+export function sortBy(items: LibraryItem[], by: LibrarySort): LibraryItem[] {
+  const time = (a: number | null, b: number | null, desc: boolean) =>
+    a === null || b === null ? (a === b ? 0 : a === null ? 1 : -1) : desc ? b - a : a - b
+  const name = (i: LibraryItem) => (i.title ?? '').toLowerCase()
+  const cmp = (a: LibraryItem, b: LibraryItem) => {
+    if ((a.title === null) !== (b.title === null)) return a.title === null ? 1 : -1
+    const c =
+      by === 'nameAsc' ? (name(a) < name(b) ? -1 : name(a) > name(b) ? 1 : 0)
+      : by === 'nameDesc' ? (name(a) < name(b) ? 1 : name(a) > name(b) ? -1 : 0)
+      : by === 'createdDesc' ? time(createdMs(a.noteId), createdMs(b.noteId), true)
+      : by === 'createdAsc' ? time(createdMs(a.noteId), createdMs(b.noteId), false)
+      : by === 'editedDesc' ? time(a.editedMs, b.editedMs, true)
+      : time(a.editedMs, b.editedMs, false)
+    return c || (a.noteId < b.noteId ? -1 : a.noteId > b.noteId ? 1 : 0)
+  }
+  return [...items].sort(cmp)
+}
+
 type Nav = { userAgent?: string; userAgentData?: { brands?: { brand: string }[]; platform?: string } }
 
 /** "<browser>, <OS>" for `editedBy`; just "Browser" when the browser is unknown. */
@@ -93,7 +121,7 @@ export function useLibrary(
   openStore: () => NoteStore,
   defaults: { write(d: NewNoteDefaults): void },
   editedBy?: string,
-  receiver?: Pick<NoteReceiver, 'subscribe' | 'getState'>,
+  receiver?: Pick<NoteReceiver, 'subscribe' | 'getState'> & Partial<Pick<NoteReceiver, 'beforeOpen'>>,
 ) {
   // `failed`: a reload failed while a list was already shown; the old list stays.
   const [state, setState] = useState<{ status: 'loading' | 'ready' | 'error'; items: LibraryItem[]; failed: boolean }>({
@@ -162,6 +190,31 @@ export function useLibrary(
       void load()
     })
   }, [receiver, load])
+
+  // Cards of notes that are only on Drive get their note downloaded, one after the other, so the thumbnails
+  // fill in without the person opening each note. One try per note per library visit.
+  const prefetched = useRef(new Set<string>())
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => void (alive.current = false)
+  }, [])
+  useEffect(() => {
+    if (!receiver?.beforeOpen || state.status !== 'ready') return
+    const todo = state.items.filter((i) => i.remote && !i.blocked && !prefetched.current.has(i.noteId))
+    if (todo.length === 0) return
+    todo.forEach((i) => prefetched.current.add(i.noteId))
+    void (async () => {
+      for (const i of todo) {
+        if (!alive.current) return
+        try {
+          await receiver.beforeOpen!(i.noteId)
+        } catch {
+          // the card stays; opening it tries again
+        }
+      }
+    })()
+  }, [state.items, state.status, receiver])
 
   /** Resolves with the new noteId; rejects (nothing stored, defaults untouched) on any failure. */
   const create = useCallback(

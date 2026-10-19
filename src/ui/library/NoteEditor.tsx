@@ -780,7 +780,6 @@ export function NoteEditor({
                   <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.75" fill="none" />
                 </svg>
               </button>
-              <span className="editor-title">{loaded.title}</span>
             </div>
             <PenToolbar
               ref={toolbar}
