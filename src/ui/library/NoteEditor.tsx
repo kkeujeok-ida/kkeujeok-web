@@ -14,7 +14,7 @@ import { Banner } from '../sync/Banner'
 import { unresolvedOf } from '../../sync/conflicts'
 import type { Conflict } from '../../sync/merge'
 import { useNoteConflicts, useNoteIssue, useNoteReceiving, useSyncUi } from '../sync/syncUi'
-import type { RestoreFailure } from '../../sync/versionHistory'
+import { readLocalSidecars, type RestoreFailure } from '../../sync/versionHistory'
 import type { VersionEntry } from '../../sync/versionList'
 import { SyncIndicator } from '../sync/SyncIndicator'
 import { ConflictDialog, type ConflictItem, type ResolveOutcome, pageNo, resultKey } from './ConflictDialog'
@@ -701,9 +701,7 @@ export function NoteEditor({
     if (choices.length > 1) message = t(settled.size === 1 ? 'conflict.resolvedAllOne' : 'conflict.resolvedAll').replace('{n}', String(settled.size))
     if (mounted.current) setResultText(message ?? '')
     // The resolution goes up (the note stays open).
-    void Promise.resolve()
-      .then(() => uploads?.syncNow?.(noteId))
-      .catch(() => {})
+    syncSoon()
     return { settled, message }
   }
 
@@ -727,6 +725,18 @@ export function NoteEditor({
     setMenuOpen(false)
     setHistoryOpen(true)
   }
+  /** The upload of a change that just happened (the note stays open); the version history reloads when it is done. */
+  const lastSync = useRef<Promise<void> | null>(null)
+  const syncSoon = () => {
+    const p: Promise<void> = Promise.resolve()
+      .then(() => uploads?.syncNow?.(noteId))
+      .catch(() => {})
+      .finally(() => {
+        if (lastSync.current === p) lastSync.current = null // done: later opens have nothing to wait for
+      })
+    lastSync.current = p
+  }
+
   const closeHistory = (restored: boolean) => {
     setHistoryOpen(false)
     if (restored) setResultText(t('version.restored'))
@@ -758,9 +768,7 @@ export function NoteEditor({
       if (mounted.current) writer.setLocked(r.locked)
     }
     // The restored note goes up like any edit.
-    void Promise.resolve()
-      .then(() => uploads?.syncNow?.(noteId))
-      .catch(() => {})
+    syncSoon()
     return null
   }
 
@@ -975,6 +983,8 @@ export function NoteEditor({
               source={ui.versions.source}
               probe={ui.versions.probe}
               readFileId={async () => (await loaded.writer.store.readSync(noteId)).info.fileId}
+              readLocal={() => readLocalSidecars(loaded.writer.store, noteId)}
+              pendingSync={() => lastSync.current}
               restoreBlocked={readOnly || receiving}
               blockedTitle={t(readOnly ? 'editor.readOnlyTip' : 'sync.receivingLatest')}
               onRestore={restoreVersion}

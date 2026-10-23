@@ -13,6 +13,8 @@ import { decodeKkj } from '../model/kkjCodec'
 import type { Note, Page } from '../model/note'
 import { type RestoreCtx, restoreNote, restorePage } from '../ops/restore'
 import type { NoteStore } from '../storage/noteStore'
+import type { SyncInfo } from '../storage/syncInfo'
+import type { Sidecar } from './merge'
 import { unresolvedOf } from './conflicts'
 import type { UploadCoordinator } from './uploadCoordinator'
 import { keepForeverRule, type VersionEntry } from './versionList'
@@ -92,16 +94,48 @@ export function createVersionSource(drive: DriveClient) {
         throw e
       }
       try {
-        const j = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as Json
-        if (j && j.noteId === noteId && j.pageId === pageId && j.rev === rev && typeof j.editedBy === 'string' && validPage(j.page)) {
-          return { info: { ok: true, editedBy: j.editedBy }, page: j.page }
-        }
+        return inspectSidecarJson(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)), noteId, pageId, rev)
       } catch {
-        // falls through to unreadable
+        return failed('unreadable')
       }
-      return failed('unreadable')
     },
   }
+}
+
+/** `j` is the record of (`pageId`, `rev`) of the note. */
+export function inspectSidecarJson(j: unknown, noteId: string, pageId: string, rev: string): Inspection {
+  const s = j as Json | null
+  if (s && s.noteId === noteId && s.pageId === pageId && s.rev === rev && typeof s.editedBy === 'string' && validPage(s.page)) {
+    return { info: { ok: true, editedBy: s.editedBy }, page: s.page }
+  }
+  return failed('unreadable')
+}
+
+/** A resolved conflict whose sidecar record is on this device: listed before Drive has the file (or its `kkjResolved`). */
+export type LocalSidecar = {
+  /** The shape of a Drive sidecar's `appProperties`. */
+  props: Record<string, string>
+  sidecar: Sidecar
+}
+
+/** The resolved conflicts of the sync record that have a local sidecar record. A record that cannot be read is left out. */
+export async function readLocalSidecars(store: Pick<NoteStore, 'readSync' | 'sidecars'>, noteId: string): Promise<LocalSidecar[]> {
+  const out: LocalSidecar[] = []
+  try {
+    for (const c of (await store.readSync(noteId)).info.conflicts) {
+      const { resolvedAt, pageId, rev } = c
+      if (typeof resolvedAt !== 'string' || typeof pageId !== 'string' || typeof rev !== 'string') continue
+      const sc = await store.sidecars.get(noteId, pageId, rev).catch(() => null)
+      if (!sc) continue
+      out.push({
+        props: { kkeujeokId: `sc:${noteId}:${pageId}:${rev}`, kkjResolved: resolvedAt, kkjEdited: String(sc.editedAt), kkjIndex: String(c.originalIndex ?? 0) },
+        sidecar: sc,
+      })
+    }
+  } catch {
+    // no sync record: no local entries
+  }
+  return out
 }
 export type VersionSource = ReturnType<typeof createVersionSource>
 
@@ -138,7 +172,7 @@ export type RestoreApply = (run: (live: Note) => { note: Note; undoDrop: string[
 
 export type RestorerDeps = {
   drive: DriveClient
-  store: Pick<NoteStore, 'readSync'>
+  store: Pick<NoteStore, 'readSync' | 'sidecars'>
   coordinator: Pick<UploadCoordinator, 'uploadForRestore' | 'reportFailure' | 'conflictResolved'>
   source?: VersionSource
   now?: () => string
@@ -166,8 +200,11 @@ export function createVersionRestorer(d: RestorerDeps) {
         return r.info.ok && r.note ? { op: 'restoreNote', version: structuredClone(r.note) } : null
       }
       const files = await d.drive.list(kkeujeokIdQuery(`sc:${noteId}:${entry.pageId}:${entry.rev}`), { fields: 'files(id)' })
-      if (files.files.length === 0) return null
-      const r = await source.inspectSidecar(noteId, files.files[0]!.id, entry.pageId, entry.rev)
+      // Not on Drive yet (unsent): the local record is read.
+      const r =
+        files.files.length === 0
+          ? inspectSidecarJson(await d.store.sidecars.get(noteId, entry.pageId, entry.rev), noteId, entry.pageId, entry.rev)
+          : await source.inspectSidecar(noteId, files.files[0]!.id, entry.pageId, entry.rev)
       return r.info.ok && r.page ? { op: 'restorePage', pageId: entry.pageId, page: r.page, originalIndex: entry.originalIndex } : null
     } catch (e) {
       if (e instanceof DriveError) return null
@@ -175,8 +212,11 @@ export function createVersionRestorer(d: RestorerDeps) {
     }
   }
 
-  function run(cur: Note, op: Op, conflicts: Json[]) {
-    const base = { now: now(), orderRev: newRev(), editedBy: d.editedBy(), lastSeenRemoteSeq: 0 }
+  function run(cur: Note, op: Op, info: SyncInfo) {
+    const conflicts = info.conflicts
+    // The greatest seq seen in a merged remote note (an unknown key of the record): the restored pages must not look stale elsewhere.
+    const seen = info.extra.lastSeenRemoteSeq
+    const base = { now: now(), orderRev: newRev(), editedBy: d.editedBy(), lastSeenRemoteSeq: typeof seen === 'number' && Number.isInteger(seen) && seen > 0 ? seen : 0 }
     return op.op === 'restoreNote'
       ? restoreNote(cur, op, { ...base, revs: op.version.pages.map(() => newRev()) } as RestoreCtx, conflicts)
       : restorePage(cur, op, { ...base, rev: newRev() } as RestoreCtx, conflicts)
@@ -236,7 +276,7 @@ export function createVersionRestorer(d: RestorerDeps) {
         const op = await read(noteId, fileId, a.entry)
         if (!op) return { failure: 'unreadable' }
         const first = await d.store.readSync(noteId)
-        if ('error' in run(a.live(), op, first.info.conflicts)) return { failure: 'unreadable' }
+        if ('error' in run(a.live(), op, first.info)) return { failure: 'unreadable' }
 
         // 2. Upload and verify the current state.
         const head = await d.coordinator.uploadForRestore(noteId, a.flush)
@@ -257,7 +297,7 @@ export function createVersionRestorer(d: RestorerDeps) {
             changed = true
             return null
           }
-          const r = run(cur, op, info.conflicts)
+          const r = run(cur, op, info)
           if ('error' in r) return null
           out = r
           return { note: r.note, undoDrop: r.undoDrop }

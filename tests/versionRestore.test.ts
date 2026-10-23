@@ -386,6 +386,17 @@ describe('restoring a revision', () => {
     expect(strokeIds(ed.history.note, PA)).toEqual(['s-unsent'])
   })
 
+  test('the restored page takes the seq the sync record has seen (it must not look stale on another device)', async () => {
+    const e = await make()
+    const { fileId, first } = await withUnsentEdit(e)
+    const entry = await entryOf(e, fileId, first)
+    const ed = await editor(e)
+    const store = { ...e.store, readSync: async (id: string) => { const r = await e.store.readSync(id); return { ...r, info: { ...r.info, extra: { ...r.info.extra, lastSeenRemoteSeq: 50 } } } } }
+    const r = await createVersionRestorer({ drive: e.drive, store, coordinator: coordinatorOf(e), now: () => NOW, newRev: () => `01926f3a-0000-7000-8000-${String(950 + Math.random() * 40 | 0).padStart(12, '0')}`, editedBy: () => 'x' }).restore({ noteId: NID, fileId, entry, live: () => ed.history.note, apply: ed.apply, flush: () => ed.w.flushSaves() })
+    expect(r.failure).toBeNull()
+    expect(Math.min(...ed.history.note.pages.map((p) => p.seq))).toBeGreaterThan(50)
+  })
+
   test('an exception after the apply (flush throws) still reports the restore as done', async () => {
     const e = await make()
     const { fileId, first } = await withUnsentEdit(e)
@@ -669,5 +680,25 @@ describe('leftover conflicts of a whole-note restore', () => {
     const fileId = e.drive.byKkeujeokId(NID)[0]!.id
     expect((await restorer.restore({ noteId: NID, fileId, entry: item, live: () => ed.history.note, apply: ed.apply, flush: () => ed.w.flushSaves() })).failure).toBe('unreadable')
     expect(unresolvedOf((await e.sync()).info)).toHaveLength(info.conflicts.length)
+  })
+})
+
+describe('a sidecar record that cannot be read', () => {
+  test('is not an absence: its unsentSidecars entry stays and nothing is sent', async () => {
+    const e = await make()
+    await e.store.writeNote(two())
+    await e.uploader.upload(NID)
+    const fileId = e.drive.byKkeujeokId(NID)[0]!.id
+    e.drive.foreignRevision(fileId, await bytesOf(foreignEdit(two(), PA, REV3)))
+    await e.store.writeNote(withStroke(two(), PA, REV2, 's-mine'))
+    const get = e.store.sidecars.get
+    e.store.sidecars.get = async () => {
+      throw new Error('idb: transient')
+    }
+    await e.uploader.upload(NID).catch(() => {}) // a failed upload: the note stays unsent
+    e.store.sidecars.get = get
+    const left = (await e.sync()).info.unsentSidecars
+    expect(left).toHaveLength(1)
+    expect(e.drive.byKkeujeokId(`sc:${NID}:${PA}:${REV2}`)).toHaveLength(0)
   })
 })

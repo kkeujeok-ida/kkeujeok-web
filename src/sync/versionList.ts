@@ -159,6 +159,27 @@ function listRule(input: unknown): VersionListResult {
   return { entries: all.map((x) => x.e) }
 }
 
+/**
+ * `versionListRule` that leaves out the items the rule refuses (a bad time or `info`, a repeated id) instead of
+ * failing as a whole; the rule and its contract stay as they are.
+ */
+export function versionListLenient(input: unknown): VersionListResult {
+  const r = versionListRule(input)
+  if (!('error' in r) || !isObj(input) || !Array.isArray(input.revisions) || !Array.isArray(input.sidecars)) return r
+  const ok = (revisions: unknown[], sidecars: unknown[]) => !('error' in versionListRule({ ...input, revisions, sidecars }))
+  const ids = new Set<unknown>()
+  const cids = new Set<unknown>()
+  return versionListRule({
+    ...input,
+    revisions: input.revisions.filter((v) => ok([v], []) && !ids.has((v as Json).id) && !!ids.add((v as Json).id)),
+    // A repeated sidecar id: the first wins.
+    sidecars: input.sidecars.filter((s) => {
+      const id = (s as { appProperties?: Json | null } | null)?.appProperties?.kkeujeokId
+      return ok([], [s]) && (id === undefined || id === null || !cids.has(id) && !!cids.add(id))
+    }),
+  })
+}
+
 export type KeepForeverResult = { mark: string | null; release: string[] } | typeof BAD
 
 export function keepForeverRule(input: unknown): KeepForeverResult {

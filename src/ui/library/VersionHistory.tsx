@@ -5,8 +5,8 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyEvent
 import { useI18n, type Key } from '../../i18n'
 import type { Page } from '../../model/note'
 import { StrokePathCache, fitViewport, paintPage } from '../../render/pagePainter'
-import type { Inspection, RestoreFailure, VersionData, VersionSource } from '../../sync/versionHistory'
-import { versionListRule, type VersionEntry } from '../../sync/versionList'
+import { inspectSidecarJson, type Inspection, type LocalSidecar, type RestoreFailure, type VersionData, type VersionSource } from '../../sync/versionHistory'
+import { isTimestamp, versionListLenient, type VersionEntry } from '../../sync/versionList'
 
 /** The online probe is given this long; a slower answer counts as offline. */
 export const PROBE_TIMEOUT_MS = 3000
@@ -84,6 +84,8 @@ export function VersionHistory({
   source,
   probe,
   readFileId,
+  readLocal,
+  pendingSync,
   restoreBlocked,
   blockedTitle,
   onRestore,
@@ -96,6 +98,10 @@ export function VersionHistory({
   probe: () => Promise<boolean>
   /** The Drive file id of the note from its sync record; null = never uploaded. */
   readFileId: () => Promise<string | null>
+  /** The resolved conflicts with a sidecar on this device: listed before Drive has them. */
+  readLocal?: () => Promise<LocalSidecar[]>
+  /** The `syncNow` that is running (a resolved conflict going up): the list is read again once it is done. */
+  pendingSync?: () => Promise<void> | null
   /** Another tab holds the note, or it is being received: [이 버전으로 복원] is disabled with a tooltip. */
   restoreBlocked: boolean
   /** Why it is blocked (read-only tab, receiving); the tooltip of the disabled buttons. */
@@ -115,12 +121,15 @@ export function VersionHistory({
   const [unreachable, setUnreachable] = useState<ReadonlySet<string>>(new Set())
   const [armed, setArmed] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  busyRef.current = busy
   const [error, setError] = useState('')
   const [cur, setCur] = useState(0)
   const alive = useRef(true)
   const loadNo = useRef(0)
   const started = useRef(new Set<string>())
   const sidecarFiles = useRef(new Map<string, string>()) // kkeujeokId -> Drive file id
+  const local = useRef(new Map<string, LocalSidecar>()) // resolved here, maybe not on Drive
   const fileId = useRef<string | null>(null)
   const queue = useRef<(() => Promise<void>)[]>([])
   const running = useRef(0)
@@ -146,20 +155,24 @@ export function VersionHistory({
     }
   }
 
-  const load = () => {
-    const no = ++loadNo.current
+  /** `silent`: a reload behind the list on screen (after a sync); nothing flickers and a failure changes nothing. */
+  const load = (silent = false) => {
+    const no = silent ? loadNo.current : ++loadNo.current
     const stale = () => !alive.current || no !== loadNo.current
-    setPhase('loading')
-    setArmed(null)
-    setError('')
-    queue.current = []
-    started.current = new Set()
+    if (!silent) {
+      setPhase('loading')
+      setArmed(null)
+      setError('')
+      queue.current = []
+      started.current = new Set()
+    }
     void (async () => {
       try {
         const online = await asked(probe, false)
         if (stale()) return
-        if (!online) return setPhase('offline')
+        if (!online) return silent ? undefined : setPhase('offline')
         const id = await readFileId()
+        const here = (await readLocal?.().catch(() => [])) ?? []
         if (stale()) return
         fileId.current = id
         // A note that was never uploaded has no history.
@@ -170,30 +183,61 @@ export function VersionHistory({
           const kid = f.appProperties?.kkeujeokId
           if (kid) sidecarFiles.current.set(kid, f.id) // the first file wins
         }
-        // A list the rule refuses is a failed load, not an empty history.
-        if ('error' in build(d, {})) return setPhase('failed')
-        setInfos({})
-        setPages({})
-        setUnreachable(new Set())
+        const before = local.current
+        local.current = new Map(here.map((x) => [x.props.kkeujeokId!, x]))
+        // Input the rule refuses as a whole (not one bad item) is a failed load, not an empty history.
+        if ('error' in build(d, {})) {
+          local.current = before
+          return silent ? undefined : setPhase('failed')
+        }
+        if (!silent) {
+          setInfos({})
+          setPages({})
+          setUnreachable(new Set())
+          setCur(0)
+        }
         setData(d)
-        setCur(0)
         setPhase('ready')
       } catch {
-        if (!stale()) setPhase('failed')
+        if (!stale() && !silent) setPhase('failed')
       }
     })()
   }
-  useEffect(load, []) // eslint-disable-line react-hooks/exhaustive-deps
+  /** Reads the list, then syncs and reads it again: what the sync uploaded (or received) shows without closing. */
+  const start = () => {
+    load()
+    const running = pendingSync?.()
+    if (!running) return
+    const no = loadNo.current
+    void running
+      .catch(() => {})
+      .then(() => {
+        if (alive.current && no === loadNo.current && !busyRef.current) load(true)
+      })
+  }
+  useEffect(start, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   /** `version.list` over what is known now; the older versions only (the current one is what the note shows). */
-  const build = (d: VersionData, known: Record<string, Inspection['info']>) =>
-    versionListRule({
+  const build = (d: VersionData, known: Record<string, Inspection['info']>) => {
+    // Drive's sidecars, and the local ones it does not (yet) list as resolved; one id counts once, Drive's file winning
+    // once it says "resolved".
+    const driveIds = new Set<string>()
+    const sidecars = d.sidecars.map((f) => {
+      const kid = f.appProperties?.kkeujeokId
+      if (kid) driveIds.add(kid)
+      const l = kid ? local.current.get(kid) : undefined
+      const props = l && !isTimestamp(f.appProperties?.kkjResolved) ? l.props : (f.appProperties ?? null)
+      return { appProperties: props, info: known[`s:${kid}`] ?? null }
+    })
+    for (const [kid, l] of local.current) if (!driveIds.has(kid)) sidecars.push({ appProperties: l.props, info: known[`s:${kid}`] ?? null })
+    return versionListLenient({
       now: now(),
       noteId,
       headRevisionId: d.headRevisionId,
       revisions: d.revisions.map((v) => ({ id: v.id, modifiedTime: v.modifiedTime, keepForever: v.keepForever === true, info: known[`r:${v.id}`] ?? null })),
-      sidecars: d.sidecars.map((f) => ({ appProperties: f.appProperties ?? null, info: known[`s:${f.appProperties?.kkeujeokId}`] ?? null })),
+      sidecars,
     })
+  }
   const entries = (): VersionEntry[] => {
     const r = data ? build(data, infos) : null
     return r && 'entries' in r ? r.entries.filter((e) => !(e.kind === 'revision' && e.current)) : []
@@ -203,7 +247,8 @@ export function VersionHistory({
   const ensure = (e: VersionEntry) => {
     const key = keyOf(noteId, e)
     const id = fileId.current
-    if (id === null || started.current.has(key)) return
+    const isLocal = e.kind === 'sidecar' && local.current.has(key.slice(2))
+    if ((id === null && !isLocal) || started.current.has(key)) return
     started.current.add(key)
     const no = loadNo.current
     queue.current.push(async () => {
@@ -211,11 +256,13 @@ export function VersionHistory({
         const kid = key.slice(2)
         const r =
           e.kind === 'revision'
-            ? await source.inspectRevision(noteId, id, e.revisionId)
-            : await (() => {
+            ? await source.inspectRevision(noteId, id!, e.revisionId)
+            : await (async () => {
                 const file = sidecarFiles.current.get(kid)
-                if (!file) throw new Error('no sidecar file')
-                return source.inspectSidecar(noteId, file, e.pageId, e.rev)
+                if (file) return source.inspectSidecar(noteId, file, e.pageId, e.rev)
+                const l = local.current.get(kid)
+                if (!l) throw new Error('no sidecar file')
+                return inspectSidecarJson(l.sidecar, noteId, e.pageId, e.rev)
               })()
         if (!alive.current || no !== loadNo.current) return
         setInfos((m) => ({ ...m, [key]: r.info }))
@@ -327,16 +374,19 @@ export function VersionHistory({
     body = (
       <div className="version-message">
         <p role="status">{t('version.failed')}</p>
-        <button type="button" className="btn" onClick={load}>
+        <button type="button" className="btn" onClick={start}>
           {t('version.retry')}
         </button>
       </div>
     )
   } else if (list.length === 0) {
     body = (
-      <p role="status" className="version-message">
-        {t('version.empty')}
-      </p>
+      <div className="version-message">
+        <p role="status">{t('version.empty')}</p>
+        <button type="button" className="btn" onClick={start}>
+          {t('version.refresh')}
+        </button>
+      </div>
     )
   } else {
     const at = Math.min(cur, list.length - 1)

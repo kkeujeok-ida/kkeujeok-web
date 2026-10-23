@@ -108,21 +108,79 @@ describe('the states', () => {
     expect(m!.qa('.version-placeholder')).toHaveLength(0)
   })
 
-  test('empty: only the head exists -> "아직 이전 버전이 없어요" and no list', async () => {
+  test('empty: only the head exists -> "현재 리비전만 있음", [새로고침] and no list', async () => {
     const e = (env = await makeEnv())
     await e.store.writeNote(mkNote())
     await e.uploader.upload(NID)
     open(e)
     await until(() => !!m!.q('.version-message'), 'the message')
-    expect(m!.q('.version-message')!.textContent).toBe('아직 이전 버전이 없어요')
+    expect(m!.q('.version-message')!.textContent).toBe('아직 이전 버전이 없어요. 새로고침하면 다시 확인해요.새로고침')
+    expect(m!.q('.version-message button')!.textContent).toBe('새로고침')
     expect(items()).toHaveLength(0)
+  })
+
+  test('empty: a sync that finishes reloads the list by itself', async () => {
+    const e = (env = await makeEnv())
+    await e.store.writeNote(mkNote())
+    await e.uploader.upload(NID)
+    const fileId = e.drive.byKkeujeokId(NID)[0]!.id
+    open(e, {
+      pendingSync: async () => {
+        await new Promise((r) => setTimeout(r, 20))
+        e.drive.foreignRevision(fileId, await encodeKkj(withStroke(mkNote(), PA, 'a2', 's1')))
+      },
+    })
+    await until(() => items().length > 0, 'the list after the sync')
+  })
+
+  test('resolved on this device but not on Drive yet: listed, and restorable', async () => {
+    const e = (env = await makeEnv())
+    await e.store.writeNote(mkNote())
+    await e.uploader.upload(NID)
+    const page = mkNote().pages[0]!
+    const pageId = '01926f3a-0000-7000-8000-0000000000d1'
+    const rev = '01926f3a-0000-7000-8000-0000000000d2'
+    const onRestore = vi.fn(async (): Promise<RestoreFailure | null> => null)
+    open(e, {
+      onRestore,
+      readLocal: async () => [
+        {
+          props: { kkeujeokId: `sc:${NID}:${pageId}:${rev}`, kkjResolved: '2026-10-19T00:00:00.000Z', kkjEdited: '2026-10-18T00:00:00.000Z', kkjIndex: '0' },
+          sidecar: { noteId: NID, pageId, rev, seq: 1, editedAt: '2026-10-18T00:00:00.000Z', editedBy: 'Pixel 8', kind: 'bothEdited', page },
+        },
+      ],
+    })
+    await until(() => items().length === 1, 'the local entry')
+    expect(items()[0]!.textContent).toContain('Pixel 8')
+    expect(restoreButtons()[0]!.getAttribute('aria-disabled')).toBe('false')
+  })
+
+  test('one revision with a bad time is left out, the rest stay', async () => {
+    const e = (env = await makeEnv())
+    const source = createVersionSource(e.drive)
+    open(e, {
+      readFileId: async () => 'f1',
+      source: {
+        ...source,
+        load: async () => ({
+          headRevisionId: 'r3',
+          revisions: [
+            { id: 'r1', modifiedTime: 'garbage' },
+            { id: 'r2', modifiedTime: '2026-10-19T00:00:00.000Z' },
+            { id: 'r3', modifiedTime: '2026-10-19T01:00:00.000Z' },
+          ],
+          sidecars: [],
+        }),
+      },
+    })
+    await until(() => items().length === 1, 'the valid older revision')
   })
 
   test('empty: a note that was never uploaded has no history and no Drive call is made', async () => {
     const e = (env = await makeEnv())
     open(e, { readFileId: async () => null })
     await until(() => !!m!.q('.version-message'), 'the message')
-    expect(m!.q('.version-message')!.textContent).toBe('아직 이전 버전이 없어요')
+    expect(m!.q('.version-message')!.textContent).toBe('아직 이전 버전이 없어요. 새로고침하면 다시 확인해요.새로고침')
     expect(e.drive.calls).toEqual([])
   })
 
@@ -516,7 +574,7 @@ describe('English', () => {
     m = undefined
     open(e, { readFileId: async () => null }, 'en')
     await until(() => !!m!.q('.version-message'))
-    expect(m!.q('.version-message')!.textContent).toBe('No earlier versions yet')
+    expect(m!.q('.version-message')!.textContent).toBe('No earlier versions yet. Refresh to check again.Refresh')
   })
 })
 
