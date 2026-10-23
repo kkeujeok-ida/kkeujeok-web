@@ -11,6 +11,7 @@ import { openNoteStore } from '../src/storage/noteStore'
 import { createSyncDeviceStore } from '../src/storage/syncDevice'
 import { SYNC_LOG_DB, createSyncLog } from '../src/sync/syncLog'
 import { createFakeDrive } from './fakeDrive'
+import { fakeLocks } from './helpers'
 
 type Acct = { sub: string; email: string } | null
 let readNdb: ReturnType<typeof openNoteDb>
@@ -30,10 +31,11 @@ afterEach(async () => {
   })
 })
 
-function setup(o: { pageSize?: number; maxPages?: number; account?: Acct } = {}) {
-  const drive = createFakeDrive({ pageSize: o.pageSize })
+function setup(o: { pageSize?: number; maxPages?: number; account?: Acct; locks?: LockManager; drive?: ReturnType<typeof createFakeDrive> } = {}) {
+  const drive = o.drive ?? createFakeDrive({ pageSize: o.pageSize })
   const state = { account: (o.account === undefined ? { sub: 's1', email: 'a@x.com' } : o.account) as Acct, opens: 0, closes: 0 }
   const svc = createRootFolderService({
+    locks: o.locks,
     client: drive,
     open: () => {
       state.opens++
@@ -56,6 +58,18 @@ function setup(o: { pageSize?: number; maxPages?: number; account?: Acct } = {})
   return { drive, svc, state, device: () => createSyncDeviceStore(readNdb).read() }
 }
 
+async function seedNote(fileId: string) {
+  const store = openNoteStore()
+  const made = createNote({
+    title: 'n', existingTitles: [], background: 'plain', orientation: 'portrait',
+    noteId: 'n1', pageId: 'p1', pageRev: 'r', metaRev: 'm', orderRev: 'o',
+    now: '2026-10-10T04:20:00.000Z', editedBy: 'Chrome',
+  })
+  if ('error' in made) throw new Error(made.error)
+  await store.writeNote(made.note)
+  await store.updateSync('n1', (c) => ({ ...c, fileId, state: 'synced' }))
+  return store
+}
 const net = new DriveError('network')
 const events = async () => (await logs.entries()) as Record<string, unknown>[]
 
@@ -177,12 +191,97 @@ describe('duplicate roots', () => {
     expect((await events()).some((e) => e.event === 'duplicatesCleaned')).toBe(false)
   })
 
-  test('a truncated root listing never trashes anything', async () => {
-    const { drive, svc } = setup({ pageSize: 1, maxPages: 1 })
+  test('a truncated root listing never trashes anything and picks nothing', async () => {
+    const { drive, svc, device } = setup({ pageSize: 1, maxPages: 1 })
     drive.addRoot()
     const b = drive.addRoot()
-    expect((await svc.ensureRoot()).status).toBe('ready')
+    expect((await svc.ensureRoot()).status).toBe('failed')
     expect(drive.items.get(b.id)!.trashed).toBe(false)
+    expect((await device()).rootFolderId).toBeNull()
+  })
+
+  const cache = async (id: string) => {
+    const dev = createSyncDeviceStore(readNdb)
+    await dev.adoptAccount('s1', 'a@x.com')
+    await dev.write({ ...(await dev.read()), rootFolderId: id })
+  }
+
+  test('the cached root is merged into the oldest: notes keep their file ids', async () => {
+    const { drive, svc, device } = setup()
+    const a = drive.addRoot()
+    const b = drive.addRoot()
+    drive.addChild(b.id)
+    await cache(b.id)
+    const store = await seedNote('f1')
+    expect(await svc.ensureRoot()).toEqual({ status: 'ready', folderId: a.id })
+    expect(drive.items.get(b.id)!.trashed).toBe(true)
+    expect((await store.readSync('n1')).info.fileId).toBe('f1')
+    expect((await device()).rootFolderId).toBe(a.id)
+    store.close()
+  })
+
+  test('a truncated listing without the cached root: fail, no reset, no cache write', async () => {
+    const { drive, svc, device } = setup({ pageSize: 1, maxPages: 1 })
+    drive.addRoot()
+    const b = drive.addRoot()
+    await cache(b.id)
+    const store = await seedNote('f1')
+    expect((await svc.ensureRoot()).status).toBe('failed')
+    expect((await store.readSync('n1')).info.fileId).toBe('f1')
+    expect((await device()).rootFolderId).toBe(b.id)
+    store.close()
+  })
+
+  test('a truncated listing with the cached root keeps it', async () => {
+    const { drive, svc } = setup({ pageSize: 1, maxPages: 1 })
+    const a = drive.addRoot()
+    drive.addRoot()
+    await cache(a.id)
+    expect(await svc.ensureRoot()).toEqual({ status: 'ready', folderId: a.id })
+  })
+
+  test('signed out in the last child move: the duplicate is not trashed', async () => {
+    const { drive, svc, state } = setup()
+    drive.addRoot()
+    const b = drive.addRoot()
+    drive.addChild(b.id)
+    const update = drive.update.bind(drive)
+    drive.update = async (...args) => {
+      const r = await update(...args)
+      state.account = null
+      return r
+    }
+    expect(await svc.ensureRoot()).toEqual({ status: 'idle' })
+    expect(drive.items.get(b.id)!.trashed).toBe(false)
+  })
+
+  test('a created root with a truncated re-list is cached', async () => {
+    const { drive, svc, device } = setup({ pageSize: 1, maxPages: 1 })
+    drive.addRoot() // listed, so found is never empty before create
+    const list = drive.list.bind(drive)
+    let n = 0
+    drive.list = async (q, p) => (n++ === 0 ? { files: [] } : list(q, p))
+    drive.addRoot()
+    const r = await svc.ensureRoot()
+    expect(r.status).toBe('ready')
+    expect(r.folderId).toBe(drive.roots().at(-1)!.id)
+    expect((await device()).rootFolderId).toBe(r.folderId)
+  })
+
+  test('signed out during the merge: no further Drive write', async () => {
+    const { drive, svc, state } = setup()
+    drive.addRoot()
+    const b = drive.addRoot()
+    drive.addChild(b.id)
+    drive.addChild(b.id)
+    const update = drive.update.bind(drive)
+    drive.update = async (...args) => {
+      const r = await update(...args)
+      state.account = null
+      return r
+    }
+    expect(await svc.ensureRoot()).toEqual({ status: 'idle' })
+    expect(drive.count('update')).toBe(1)
   })
 })
 
@@ -208,6 +307,18 @@ describe('missing root', () => {
     const r = await svc.ensureRoot()
     drive.items.get(r.folderId!)!.hidden = true
     expect(await svc.checkRoot()).toEqual({ status: 'ready', folderId: r.folderId })
+  })
+
+  test('recreate: a failed create resets no note and keeps the old root id', async () => {
+    const { drive, svc, device } = setup()
+    const first = await svc.ensureRoot()
+    const store = await seedNote('old')
+    drive.trash(first.folderId!)
+    drive.failAt('create', 2, net)
+    expect((await svc.recreate()).status).toBe('failed')
+    expect((await store.readSync('n1')).info.fileId).toBe('old')
+    expect((await device()).rootFolderId).toBe(first.folderId)
+    store.close()
   })
 
   test('recreate: new root, every note forgets its Drive file, working copies untouched', async () => {
@@ -319,6 +430,25 @@ describe('account', () => {
     }
     expect(await svc.ensureRoot()).toEqual({ status: 'idle' })
     expect((await device()).rootFolderId).toBeNull()
+  })
+})
+
+describe('lock', () => {
+  test('a rejecting lock request: failed, reason lock', async () => {
+    const locks = { request: async () => { throw new Error('boom') } } as unknown as LockManager
+    const { svc } = setup({ locks })
+    expect(await svc.ensureRoot()).toEqual({ status: 'failed', errorClass: 'fatal' })
+    expect((await events()).some((e) => e.reason === 'lock')).toBe(true)
+  })
+
+  test('two services (two tabs) preparing at once make one root', async () => {
+    const locks = fakeLocks()
+    const a = setup({ locks })
+    const b = setup({ locks, drive: a.drive })
+    const [x, y] = await Promise.all([a.svc.ensureRoot(), b.svc.ensureRoot()])
+    expect(x).toEqual(y)
+    expect(a.drive.roots()).toHaveLength(1)
+    expect(a.drive.count('create')).toBe(1)
   })
 })
 

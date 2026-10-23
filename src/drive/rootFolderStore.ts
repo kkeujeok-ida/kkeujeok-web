@@ -113,6 +113,7 @@ export function defaultRootFolder(auth: Auth): RootFolderStore {
       },
       log: syncLog(),
       account,
+      settleMs: 500,
     })
     s = createRootFolderStore({ service, auth })
     stores.set(auth, s)

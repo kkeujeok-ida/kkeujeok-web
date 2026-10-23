@@ -11,6 +11,9 @@ import { driveDuplicatesRule } from './duplicates'
 
 export const ROOT_KKEUJEOK_ID = 'root'
 export const ROOT_FOLDER_NAME = 'Kkeujeok'
+const ROOT_LOCK_NAME = 'kkeujeok-root'
+/** A tab that holds the root lock longer than this is treated as hung. */
+const ROOT_LOCK_WAIT_MS = 30_000
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
 export type RootStatus =
@@ -41,9 +44,15 @@ export function createRootFolderService(deps: {
   account: () => { sub: string; email: string } | null
   /** Pages followed per listing; a listing that never ends is cut here. */
   maxPages?: number
+  /** `navigator.locks`; without it `prepare` runs without exclusivity (two tabs may race). */
+  locks?: LockManager | undefined
+  /** Wait after creating the root, before the re-list; lets Drive's listing catch up. */
+  settleMs?: number
 }) {
   const { client, open, log, account } = deps
   const maxPages = deps.maxPages ?? 10
+  const locks = 'locks' in deps ? deps.locks : globalThis.navigator?.locks
+  const settleMs = deps.settleMs ?? 0
   let flight: Promise<RootResult> | null = null
 
   /** Makes sure the root exists and is cached. Concurrent callers share one run. */
@@ -98,27 +107,27 @@ export function createRootFolderService(deps: {
 
   /**
    * The folder `drive.duplicates` keeps; the others get their children moved and are
-   * trashed last. A failure, or any truncated listing, leaves the duplicate for the next run.
+   * trashed last. A failure leaves the duplicate for the next run.
    */
-  async function keepOne(found: DriveFile[], truncated: boolean): Promise<string> {
+  async function keepOne(found: DriveFile[], gone: () => boolean): Promise<string | null> {
     const r = driveDuplicatesRule({
       kkeujeokId: ROOT_KKEUJEOK_ID,
       items: found.map((f) => ({ id: f.id, createdTime: f.createdTime ?? '9999-12-31T23:59:59.999Z' })),
     })
     if ('error' in r || r.keep === null) throw new Error('no root to keep') // found is never empty here
-    if (truncated) {
-      await fail('fatal', undefined, 'listTruncated')
-      return r.keep
-    }
     let cleaned = 0
     for (const dup of r.merge) {
       try {
         const kids = await all(childrenQuery(dup))
-        for (const c of kids.files) await client.update(c.id, { addParents: r.keep, removeParents: dup })
+        for (const c of kids.files) {
+          if (gone()) return null
+          await client.update(c.id, { addParents: r.keep, removeParents: dup })
+        }
         if (kids.truncated) {
           await fail('fatal', undefined, 'listTruncated')
           break // children may be left in it: never trash it
         }
+        if (gone()) return null
         await client.update(dup, { trashed: true }) // last
         cleaned++
       } catch (e) {
@@ -141,7 +150,28 @@ export function createRootFolderService(deps: {
     for (const row of await notes.listNotes()) await notes.resetSync(row.noteId)
   }
 
+  /** The whole run under one lock, so two tabs never create the root at once. */
   async function prepare(recreating: boolean): Promise<RootResult> {
+    if (!locks) return prepareLocked(recreating)
+    let result: RootResult | undefined
+    const ctl = new AbortController()
+    const timer = setTimeout(() => ctl.abort(), ROOT_LOCK_WAIT_MS)
+    try {
+      await locks.request(ROOT_LOCK_NAME, { signal: ctl.signal }, async () => {
+        clearTimeout(timer) // granted: the limit only covers the wait
+        result = await prepareLocked(recreating)
+      })
+    } catch (e) {
+      if (ctl.signal.aborted) return fail('fatal', undefined, 'lockTimeout')
+      await log.append('error', { class: 'fatal', reason: e instanceof Error ? e.message : String(e) }).catch(() => {})
+      return fail('fatal', undefined, 'lock')
+    } finally {
+      clearTimeout(timer)
+    }
+    return result ?? fail('fatal', undefined, 'lock')
+  }
+
+  async function prepareLocked(recreating: boolean): Promise<RootResult> {
     let storage: RootStorage | undefined
     try {
       const a = account()
@@ -164,13 +194,12 @@ export function createRootFolderService(deps: {
       const cached = dev.rootFolderId
       if (gone()) return { status: 'idle' }
 
-      if (recreating) await resetNotes(notes)
       if (cached === null || recreating) {
         // A recreate drops every other pending creation: they pointed into the root that is gone.
         await device.write({
           ...dev,
           createIntents: [
-            ...(recreating ? [] : otherIntents(dev)),
+            ...otherIntents(dev), // a recreate clears them with the final write, once the new root exists
             { kkeujeokId: ROOT_KKEUJEOK_ID, kind: 'root', parentId: 'root' },
           ],
         })
@@ -178,6 +207,7 @@ export function createRootFolderService(deps: {
 
       let { files: found, truncated } = await all(kkeujeokIdQuery(ROOT_KKEUJEOK_ID))
       let id: string | undefined
+      let createdId: string | undefined
       if (found.length === 0) {
         if (cached !== null && !recreating) {
           const f = await getCached(cached)
@@ -191,19 +221,39 @@ export function createRootFolderService(deps: {
             parents: ['root'],
             appProperties: { kkeujeokId: ROOT_KKEUJEOK_ID },
           })
+          if (settleMs > 0) await new Promise((r) => setTimeout(r, settleMs))
           ;({ files: found, truncated } = await all(kkeujeokIdQuery(ROOT_KKEUJEOK_ID)))
+          createdId = created.id
+          if (gone()) return { status: 'idle' }
           if (found.length === 0) id = created.id // the listing lags
         }
       }
-      id ??= await keepOne(found, truncated)
+      // Notes keep their file ids when the old root is among the folders being merged.
+      const merged = cached !== null && found.some((f) => f.id === cached)
+      if (id === undefined && truncated) {
+        // A partial listing must not pick the "oldest" root.
+        if (merged) {
+          await log.append('error', { class: 'fatal', reason: 'listTruncated' }).catch(() => {})
+          id = cached
+        } else if (createdId !== undefined) {
+          id = createdId // never orphan the root this run made
+        } else {
+          return await fail('fatal', undefined, 'listTruncated')
+        }
+      }
+      if (id === undefined) {
+        const kept = await keepOne(found, gone)
+        if (kept === null) return { status: 'idle' }
+        id = kept
+      }
 
       // Another device made a new root: this device's file ids are stale.
       const changed = cached !== null && id !== cached
-      if (changed && !recreating) await resetNotes(notes)
 
       if (gone()) return { status: 'idle' }
       const latest = await device.read()
       if (latest.sub !== a.sub) return { status: 'idle' }
+      if (changed && (recreating || !merged)) await resetNotes(notes)
       await device.write({
         ...latest,
         rootFolderId: id,
