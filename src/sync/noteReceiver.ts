@@ -28,6 +28,7 @@ import type { MergeIo } from './mergeIo'
 import { chained } from './noteChain'
 import { getOpenNote, openNoteIds } from './openNotes'
 import type { SyncLog } from './syncLog'
+import { hasUnsentRule } from './hasUnsent'
 import { backoffRule, transition } from './syncRules'
 import { noteLockName } from './uploadCoordinator'
 
@@ -80,7 +81,8 @@ class Fail extends Error {
   }
 }
 type Guard = { sub: string; email: string; root: string | null; ensure(): void }
-type Result = 'ok' | 'later'
+/** `skipped`: left for a later receive (kept in `retry`); `exhausted`: the same, after three rejected commits (the token is not saved). */
+type Result = 'ok' | 'later' | 'skipped' | 'exhausted'
 
 const isRejected = (e: DriveError) => e.kind === 'http' && (e.status === 400 || e.status === 404 || e.status === 410)
 const TRANSIENT = new Set(['backoff', 'reauth', 'quota'])
@@ -125,6 +127,23 @@ export function createNoteReceiver(d: ReceiverDeps) {
   const goneNotes = new Set<string>()
   /** Changes known and not yet received, for `beforeOpen`. */
   const pending = new Map<string, { fileId: string; head: string }>()
+
+  /** Notes this tab skipped or gave up on: received again by the next check and by `beforeOpen`. */
+  const retry = new Map<string, { fileId: string; head: string }>()
+  const logged = new Set<string>()
+  async function skip(noteId: string, fileId: string, head: string, reason: string, r: Result = 'skipped'): Promise<Result> {
+    retry.set(noteId, { fileId, head })
+    const key = `${noteId}:${head}:${reason}`
+    if (!logged.has(key)) {
+      logged.add(key)
+      await log.append('error', { class: 'fatal', noteId, reason })
+    }
+    return r
+  }
+  function received(noteId: string) {
+    retry.delete(noteId)
+    for (const k of [...logged]) if (k.startsWith(`${noteId}:`)) logged.delete(k)
+  }
 
   // ---- helpers -----------------------------------------------------------
   function guard(): Guard | null {
@@ -230,17 +249,26 @@ export function createNoteReceiver(d: ReceiverDeps) {
     return []
   }
 
-  async function withNoteLock(noteId: string, run: () => Promise<Result>, taken: () => Result): Promise<Result> {
+  async function withNoteLock(noteId: string, run: () => Promise<Result>, taken: () => Result | Promise<Result>): Promise<Result> {
     if (!locks) return run()
     let out: Result = 'ok'
     await locks.request(noteLockName(noteId), { ifAvailable: true }, async (lock) => {
-      out = lock ? await run() : taken()
+      out = lock ? await run() : await taken()
     })
     return out
   }
 
   async function downloadNote(g: Guard, noteId: string, fileId: string, head: string): Promise<Note> {
-    const bytes = await call(g, noteId, () => drive.downloadRevision(fileId, head))
+    let bytes: Uint8Array
+    try {
+      bytes = await call(g, noteId, () => drive.downloadRevision(fileId, head))
+    } catch (e) {
+      if (!(e instanceof Fail && e.cls === 'deleted')) throw e
+      // A 404 of the revision is not proof that the file is gone: ask for the file itself (its 404 is `deleted`).
+      const f = await call(g, noteId, () => drive.get(fileId, { fields: 'trashed' }))
+      if (f.trashed) throw e
+      throw new Fail('backoff', e.status, 'revisionNotFound')
+    }
     g.ensure()
     await log.append('revisionDownloaded', { noteId, revisionId: head })
     const r = await decodeKkj(bytes)
@@ -291,12 +319,22 @@ export function createNoteReceiver(d: ReceiverDeps) {
           }
           const info = s.info
           // Not ours to do: an unreadable working copy is never overwritten; the upload owns an unfinished one.
-          if (!work || info.state === 'error' || info.pendingVerify !== null || info.fileId !== fileId) return 'ok'
+          if (!work) {
+            received(noteId)
+            return 'ok'
+          }
+          if (info.fileId !== fileId) return skip(noteId, fileId, head, 'fileIdMismatch')
           if (head === info.baseHeadRevisionId) {
             if (relinked) {
               await settle(noteId) // the same file is back: nothing to receive, the note is whole again
               bump()
             }
+            received(noteId)
+            return 'ok'
+          }
+          if (info.state === 'error') return skip(noteId, fileId, head, 'receiveSkippedError')
+          if (info.pendingVerify !== null) {
+            received(noteId)
             return 'ok'
           }
           // `remoteChange` before the download: a pending note stays pending (sync.stateMachine).
@@ -306,10 +344,15 @@ export function createNoteReceiver(d: ReceiverDeps) {
           } else if (info.state !== 'syncing') moved = await move(noteId, 'remoteChange')
           const remote = await downloadNote(g, noteId, fileId, head)
           g.ensure()
-          if (!s.hasUnsent && !openIds().includes(noteId)) {
+          // Decided on `work` and the base read with `info`, not on `s.hasUnsent` (another read); the store
+          // checks all of it again under its lock. Without Web Locks an editor may be about to open: merge.
+          const unsent =
+            (hasUnsentRule({ base: s.base, working: work, pendingVerify: info.pendingVerify, unsentSidecars: info.unsentSidecars }) as { hasUnsent?: boolean })
+              .hasUnsent !== false
+          if (locks && !unsent && !openIds().includes(noteId)) {
             const hops = hopsFrom(moved.state, moved.conflicts.filter((c) => c.resolvedAt == null).length)
             const next: SyncInfo = { ...moved, fileId, baseHeadRevisionId: head, lastError: null, state: (hops.at(-1) ?? moved.state) as SyncInfo['state'] }
-            if (!(await store.commitReceive(noteId, work, remote, next))) continue // it changed meanwhile: look again
+            if (!(await store.commitReceive(noteId, work, remote, next, info))) continue // it changed meanwhile: look again
             await log.append('baseAdvanced', { noteId, revisionId: head })
             let prev: string = moved.state
             for (const h of hops) {
@@ -329,9 +372,11 @@ export function createNoteReceiver(d: ReceiverDeps) {
             await settle(noteId)
           }
           bump()
+          received(noteId)
           return 'ok'
         }
-        return 'later'
+        // Three rejections: only this note waits; the pass goes on, the token stays.
+        return skip(noteId, fileId, head, 'receiveRejected', 'exhausted')
       } catch (e) {
         if (e instanceof NoteSaveError) return noteFailed(noteId, new Fail('fatal', undefined, e.message === 'the sync record is unreadable' ? 'syncUnreadable' : 'localWrite'))
         if (e instanceof Fail) return noteFailed(noteId, e)
@@ -348,9 +393,9 @@ export function createNoteReceiver(d: ReceiverDeps) {
       noteId,
       () => receiveNote(g, noteId, fileId, head),
       () => {
-        // Open in another tab: that tab's editor receives it.
+        // Open in another tab (or held by an upload here): that tab's editor receives it; this one asks again later.
         d.channel?.post({ t: 'remote', noteId, fileId, head })
-        return 'ok'
+        return skip(noteId, fileId, head, 'noteLocked')
       },
     )
   }
@@ -522,7 +567,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
           }
           g.ensure()
           const info: SyncInfo = { ...emptySync(), fileId, baseHeadRevisionId: head, state: 'synced' }
-          await store.commitReceive(noteId, null, note, info) // false: a copy appeared meanwhile, which stays
+          await store.commitReceive(noteId, null, note, info, (await store.readSync(noteId)).info) // false: a copy appeared meanwhile, which stays
           await d.remote.delete(noteId)
           bump()
           return 'ok'
@@ -667,6 +712,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
           if (res === 'ok' && file.name !== undefined) await renameLocal(g, noteId, file.id, file.name) // after a receive: the content may carry the old title
           return res
         })
+        if (r === 'exhausted') ok = false // not received: the changes come again
         if (r === 'later') {
           ok = false
           break // a failing connection fails the next note too; the token stays and the changes come again
@@ -777,6 +823,21 @@ export function createNoteReceiver(d: ReceiverDeps) {
     await sweepGone(g) // an upload that found its file gone left the note in `error deleted`
   }
 
+  /** The notes skipped before (lock held, `error`, other file, rejected commits) are looked at again. */
+  async function retrySkipped(g: Guard): Promise<void> {
+    for (const [noteId, p] of [...retry]) {
+      g.ensure()
+      try {
+        await receiveLocal(g, noteId, p.fileId, p.head)
+      } catch (e) {
+        if (e instanceof NoteSaveError) e = new Fail('fatal', undefined, 'localWrite')
+        if (!(e instanceof Fail)) throw e
+        await logError(noteId, e)
+        if (TRANSIENT.has(e.cls)) return
+      }
+    }
+  }
+
   let flight: Promise<void> | null = null
   let recovered = false
 
@@ -794,6 +855,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
         await recover(g)
         recovered = true
       }
+      await retrySkipped(g)
       await settleGone(g)
     } catch (e) {
       if (e instanceof Gone) return
@@ -851,7 +913,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
           await downloadNew(g, noteId, card.fileId, f.headRevisionId)
           return
         }
-        const p = pending.get(noteId)
+        const p = pending.get(noteId) ?? retry.get(noteId)
         if (p) await receiveLocal(g, noteId, p.fileId, p.head)
       } catch (e) {
         if (e instanceof Gone) return

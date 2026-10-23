@@ -231,6 +231,119 @@ describe('changes.list', () => {
   })
 })
 
+describe('receive race guards (12.1)', () => {
+  test('commitReceive refuses when the sync record changed after the decision, and when the note has unsent changes', async () => {
+    const e = await make()
+    const note = two()
+    await e.seedSynced(note)
+    const s = await e.store.readSync(NID)
+    const next = { ...s.info, baseHeadRevisionId: 'r2' }
+    await e.store.updateSync(NID, (c) => ({ ...c, unsentSidecars: [{ pageId: PA, rev: 'x' }] }))
+    expect(await e.store.commitReceive(NID, note, note, next, s.info)).toBe(false)
+    await e.store.updateSync(NID, (c) => ({ ...c, unsentSidecars: [] }))
+    // a working copy that differs from the base is never replaced, even when `expected` is that copy
+    const mine = withStroke(note, PA, 'a2')
+    await e.store.writeNote(mine)
+    expect(await e.store.commitReceive(NID, mine, note, next, (await e.store.readSync(NID)).info)).toBe(false)
+    expect((await e.store.readSync(NID)).info.baseHeadRevisionId).toBe(s.info.baseHeadRevisionId)
+  })
+
+  test('three rejected commits: only that note waits, the token stays, it is logged and received again', async () => {
+    let reject = true
+    const e = await make({ locks: fakeLocks() })
+    const real = e.store
+    const flaky = e.mk({ store: { ...real, commitReceive: (...a: Parameters<typeof real.commitReceive>) => (reject ? Promise.resolve(false) : real.commitReceive(...a)) } })
+    const note = two()
+    const { fileId } = await e.seedSynced(note)
+    await flaky.check()
+    const t = await token(e)
+    await e.remoteUpload(foreignEdit(note, PB, 'b2'), { fileId })
+    await flaky.check()
+    expect(await token(e)).toBe(t)
+    expect(pageRev(await working(e), PB)).toBe(pageRev(note, PB))
+    expect(e.events('error').some((x) => x.reason === 'receiveRejected' && x.noteId === NID)).toBe(true)
+    reject = false
+    await flaky.check()
+    expect(pageRev(await working(e), PB)).toBe('b2')
+  })
+
+  test('a note whose lock is held is remembered and received by the next check', async () => {
+    const locks = fakeLocks()
+    const e = await make({ locks })
+    const note = two()
+    const { fileId } = await e.seedSynced(note)
+    await e.receiver.check()
+    await e.remoteUpload(foreignEdit(note, PB, 'b2'), { fileId })
+    let release!: () => void
+    const held = new Promise<void>((r) => (release = r))
+    void locks.request(`kkeujeok-note:${NID}`, {}, () => held)
+    await new Promise((r) => setTimeout(r, 5))
+    await e.receiver.check()
+    expect(pageRev(await working(e), PB)).toBe(pageRev(note, PB))
+    expect(e.events('error').some((x) => x.reason === 'noteLocked')).toBe(true)
+    release()
+    await new Promise((r) => setTimeout(r, 5))
+    await e.receiver.check()
+    expect(pageRev(await working(e), PB)).toBe('b2')
+  })
+
+  test('an error note skipped into retry is received again once it left error, and beforeOpen uses it', async () => {
+    const e = await make({ locks: fakeLocks() })
+    const note = two()
+    const { fileId } = await e.seedSynced(note)
+    await e.receiver.check()
+    await e.store.updateSync(NID, (c) => ({ ...c, state: 'error' }))
+    await e.remoteUpload(foreignEdit(note, PB, 'b2'), { fileId })
+    await e.receiver.check()
+    expect(pageRev(await working(e), PB)).toBe(pageRev(note, PB))
+    expect(e.events('error').some((x) => x.reason === 'receiveSkippedError' && x.noteId === NID)).toBe(true)
+    await e.store.updateSync(NID, (c) => ({ ...c, state: 'pending' }))
+    await e.receiver.beforeOpen(NID) // the remembered head, not the (already advanced) token
+    expect(pageRev(await working(e), PB)).toBe('b2')
+  })
+
+  test('a note without a working copy is dropped from retry', async () => {
+    const e = await make({ locks: fakeLocks() })
+    const note = two()
+    const { fileId } = await e.seedSynced(note)
+    await e.receiver.check()
+    await e.store.updateSync(NID, (c) => ({ ...c, state: 'error' }))
+    await e.remoteUpload(foreignEdit(note, PB, 'b2'), { fileId })
+    await e.receiver.check()
+    await e.store.removeNote(NID, await working(e))
+    e.drive.calls.length = 0
+    await e.receiver.check()
+    const before = e.events('error').length
+    await e.receiver.check()
+    expect(e.events('error').length).toBe(before)
+  })
+
+  test('commitReceive with the base record missing refuses cleanly', async () => {
+    const e = await make()
+    const note = two()
+    await e.seedSynced(note)
+    const s = await e.store.readSync(NID)
+    const db = await openNoteDb()
+    await db.withDb((d) => d.delete('base', NID))
+    db.close()
+    expect(await e.store.commitReceive(NID, note, note, { ...s.info, baseHeadRevisionId: 'r2' }, s.info)).toBe(false)
+  })
+
+  test('a downloadRevision 404 of a live file is transient, not a deletion', async () => {
+    const e = await make()
+    const note = two()
+    const { fileId } = await e.seedSynced(note)
+    await e.receiver.check()
+    await e.remoteUpload(foreignEdit(note, PB, 'b2'), { fileId })
+    e.drive.failAt('downloadRevision', e.drive.count('downloadRevision') + 1, new DriveError('http', 404, 'notFound'))
+    await e.receiver.check()
+    const info = (await e.store.readSync(NID)).info
+    expect(info.state).not.toBe('error')
+    expect(info.lastError).toBeNull()
+    expect(e.events('error').some((x) => x.reason === 'revisionNotFound')).toBe(true)
+  })
+})
+
 describe('guards', () => {
   test('a stroke saved while the head downloads is never overwritten (stale snapshot)', async () => {
     const e = await make()
@@ -253,12 +366,12 @@ describe('guards', () => {
     const e = await make()
     const note = two()
     await e.store.writeNote(withStroke(note, PA, 'a2'))
-    const ok = await e.store.commitReceive(NID, note, note, { ...emptySync(), fileId: 'f', baseHeadRevisionId: 'r1', state: 'synced' })
+    const ok = await e.store.commitReceive(NID, note, note, { ...emptySync(), fileId: 'f', baseHeadRevisionId: 'r1', state: 'synced' }, emptySync())
     expect(ok).toBe(false)
     expect((await working(e)).pages.find((p) => p.id === PA)!.elements).toHaveLength(1)
     expect((await e.store.readSync(NID)).info.baseHeadRevisionId).toBeNull()
     // and a "new note" write refuses when a copy is there
-    expect(await e.store.commitReceive(NID, null, note, { ...emptySync(), fileId: 'f', baseHeadRevisionId: 'r1', state: 'synced' })).toBe(false)
+    expect(await e.store.commitReceive(NID, null, note, { ...emptySync(), fileId: 'f', baseHeadRevisionId: 'r1', state: 'synced' }, emptySync())).toBe(false)
   })
 
   test('single-flight: concurrent checks share one changes.list', async () => {

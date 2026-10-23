@@ -49,9 +49,12 @@ export type NoteStore = {
   /**
    * A receive (Story 3.14): working, base (= `remote`) and sync record in one
    * transaction, only while the stored working copy still is `expected` (`null` = no
-   * working copy yet). False, nothing written, when it moved meanwhile.
+   * working copy yet). False, nothing written, when it moved meanwhile. `guard` is the record the
+   * decision was made on: its `unsentSidecars`, `pendingVerify`, `baseHeadRevisionId` and `fileId`
+   * must still be the stored ones, and the working copy must not differ from the base now
+   * (`hasUnsent` is recomputed here, in the transaction); else false and the caller decides again.
    */
-  commitReceive(noteId: string, expected: Note | null, remote: Note, info: SyncInfo): Promise<boolean>
+  commitReceive(noteId: string, expected: Note | null, remote: Note, info: SyncInfo, guard: SyncInfo): Promise<boolean>
   /**
    * Changes one note's sync record (and base copy) without touching the working
    * copy. `change` gets the record read under the note's lock. Returns what was committed.
@@ -295,7 +298,7 @@ export function openNoteStore(
       await notify(noteId)
     },
 
-    async commitReceive(noteId, expected, remote, info) {
+    async commitReceive(noteId, expected, remote, info, guard) {
       const done = await locked(noteId, () =>
         wrapSave(async () => {
           const id = info.baseHeadRevisionId
@@ -309,6 +312,19 @@ export function openNoteStore(
           } else {
             const cur = oldWorking === undefined ? null : (await decodeRecord(noteId, oldWorking)).note
             if (!cur || JSON.stringify(cur) !== JSON.stringify(expected)) return false
+          }
+          const now = (oldSync === undefined ? null : syncFromJson(oldSync)) ?? emptySync()
+          const key = (i: SyncInfo) => JSON.stringify([i.unsentSidecars, i.pendingVerify, i.baseHeadRevisionId, i.fileId])
+          if (key(now) !== key(guard)) return false
+          if (expected !== null) {
+            let b: Note | null = null
+            try {
+              b = now.baseHeadRevisionId === null ? null : ((await decodeRecord(noteId, oldBase)).note ?? null)
+            } catch {
+              // an undecodable base counts as none: unsent, a clean refusal
+            }
+            const unsent = (hasUnsentRule({ base: b, working: expected, pendingVerify: now.pendingVerify, unsentSidecars: now.unsentSidecars }) as { hasUnsent?: boolean }).hasUnsent
+            if (unsent !== false) return false
           }
           try {
             await apply(

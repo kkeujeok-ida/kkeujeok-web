@@ -181,53 +181,76 @@ export function NoteEditor({
           if (!note || typeof title !== 'string' || !Array.isArray(note.pages) || note.pages.length === 0) {
             goToLibrary()
           } else {
-            const w = new Writer(
-              sessionHistory(note),
-              store,
-              // Read at each stroke, so a toggle applies from the next one.
-              () => {
-                const l = penStore.read()
-                return l[selectedRef.current] ?? l[0]!
-              },
-              (key) => live && setMessage((p) => ({ key, n: (p?.n ?? 0) + 1 })),
-              detectEditedBy,
-              () => live && setRevision((n) => n + 1),
-            )
-            w.readOnly = readOnly || newer
-            // Pages with an unresolved conflict are read-only from the first frame (Story 3.20).
-            if (sync) w.history.setLocked(unresolvedOf(sync.info).map((c) => String(c.pageId)))
-            w.onBlocked = () => {
-              if (!live) return
-              setBlocked((n) => n + 1)
-              const now = Date.now()
-              if (now - lastBlockedAlert.current < BLOCKED_ALERT_GAP_MS) return
-              lastBlockedAlert.current = now
-              sayRef.current(tRef.current('editor.pageReadOnly'))
+            const make = (n: typeof note, st: typeof store): Writer => {
+              const w = new Writer(
+                sessionHistory(n),
+                st,
+                // Read at each stroke, so a toggle applies from the next one.
+                () => {
+                  const l = penStore.read()
+                  return l[selectedRef.current] ?? l[0]!
+                },
+                (key) => live && setMessage((p) => ({ key, n: (p?.n ?? 0) + 1 })),
+                detectEditedBy,
+                () => live && setRevision((n) => n + 1),
+              )
+              w.readOnly = readOnly || newer
+              // Pages with an unresolved conflict are read-only from the first frame (Story 3.20).
+              if (sync) w.history.setLocked(unresolvedOf(sync.info).map((c) => String(c.pageId)))
+              w.onBlocked = () => {
+                if (!live) return
+                setBlocked((n) => n + 1)
+                const now = Date.now()
+                if (now - lastBlockedAlert.current < BLOCKED_ALERT_GAP_MS) return
+                lastBlockedAlert.current = now
+                sayRef.current(tRef.current('editor.pageReadOnly'))
+              }
+              // The toolbar and the gap are measured when the view is laid out.
+              w.insets = () => {
+                // The token may be rem: measure it as a length instead of reading its text.
+                const probe = document.createElement('div')
+                probe.style.cssText = 'position:absolute;visibility:hidden;width:var(--spacing-3)'
+                document.body.append(probe)
+                const px = probe.getBoundingClientRect().width
+                probe.remove()
+                const g = px > 0 ? px : 12
+                return { gap: g, extraBottom: (toolbar.current?.offsetHeight ?? 0) + g }
+              }
+              w.onView = (v) => live && setView(v)
+              return w
             }
-            // The toolbar and the gap are measured when the view is laid out.
-            w.insets = () => {
-              // The token may be rem: measure it as a length instead of reading its text.
-              const probe = document.createElement('div')
-              probe.style.cssText = 'position:absolute;visibility:hidden;width:var(--spacing-3)'
-              document.body.append(probe)
-              const px = probe.getBoundingClientRect().width
-              probe.remove()
-              const g = px > 0 ? px : 12
-              return { gap: g, extraBottom: (toolbar.current?.offsetHeight ?? 0) + g }
-            }
-            w.onView = (v) => live && setView(v)
+            let w = make(note, store)
             writer = w // owned from here: the cleanup finalizes it
             // A writable editor is the tab that may upload this note while it is open.
+            const register = (x: Writer) =>
+              registerOpenNote(noteId, {
+                flush: () => x.flushSaves(),
+                unsaved: () => x.unsaved(),
+                strokeEnd: () => x.strokeEnd(),
+                current: () => x.history.note,
+                applyMerge: (a) => x.applyMerge(a),
+              })
             unregister()
-            unregister = readOnly
-              ? () => {}
-              : registerOpenNote(noteId, {
-                  flush: () => w.flushSaves(),
-                  unsaved: () => w.unsaved(),
-                  strokeEnd: () => w.strokeEnd(),
-                  current: () => w.history.note,
-                  applyMerge: (a) => w.applyMerge(a),
-                })
+            unregister = readOnly ? () => {} : register(w)
+            // A receive may have replaced the note before it was registered as open: read it again and,
+            // when the disk has another note, start the editor from that one (nothing of ours is unsaved yet).
+            if (!readOnly) {
+              let fresh: typeof note | undefined
+              try {
+                const again = await store.loadNote(noteId)
+                fresh = again?.result === 'ok' ? again.note : undefined
+              } catch {
+                // keep the first writer
+              }
+              if (live && fresh && !w.unsaved() && JSON.stringify(fresh) !== JSON.stringify(w.history.note)) {
+                unregister()
+                // The old writer holds nothing unsaved; finalizing it closes its store, so the new one gets its own.
+                await w.finalize().catch(() => {})
+                w = make(fresh, openStore())
+                writer = w
+                unregister = register(w)
+              }
+            }
             return { title, writer: w, readOnly, newer }
           }
         }

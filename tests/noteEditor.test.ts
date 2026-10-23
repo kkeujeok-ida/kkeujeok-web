@@ -17,8 +17,10 @@ import { acquireNoteLock } from '../src/storage/noteLock'
 import { PEN_SLOTS_KEY, createPenSlots, sharedPenSlots, type PenSlotsStore } from '../src/storage/penSlots'
 import { type NoteStore, openNoteStore } from '../src/storage/noteStore'
 import { SaveQueue, savesSettled, trackSave } from '../src/storage/saveQueue'
+import { getOpenNote } from '../src/sync/openNotes'
 import { App } from '../src/ui/App'
 import { NoteEditor } from '../src/ui/library/NoteEditor'
+import { Writer } from '../src/ui/library/writer'
 import { fakeLocks, signedIn } from './helpers'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -1833,5 +1835,45 @@ describe('pen pressure toggle', () => {
     m.set(PEN_SLOTS_KEY, JSON.stringify([{ color: '#000000', width: 2, usePressure: false }]))
     click(slot())
     expect(sw().getAttribute('aria-checked')).toBe('false')
+  })
+
+  describe('re-read after the editor is registered', () => {
+    // The 2nd loadNote (after registering) answers a note with another title; a failing 2nd read keeps the first.
+    const mountWith = async (second: 'other' | 'reject') => {
+      await seed(newNote('n1'))
+      let calls = 0
+      const open = () => {
+        const s = openNoteStore()
+        stores.push(s)
+        return {
+          ...s,
+          loadNote: async (id: string) => {
+            const r = await s.loadNote(id)
+            if (++calls < 2) return r
+            if (second === 'reject') throw new Error('boom')
+            return r?.result === 'ok' && r.note ? { ...r, note: { ...r.note, meta: { ...r.note.meta, title: '받은 노트' } } } : r
+          },
+        } as NoteStore
+      }
+      act(() => root.render(createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: 'n1', openStore: open }))))
+      await flush()
+    }
+
+    test('a different note on disk rebuilds and registers the writer', async () => {
+      await mountWith('other')
+      expect(getOpenNote('n1')?.current().meta.title).toBe('받은 노트')
+    })
+
+    test('a failing second read keeps the first writer', async () => {
+      await mountWith('reject')
+      expect(getOpenNote('n1')?.current().meta.title).toBe('필기 노트')
+    })
+
+    test('a writer with unsaved changes is not replaced', async () => {
+      const spy = vi.spyOn(Writer.prototype, 'unsaved').mockReturnValue(true)
+      await mountWith('other')
+      spy.mockRestore()
+      expect(getOpenNote('n1')?.current().meta.title).toBe('필기 노트')
+    })
   })
 })

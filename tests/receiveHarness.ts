@@ -55,7 +55,7 @@ export async function makeRxEnv(o: Partial<ReceiverDeps> = {}): Promise<RxEnv> {
   }
   const seedSynced: RxEnv['seedSynced'] = async (note) => {
     const up = await remoteUpload(note)
-    await env.store.commitReceive(note.noteId, null, note, { ...emptySync(), fileId: up.fileId, baseHeadRevisionId: up.head, state: 'synced' })
+    await env.store.commitReceive(note.noteId, null, note, { ...emptySync(), fileId: up.fileId, baseHeadRevisionId: up.head, state: 'synced' }, emptySync())
     return up
   }
   return { ...env, receiver: mk(), acct, posted, remoteUpload, seedSynced, mk }
