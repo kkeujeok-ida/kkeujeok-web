@@ -108,6 +108,7 @@ function mergeChecked(base0: Note | null, local0: Note, remote0: Note, ctx0: Mer
           if (!lineageOf(r).includes(b.rev)) conflict(id, 'bothEdited', b, r)
         } else if (rSame) out = { ...l, lineage: [b.rev, ...lineageOf(b)].slice(0, LINEAGE_MAX) }
         else if (l.rev === r.rev) out = l
+        else if (lineageOf(r).includes(l.rev)) out = r // our earlier edit is already in r (lost upload reply)
         else {
           out = r
           conflict(id, 'bothEdited', l, r)
@@ -126,6 +127,7 @@ function mergeChecked(base0: Note | null, local0: Note, remote0: Note, ctx0: Mer
     else if (!l && r) out = r
     else if (l && r) {
       if (l.rev === r.rev) out = l
+      else if (lineageOf(r).includes(l.rev)) out = r
       else {
         out = r
         conflict(id, 'bothEdited', l, r)
@@ -168,15 +170,13 @@ function mergeChecked(base0: Note | null, local0: Note, remote0: Note, ctx0: Mer
   else win = local.metaRev > remote.metaRev ? local : remote
   const meta: Record<string, unknown> = {}
   for (const k of KNOWN_META) if (Object.hasOwn(win.meta, k)) put(meta, k, win.meta[k])
-  for (const src of [local.meta, remote.meta]) {
-    for (const k of Object.keys(src)) if (!KNOWN_META.has(k)) put(meta, k, src[k])
-  }
+  // Unknown fields: an equal metaRev counts as remote (a newer client's field).
+  const unk = local.metaRev === remote.metaRev ? remote : win
+  for (const k of Object.keys(unk.meta)) if (!KNOWN_META.has(k)) put(meta, k, unk.meta[k])
 
   // merge.unknownFields (top level)
   const note: Record<string, unknown> = {}
-  for (const src of [local, remote]) {
-    for (const k of Object.keys(src)) if (!KNOWN_TOP.has(k)) put(note, k, src[k])
-  }
+  for (const k of Object.keys(unk)) if (!KNOWN_TOP.has(k)) put(note, k, unk[k])
   put(note, 'formatVersion', local.formatVersion)
   put(note, 'noteId', local.noteId)
   put(note, 'meta', meta)
