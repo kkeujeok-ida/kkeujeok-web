@@ -28,9 +28,11 @@ let root: Root
 let account: Acct | null
 let fetchAccount: () => Promise<Acct | null>
 let fetchSpy: ReturnType<typeof vi.fn>
+let grant = 'tok'
 
 beforeEach(() => {
   account = B
+  grant = 'tok'
   fetchAccount = async () => account
   fetchSpy = vi.fn(() => Promise.reject(new Error('offline')))
   vi.stubGlobal('fetch', fetchSpy)
@@ -39,7 +41,7 @@ beforeEach(() => {
   ;(globalThis as { google?: unknown }).google = {
     accounts: {
       oauth2: {
-        initTokenClient: (cfg: { callback: (r: object) => void }) => ({ requestAccessToken: () => cfg.callback({ access_token: 'tok' }) }),
+        initTokenClient: (cfg: { callback: (r: object) => void }) => ({ requestAccessToken: () => cfg.callback({ access_token: grant }) }),
         hasGrantedAllScopes: () => true,
         revoke: (_t: string, done: (r?: object) => void) => done({ successful: true }),
       },
@@ -106,6 +108,24 @@ describe('maskEmail', () => {
     expect(maskEmail('alice@example.test')).toBe('a@…')
     expect(maskEmail('')).toBe('')
     expect(maskEmail('@x')).toBe('')
+  })
+})
+
+describe('silent re-authentication', () => {
+  test('a new token for the same account keeps the app mounted and does not check again', async () => {
+    await seed(B, [N1])
+    const { d } = deps()
+    const readState = vi.spyOn(d.device, 'readState')
+    const auth = await mount(d)
+    const nav = host.querySelector('nav')
+    expect(nav).not.toBeNull()
+    expect(readState).toHaveBeenCalledTimes(1)
+    grant = 'tok2'
+    await act(async () => void (await auth.reauth()))
+    await wait()
+    expect(auth.getState().token).toBe('tok2')
+    expect(host.querySelector('nav')).toBe(nav) // same element: not unmounted
+    expect(readState).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -255,6 +275,33 @@ describe('account mismatch without unsent changes', () => {
     await press(1)
     expect(dialog()).toBeNull()
     expect(host.querySelector('nav')).not.toBeNull()
+  })
+})
+
+describe('a recheck that fails', () => {
+  test('keeps the previous verdict instead of opening the app, and a retry while one runs is ignored', async () => {
+    await seed(A, [], [N3])
+    const flag = { fail: true }
+    const { d } = deps({ deleteData: failOnce(flag) })
+    await mount(d)
+    expect(dialog()!.textContent).toContain('Could not delete')
+    const real = d.device.readState.bind(d.device)
+    const readState = vi.spyOn(d.device, 'readState').mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 60))
+      throw new Error('x')
+    })
+    await act(async () => {
+      buttons()[1]!.click()
+      buttons()[1]!.click() // while the first recheck runs
+      await new Promise((r) => setTimeout(r, 150))
+    })
+    expect(readState).toHaveBeenCalledTimes(1)
+    expect(dialog()!.textContent).toContain('Could not delete') // not failed open
+    expect(host.querySelector('nav')).toBeNull()
+    readState.mockImplementation(real)
+    flag.fail = false
+    await press(1)
+    expect(dialog()).toBeNull()
   })
 })
 

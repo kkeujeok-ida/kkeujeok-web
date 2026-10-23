@@ -501,7 +501,9 @@ export function openNoteStore(
         wrapSave(async () => {
           const [working, oldBase, oldSync] = await readRaw(noteId)
           if (working === undefined) return // no note: nothing to reset
-          const old = syncFromJson(oldSync)
+          // An unreadable record holds conflicts and sidecars: never replaced by an empty one.
+          const old = oldSync === undefined ? null : syncFromJson(oldSync)
+          if (oldSync !== undefined && !old) throw new NoteSaveError(SYNC_UNREADABLE)
           const next: SyncInfo = {
             ...emptySync(),
             conflicts: old?.conflicts ?? [],

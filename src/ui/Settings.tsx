@@ -63,6 +63,12 @@ export function Settings({
     setBusy(true)
     setError(null)
     try {
+      if (unsent === 0) {
+        // Edited while the box was open: count again and go back to the warning if it grew.
+        const ids = await unsentIds().catch(() => null)
+        if (!mounted.current) return
+        if (ids === null || ids.length > 0) return setUnsent(ids === null ? null : ids.length)
+      }
       if (action === 'disconnect' && !revoked.current) {
         if ((await auth.disconnect()) !== 'revoked') return setError('signin.network')
         revoked.current = true

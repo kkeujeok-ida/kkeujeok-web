@@ -64,18 +64,23 @@ export async function checkAccount(account: Account, d: GateDeps, live: () => bo
 }
 
 export function AccountGate({ auth, deps, children }: { auth: Auth; deps?: GateDeps; children: ReactNode }) {
-  const { token, account } = auth.getState()
-  const key = account ? `${token}:${account.sub}` : null
+  const { account } = auth.getState()
+  // The sub only: a silent re-auth changes the token, and must not remount the app.
+  const key = account ? account.sub : null
   const [done, setDone] = useState<{ key: string; verdict: Verdict } | null>(null)
   const [attempt, setAttempt] = useState(0)
+  const rechecking = useRef(false) // a retry while one runs would stack
 
   useEffect(() => {
     if (!account || !key) return
     let live = true
+    rechecking.current = true
     void checkAccount(account, deps ?? defaultGateDeps(), () => live)
       .then((verdict) => live && setDone({ key, verdict }))
-      .catch(() => live && setDone({ key, verdict: { kind: 'ok' } }))
-    return () => void (live = false)
+      // A failed recheck keeps the verdict it had for this account; only a first check that fails opens.
+      .catch(() => live && setDone((prev) => (prev?.key === key ? prev : { key, verdict: { kind: 'ok' } })))
+      .finally(() => live && (rechecking.current = false))
+    return () => void ((live = false), (rechecking.current = false))
     // `key` identifies the account of this run
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, deps, attempt])
@@ -90,10 +95,8 @@ export function AccountGate({ auth, deps, children }: { auth: Auth; deps?: GateD
       deps={deps ?? defaultGateDeps()}
       verdict={v}
       onDiscarded={() => setDone({ key, verdict: { kind: 'ok' } })}
-      onRetry={() => {
-        setDone(null)
-        setAttempt((n) => n + 1)
-      }}
+      // The previous verdict stays on screen until the recheck replaces it.
+      onRetry={() => !rechecking.current && setAttempt((n) => n + 1)}
     />
   )
 }

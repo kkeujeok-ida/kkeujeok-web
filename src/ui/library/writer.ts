@@ -779,6 +779,8 @@ export class Writer {
     expect?: readonly string[]
     held?: string | null
   }): RequeueResult | { result: 'stale' } {
+    // Not applied while closing, read-only or mid-stroke: the caller decides again later.
+    if (this.readOnly || this.leaving || this.drawing !== null) return { result: 'stale' }
     if (a.expect) {
       // The sidecars were recorded for a preview. Apply only that: another sidecar (the page changed) or a
       // stroke that began meanwhile means the preview is old.

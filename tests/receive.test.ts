@@ -287,6 +287,24 @@ describe('receive race guards (12.1)', () => {
     expect(pageRev(await working(e), PB)).toBe('b2')
   })
 
+  test('a merge the editor could not take now (applyFailed) is retried by the next check, the note does not go to error', async () => {
+    const e = await make()
+    let defer = true
+    const merge = { merge: async (a: Parameters<typeof e.deps.merge.merge>[0]) => (defer ? { result: 'error' as const, reason: 'applyFailed' } : e.deps.merge.merge(a)) }
+    const rx = e.mk({ merge })
+    const note = two()
+    const { fileId } = await e.seedSynced(note)
+    await rx.check()
+    await e.remoteUpload(foreignEdit(note, PB, 'b2'), { fileId })
+    await rx.check()
+    expect(pageRev(await working(e), PB)).toBe(pageRev(note, PB))
+    expect((await e.sync()).info.state).not.toBe('error')
+    expect(e.events('error').some((x) => x.reason === 'mergeDeferred' && x.noteId === NID)).toBe(true)
+    defer = false
+    await rx.check()
+    expect(pageRev(await working(e), PB)).toBe('b2')
+  })
+
   test('an error note skipped into retry is received again once it left error, and beforeOpen uses it', async () => {
     const e = await make({ locks: fakeLocks() })
     const note = two()

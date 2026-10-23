@@ -10,6 +10,7 @@ import { clearSessionHistories } from '../src/ops/sessionHistories'
 import { deleteNoteDatabase } from '../src/storage/noteDb'
 import { openNoteStore, type NoteStore } from '../src/storage/noteStore'
 import { savesSettled } from '../src/storage/saveQueue'
+import { openNoteIds } from '../src/sync/openNotes'
 import { Library } from '../src/ui/library/Library'
 import { NoteEditor } from '../src/ui/library/NoteEditor'
 import { Banner } from '../src/ui/sync/Banner'
@@ -421,7 +422,13 @@ describe('the writing screen', () => {
   })
 
   test('a deleted note: the banner shows, editing is still possible; [닫기] leaves, and the receiver is told only after the editor is gone', async () => {
-    const receiver = { beforeOpen: vi.fn(async () => {}), noteOpened: vi.fn(async () => {}), noteClosed: vi.fn(async () => {}) }
+    // The receiver deletes a deleted note's copy only when no editor has it open: it must not be registered any more.
+    const openAtClose: boolean[] = []
+    const receiver = {
+      beforeOpen: vi.fn(async () => {}),
+      noteOpened: vi.fn(async () => {}),
+      noteClosed: vi.fn(async () => void openAtClose.push(openNoteIds().includes(NID))),
+    }
     await mountEditor({ status: fakeStatus({ [NID]: deleted }) }, receiver)
     expect(m!.q('.editor')!.firstElementChild!.getAttribute('data-banner')).toBe('deleted')
     expect([...m!.qa('[data-banner] button')].map((b) => b.textContent)).toEqual(['다시 살리기', '닫기'])
@@ -436,6 +443,7 @@ describe('the writing screen', () => {
     await flush()
     expect(receiver.noteClosed).toHaveBeenCalledTimes(1)
     expect(receiver.noteClosed).toHaveBeenCalledWith(NID)
+    expect(openAtClose).toEqual([false])
   })
 
   test('a remount of the same note (leave and reopen at once) is not a close', async () => {

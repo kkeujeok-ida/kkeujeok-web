@@ -23,8 +23,17 @@ export function ConfirmDialog({ body, confirmLabel, cancelLabel, destructive, bu
   const press = () => {
     if (busy) return
     if (armedLabel && !armed) setArmed(true)
-    else onConfirm()
+    else {
+      setArmed(false) // a failed run must leave the first state, not an armed button
+      onConfirm()
+    }
   }
+  // An armed button left alone relaxes after about 5 s.
+  useEffect(() => {
+    if (!armed) return
+    const timer = setTimeout(() => setArmed(false), 5000)
+    return () => clearTimeout(timer)
+  }, [armed])
   useEffect(() => cancel.current?.focus(), [])
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {

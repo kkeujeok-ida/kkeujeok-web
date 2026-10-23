@@ -158,6 +158,51 @@ describe('logout with unsent changes', () => {
     expect(await dbExists()).toBe(false)
   })
 
+  test('edited while the confirmation is open: the confirm press counts again and returns to the warning', async () => {
+    await seed([], [N3])
+    let ids: string[] = []
+    const auth = await mount(async () => ids)
+    await click(btn('Log out'))
+    expect(dialog()!.textContent).toContain('Log out?')
+    ids = [N1]
+    await click(dialogButtons()[1]!)
+    expect(auth.getState().token).not.toBeNull() // not logged out
+    expect(await dbExists()).toBe(true)
+    expect(dialog()!.textContent).toContain('1 unsent changes. Logging out discards them.')
+    expect(dialogButtons()[1]!.textContent).toBe('Discard and log out')
+  })
+
+  test('an armed discard button relaxes after about 5 s', async () => {
+    await mount(async () => [N1])
+    await click(btn('Log out'))
+    vi.useFakeTimers()
+    try {
+      act(() => dialogButtons()[1]!.click())
+      expect(dialogButtons()[1]!.textContent).toBe('Press again to discard')
+      act(() => void vi.advanceTimersByTime(4900))
+      expect(dialogButtons()[1]!.textContent).toBe('Press again to discard')
+      act(() => void vi.advanceTimersByTime(200))
+      expect(dialogButtons()[1]!.textContent).toBe('Discard and log out')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('the recount at the confirm press fails or says unknown: back to the warning without a number', async () => {
+    await seed([], [N3])
+    let calls = 0
+    const auth = await mount(async () => {
+      if (++calls === 1) return []
+      throw new Error('x')
+    })
+    await click(btn('Log out'))
+    await click(dialogButtons()[1]!)
+    expect(auth.getState().token).not.toBeNull()
+    expect(await dbExists()).toBe(true)
+    expect(dialog()!.textContent).toContain('Could not check for unsent changes.')
+    expect(dialogButtons()[1]!.textContent).toBe('Discard and log out')
+  })
+
   test('count unknown: warns without a number', async () => {
     await mount(async () => null)
     await click(btn('Log out'))
@@ -191,6 +236,19 @@ describe('logout with unsent changes', () => {
 })
 
 describe('disconnect with unsent changes', () => {
+  test('edited while the plain confirmation is open: the confirm press recounts and returns to the warning, nothing is revoked', async () => {
+    await seed([], [N3])
+    let ids: string[] = []
+    const auth = await mount(async () => ids)
+    await click(btn('Disconnect'))
+    ids = [N1]
+    await click(dialogButtons()[1]!)
+    expect(auth.getState().token).not.toBeNull()
+    expect(await dbExists()).toBe(true)
+    expect(dialog()!.textContent).toContain('1 unsent changes. Disconnecting discards them.')
+    expect(dialogButtons()[1]!.textContent).toBe('Discard and disconnect')
+  })
+
   test('only the two-step discard-and-disconnect; Google is revoked only at the second press', async () => {
     await seed([N1])
     const auth = await mount()

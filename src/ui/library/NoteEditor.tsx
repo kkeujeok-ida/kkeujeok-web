@@ -371,12 +371,13 @@ export function NoteEditor({
         .then((l) => l.release())
         .catch(() => {})
         .then(async () => {
+          // No longer the open note: the receiver below deletes a note only when none is open.
+          unregister()
           // A note Drive deleted is removed now (nothing unsent) or restored (something unsent), once it is not open.
           if (!mountedNotes.has(noteId)) await receiver?.noteClosed?.(noteId).catch(() => {})
         })
         .then(() => {
           // The last save is on disk and the lock is free: the closing upload may read the note.
-          unregister()
           if (!mountedNotes.has(noteId)) void uploads?.noteClosed(noteId)
         })
         .finally(() => {

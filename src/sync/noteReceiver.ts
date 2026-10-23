@@ -362,6 +362,8 @@ export function createNoteReceiver(d: ReceiverDeps) {
           } else {
             const r = await d.merge.merge({ noteId, base: s.base, remote })
             if (r.result === 'unsupportedVersion') throw new Fail('unreadable', undefined, 'unsupportedVersion', head)
+            // The editor could not take it now (read-only, closing, mid-stroke): not a failure of the note, received again later.
+            if (r.result === 'error' && r.reason === 'applyFailed') return skip(noteId, fileId, head, 'mergeDeferred')
             if (r.result !== 'merged') throw new Fail('fatal', undefined, 'mergeFailed')
             await log.append('merged', { noteId })
             await store.updateSync(noteId, (c) => ({ ...c, fileId, baseHeadRevisionId: head, lastError: null }), { base: remote })

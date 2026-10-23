@@ -31,7 +31,8 @@ export function resolveConflict(
   const pageId = conflict.pageId
 
   if (conflict.resolvedAt !== null) return { error: 'alreadyResolved' }
-  const set = CHOICES[conflict.kind]
+  // Own keys only: a damaged record's kind may be `constructor` or the like.
+  const set = typeof conflict.kind === 'string' && Object.hasOwn(CHOICES, conflict.kind) ? CHOICES[conflict.kind] : undefined
   if (typeof choice !== 'string' || !set || !set.includes(choice)) return { error: 'invalidChoice' }
   const idx = note.pages.findIndex((p) => p.id === pageId)
   const cur: Page | undefined = note.pages[idx]
@@ -52,6 +53,10 @@ export function resolveConflict(
     note.orderRev = ctx.orderRev
     note.orderSeq = Math.max(note.orderSeq, ctx.lastSeenRemoteSeq) + 1
   }
+  const slot = () => {
+    const i = Number.isFinite(conflict.originalIndex) ? conflict.originalIndex : note.pages.length // NaN, undefined
+    return Math.max(0, Math.min(i, note.pages.length))
+  }
   let undoDrop = [pageId]
 
   if (conflict.kind === 'bothEdited') {
@@ -63,7 +68,7 @@ export function resolveConflict(
       const mine = hi === side ? side : { ...side, id: newId }
       const theirs = hi === cur ? cur! : { ...cur!, id: newId }
       note.pages.splice(idx, 1)
-      const k = Math.min(conflict.originalIndex, note.pages.length)
+      const k = slot()
       const have = new Set(note.pages.map((p) => p.id))
       note.pages.splice(k, 0, ...[mine, theirs].filter((p) => !have.has(p.id)))
       renewOrder()
@@ -75,7 +80,7 @@ export function resolveConflict(
       renewOrder()
     } else note.pages[idx] = fresh(cur!)
   } else if (choice === 'keep' && !cur) {
-    note.pages.splice(Math.min(conflict.originalIndex, note.pages.length), 0, fresh(side))
+    note.pages.splice(slot(), 0, fresh(side))
     renewOrder()
   }
 

@@ -291,6 +291,13 @@ describe('updateSync and resetSync', () => {
     expect(await rawGet('sync', N)).toBe('garbage')
   })
 
+  test('resetSync on an unreadable sync record throws and keeps it', async () => {
+    await store.writeNote(mk(N))
+    await rawPut('sync', N, 'garbage')
+    await expect(store.resetSync(N)).rejects.toThrow('the sync record is unreadable')
+    expect(await rawGet('sync', N)).toBe('garbage')
+  })
+
   test('a new base is written with its id; abort after the base put leaves both as before', async () => {
     await store.commitSync(mk(N), mk(N), synced('rev1'))
     const before = await snapshot()

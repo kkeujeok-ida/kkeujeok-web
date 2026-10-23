@@ -303,18 +303,19 @@ describe('a conflict found while the editor is open', () => {
     expect(fills).toBe(1)
   })
 
-  test('a merge without a conflict does not wait for a stroke in progress', async () => {
+  test('a merge during a stroke is deferred, not applied; it goes through after the stroke', async () => {
     await seed(two())
     await mountEditor()
     fire('pointerdown', { x: 200, y: 200 })
     const store = openStore()
-    // no conflict: only page B changed on the other device; the merge goes through at once
-    const out = await merger(store).merge({ noteId: NID, base: two(), remote: foreignEdit(two(), PB, 'b3') })
-    // (it waited for the stroke only when a conflict made the wait necessary: here there is none to protect)
-    expect(out).toEqual({ result: 'merged' })
+    const remote = foreignEdit(two(), PB, 'b3')
+    // Spec 12.7: applyMerge holds back while a stroke is going (the receiver retries), so the stroke is not lost.
+    const held = await merger(store).merge({ noteId: NID, base: two(), remote })
+    expect(held).toEqual({ result: 'error', reason: 'applyFailed' })
     fire('pointerup', { x: 210, y: 200 })
     await flush()
     expect(strokes(await saved())).toHaveLength(1)
+    expect(await merger(store).merge({ noteId: NID, base: two(), remote })).toEqual({ result: 'merged' })
   })
 })
 

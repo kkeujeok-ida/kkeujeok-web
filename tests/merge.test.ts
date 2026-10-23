@@ -169,6 +169,22 @@ describe('change queue (AD-16)', () => {
     expect(saved.at(-1)!.pages[0]!.rev).toBe('a7')
   })
 
+  test('Writer.applyMerge is stale, and changes nothing, when read-only, leaving or mid-stroke', async () => {
+    for (const how of ['readOnly', 'leaving', 'drawing']) {
+      const base = note([page('a', 'a1')])
+      const h = new History(base)
+      const store = { writeNote: async () => {}, close: () => {} }
+      let changes = 0
+      const w = new Writer(h, store as never, () => ({}) as never, () => {}, () => 'X', () => changes++)
+      if (how === 'readOnly') w.readOnly = true
+      else if (how === 'leaving') void w.finalize()
+      else (w as unknown as { drawing: object }).drawing = {}
+      expect(w.applyMerge({ base, localAtStart: base, remote: note([page('a', 'a7', 5)]), ctx }), how).toEqual({ result: 'stale' })
+      expect(changes, how).toBe(0)
+      expect(h.note.pages[0]!.rev, how).toBe('a1')
+    }
+  })
+
   test('Writer.applyMerge with an unsupported version changes and saves nothing', async () => {
     const base = note([page('a', 'a1')])
     const h = new History(base)
@@ -243,5 +259,25 @@ describe('resolve helpers', () => {
     const r = resolveConflict(cur, conflict, sidecar, 'both', ctx)
     expect(r.result).toBe('resolved')
     expect(structuredClone([cur, conflict, sidecar])).toEqual(snap)
+  })
+  test('a damaged record: an inherited kind is invalidChoice, a negative originalIndex is clamped to 0', () => {
+    const cur = note([page('a', 'a9', 3), page('b', 'b1')])
+    const side = page('a', 'a2', 2)
+    const conflict = { pageId: 'a', kind: 'bothEdited' as const, rev: 'a2', theirsRev: 'a9', detectedAt: ctx.now, originalIndex: -5, resolvedAt: null }
+    const sidecar = { noteId: 'n', pageId: 'a', rev: 'a2', seq: 2, editedAt: side.editedAt, editedBy: 'X', kind: 'bothEdited' as const, page: side }
+    for (const kind of ['constructor', 'toString', '__proto__']) {
+      const bad = { ...conflict, kind } as never
+      expect(resolveConflict(cur, bad, sidecar, 'mine', ctx)).toEqual({ error: 'invalidChoice' })
+    }
+    const r = resolveConflict(cur, conflict, sidecar, 'both', ctx)
+    expect(r.result).toBe('resolved')
+    if (r.result === 'resolved') expect(r.note.pages.map((p) => p.id)).toHaveLength(3)
+    // a kind that is not a string; an index that is not a number goes to the end
+    expect(resolveConflict(cur, { ...conflict, kind: 5 } as never, sidecar, 'mine', ctx)).toEqual({ error: 'invalidChoice' })
+    for (const bad of [Number.NaN, undefined]) {
+      const x = resolveConflict(cur, { ...conflict, originalIndex: bad } as never, sidecar, 'both', ctx)
+      expect(x.result).toBe('resolved')
+      if (x.result === 'resolved') expect(x.note.pages[0]!.id).toBe('b')
+    }
   })
 })
