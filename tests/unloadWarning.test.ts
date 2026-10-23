@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 // The tab-close warning (Story 3.16): only with unsent changes or a stroke being saved, never otherwise.
 import { createElement } from 'react'
+import { act } from 'react'
+import { createSyncStatus } from '../src/sync/syncStatus'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { registerOpenNote } from '../src/sync/openNotes'
 import { unsentNow } from '../src/ui/sync/syncUi'
@@ -46,8 +48,21 @@ describe('beforeunload', () => {
     expect(e.defaultPrevented).toBe(false)
   })
 
-  test('no notes at all, or not read yet: it does not ask', () => {
+  test('not read yet: it asks, as unsent notes of the last session are not counted yet', () => {
     mount(fakeStatus({}, false))
+    expect(closeTab().defaultPrevented).toBe(true)
+  })
+
+  test('loaded and no notes at all: it does not ask', () => {
+    mount(fakeStatus({}, true))
+    expect(closeTab().defaultPrevented).toBe(false)
+  })
+
+  test('a real status store is read when the provider mounts, so an empty library does not ask', async () => {
+    const s = createSyncStatus({ store: { listIds: async () => [], readSync: () => Promise.reject(new Error('none')) } })
+    mount(s as never)
+    await act(async () => { await s.refreshAll() })
+    expect(s.getSnapshot().loaded).toBe(true)
     expect(closeTab().defaultPrevented).toBe(false)
   })
 

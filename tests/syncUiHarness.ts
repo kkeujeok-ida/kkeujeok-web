@@ -21,7 +21,7 @@ export function fakeStatus(initial: Record<string, NoteSyncView> = {}, loaded = 
     getSnapshot: () => snap,
     subscribe: (fn: () => void) => (listeners.add(fn), () => void listeners.delete(fn)),
     refreshAll: vi.fn(async () => {}),
-    anyUnsent: () => [...snap.notes.values()].some((v) => v.hasUnsent),
+    anyUnsent: () => !snap.loaded || [...snap.notes.values()].some((v) => v.hasUnsent),
     dispose: vi.fn(),
     listenerCount: () => listeners.size,
     set(notes: Record<string, NoteSyncView>, isLoaded = true) {

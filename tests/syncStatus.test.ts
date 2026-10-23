@@ -74,6 +74,65 @@ describe('the store', () => {
     s.dispose()
   })
 
+  test('unsent is assumed until the first refreshAll finishes', async () => {
+    const s = createSyncStatus({ store })
+    expect(s.anyUnsent()).toBe(true)
+    await s.refreshAll()
+    expect(s.anyUnsent()).toBe(false)
+    s.dispose()
+  })
+
+  test('a note signalled while refreshAll reads keeps its newer unsent mark', async () => {
+    const view = (hasUnsent: boolean) => ({ missing: false, info: { fileId: null, lastError: null, conflicts: [] }, state: 'synced', hasUnsent })
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    let call = 0
+    const fake = {
+      listIds: async () => [NID],
+      readSync: async () => {
+        // the first read (refreshAll's) is stale: it answers after the edit
+        if (call++ === 0) { await gate; return view(false) as never }
+        return view(true) as never
+      },
+    }
+    const handlers = new Set<(id: string) => void>()
+    const s = createSyncStatus({ store: fake, signal: (fn) => (handlers.add(fn), () => void handlers.delete(fn)) })
+    const all = s.refreshAll()
+    await real()
+    handlers.forEach((h) => h(NID))
+    await real()
+    expect(s.anyUnsent()).toBe(true)
+    release()
+    await all
+    expect(s.getSnapshot().loaded).toBe(true)
+    expect(s.getSnapshot().notes.get(NID)?.hasUnsent).toBe(true)
+    s.dispose()
+  })
+
+  test('a note whose read fails in refreshAll keeps its previous entry', async () => {
+    await store.writeNote(mkNote())
+    let fail = false
+    const fake = { listIds: () => store.listIds(), readSync: (id: string) => (fail ? Promise.reject(new Error('x')) : store.readSync(id)) }
+    const s = createSyncStatus({ store: fake })
+    await s.refreshAll()
+    expect(s.anyUnsent()).toBe(true)
+    fail = true
+    await s.refreshAll()
+    expect(s.anyUnsent()).toBe(true)
+    expect(s.getSnapshot().notes.get(NID)?.hasUnsent).toBe(true)
+    s.dispose()
+  })
+
+  test('after a reload a new status store finds the unsent change from IndexedDB', async () => {
+    await store.writeNote(mkNote())
+    const first = createSyncStatus({ store })
+    first.dispose()
+    const reloaded = createSyncStatus({ store: openNoteStore() })
+    await reloaded.refreshAll()
+    expect(reloaded.getSnapshot().notes.get(NID)?.hasUnsent).toBe(true)
+    reloaded.dispose()
+  })
+
   test('a change is read at once, and only that note; changes inside the delay are read once together', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     const reads: string[] = []

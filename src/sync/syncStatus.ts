@@ -34,6 +34,8 @@ export function createSyncStatus(d: {
   let timer: ReturnType<typeof setTimeout> | null = null
   const queued = new Set<string>()
   let all: Promise<void> | null = null
+  // Notes signalled while `refreshAll` reads: its older read must not overwrite them.
+  let touched: Set<string> | null = null
 
   const publish = (notes: Map<string, NoteSyncView>, loaded: boolean) => {
     if (disposed) return
@@ -96,6 +98,7 @@ export function createSyncStatus(d: {
   const unsub = (d.signal ?? onSyncChanged)((noteId) => {
     if (disposed) return
     queued.add(noteId)
+    touched?.add(noteId)
     if (timer) return
     void readQueued()
     timer = setTimeout(tick, d.delayMs ?? STATUS_DELAY_MS)
@@ -112,23 +115,38 @@ export function createSyncStatus(d: {
       all ??= (async () => {
         try {
           const ids = await d.store.listIds()
-          const next = new Map<string, NoteSyncView>()
+          const t = (touched = new Set<string>())
+          const read: [string, NoteSyncView | null | 'gone'][] = []
           for (const id of ids) {
             const v = await view(id)
             if (disposed) return
-            if (v && v !== 'gone') next.set(id, v)
+            read.push([id, v])
+          }
+          // Merged into the snapshot as it is now; a failed read keeps the previous entry.
+          const next = new Map<string, NoteSyncView>()
+          for (const [id, v] of read) {
+            if (v === 'gone') continue
+            const cur = snap.notes.get(id)
+            // A failed read with no earlier entry stays unsent: better a needless warning than a lost one.
+            const fresh = v ?? { state: 'pending' as const, hasUnsent: true, lastError: null }
+            next.set(id, t.has(id) ? (cur ?? fresh) : (v ?? cur ?? fresh))
+          }
+          for (const id of t) {
+            const cur = snap.notes.get(id)
+            if (cur && !next.has(id)) next.set(id, cur)
           }
           publish(next, true)
         } catch {
           // the next trigger tries again
         } finally {
           all = null
+          touched = null
         }
       })()
       return all
     },
     /** True when some note has changes Drive does not have; synchronous, for `beforeunload`. */
-    anyUnsent: () => [...snap.notes.values()].some((v) => v.hasUnsent),
+    anyUnsent: () => !snap.loaded || [...snap.notes.values()].some((v) => v.hasUnsent),
     dispose() {
       disposed = true
       if (timer) clearTimeout(timer)
