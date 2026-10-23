@@ -9,6 +9,8 @@ import { decodeKkj } from '../src/model/kkjCodec'
 import type { Note } from '../src/model/note'
 import { NOTE_DB_NAME, SYNC_STORE, deleteNoteDatabase } from '../src/storage/noteDb'
 import { backoffRule } from '../src/sync/syncRules'
+import { SYNC_LOCK_NAME, createUploadCoordinator, noteLockName } from '../src/sync/uploadCoordinator'
+import { fakeLocks } from './helpers'
 import { type Env, NID, PA, PB, bytesOf, foreignEdit, makeEnv, md5Of, mkNote, withStroke } from './uploadHarness'
 
 let env: Env | undefined
@@ -623,3 +625,130 @@ const rawPut = (store: string, key: string, value: unknown) =>
 const rawGet = (store: string, key: string) => rawDb((db) => req(db.transaction(store).objectStore(store).get(key)))
 const rawDelete = (store: string, key: string) =>
   rawDb(async (db) => void (await req(db.transaction(store, 'readwrite').objectStore(store).delete(key))))
+
+describe('race guards (Story 12.2)', () => {
+  test('an external revision between the head read and our PATCH is merged once, then synced', async () => {
+    const e = await make()
+    const id = await uploaded(e, two())
+    await e.store.writeNote(withStroke(two(), PA, 'a2'))
+    const foreign = await bytesOf(foreignEdit(two(), PB, 'b2'))
+    let once = true
+    e.drive.hooks.beforeCall = (m) => {
+      if (m === 'uploadSimple' && once) {
+        once = false
+        e.drive.foreignRevision(id, foreign) // after the head was read, before our revision
+      }
+    }
+    expect(await e.uploader.upload(NID)).toBe('uploaded')
+    const head = await headOf(e, id)
+    expect([pageRev(head, PA), pageRev(head, PB)]).toEqual(['a2', 'b2'])
+    expect(e.drive.uploads).toHaveLength(3) // first + our two rounds: our own revision is not merged again
+    expect((await e.sync()).info).toMatchObject({ state: 'synced', lastError: null, baseHeadRevisionId: e.drive.revisions(id).at(-1)!.id })
+  })
+
+  test('a lost answer of an update that did land is not sent again', async () => {
+    const e = await make()
+    const id = await uploaded(e, mkNote())
+    await e.store.writeNote(withStroke(mkNote(), PA, 'a2'))
+    e.drive.loseAnswer('uploadSimple', 2)
+    expect(await e.uploader.upload(NID)).toBe('uploaded')
+    expect(e.drive.count('uploadSimple')).toBe(2)
+    expect(e.drive.revisions(id)).toHaveLength(2)
+    expect((await e.sync()).info).toMatchObject({ state: 'synced', baseHeadRevisionId: 'rev2' })
+  })
+
+  test('a file of the same kkeujeokId with other content is not adopted', async () => {
+    const e = await make()
+    await e.store.writeNote(mkNote())
+    const foreign = await bytesOf(foreignEdit(mkNote(), PA, 'zz'))
+    e.drive.failAt('uploadSimple', 1, new DriveError('network'))
+    e.drive.hooks.beforeCall = (m) => {
+      if (m !== 'uploadSimple') return
+      e.drive.hooks.beforeCall = undefined
+      const f = e.drive.addChild('ROOT')
+      f.appProperties.kkeujeokId = NID
+      e.drive.foreignRevision(f.id, foreign)
+      theirs = f.id
+    }
+    let theirs = ''
+    expect(await e.uploader.upload(NID)).toBe('uploaded')
+    const s = await e.sync()
+    expect(s.info.fileId).not.toBe(theirs)
+    expect(pageRev(s.base!, PA)).toBe('a1') // ours, not the other file's content
+  })
+
+  test('a head that moved before the PATCH goes back to the merge, no upload on top of it', async () => {
+    const e = await make()
+    const id = await uploaded(e, two())
+    await e.store.writeNote(withStroke(two(), PA, 'a2'))
+    const foreign = await bytesOf(foreignEdit(two(), PB, 'b2'))
+    let gets = 0
+    e.drive.hooks.beforeCall = (m) => {
+      if (m === 'get' && ++gets === 2) e.drive.foreignRevision(id, foreign) // 1: step 1, 2: just before the PATCH
+    }
+    expect(await e.uploader.upload(NID)).toBe('uploaded')
+    expect(e.drive.uploads).toHaveLength(2) // first + one PATCH, after the merge
+    expect(e.events('error')).toEqual([expect.objectContaining({ class: 'backoff', reason: 'headMoved' })])
+    expect(e.invalid).toEqual([])
+    const head = await headOf(e, id)
+    expect([pageRev(head, PA), pageRev(head, PB)]).toEqual(['a2', 'b2'])
+  })
+
+  test('a head that keeps moving ends as a transient error after 3 merges', async () => {
+    const e = await make()
+    const id = await uploaded(e, two())
+    await e.store.writeNote(withStroke(two(), PA, 'a2'))
+    const foreign = await bytesOf(foreignEdit(two(), PB, 'b2'))
+    e.drive.hooks.beforeCall = (m) => {
+      if (m === 'get') e.drive.foreignRevision(id, foreign)
+    }
+    expect(await e.uploader.upload(NID)).toBe('failed')
+    expect((await e.sync()).info.lastError).toMatchObject({ class: 'backoff', reason: 'headMoved' })
+  })
+
+  describe('locks of the coordinator', () => {
+    test('a closed note keeps its note lock for the whole upload; the sync lock is let go while a backoff sleeps', async () => {
+      const locks = fakeLocks()
+      const free = async (name: string) => {
+        let ok = false
+        await locks.request(name, { ifAvailable: true }, (l) => void (ok = l !== null))
+        return ok
+      }
+      let c!: ReturnType<typeof createUploadCoordinator>
+      const e = await make({
+        sleep: async () => {
+          const p = c.pause(30, NID)
+          await new Promise((r) => setTimeout(r, 10))
+          seen.syncFreeDuringSleep = await free(SYNC_LOCK_NAME)
+          seen.noteFreeDuringSleep = await free(noteLockName(NID))
+          await p
+        },
+      })
+      const seen = { syncFreeDuringSleep: false, noteFreeDuringSleep: true, noteFreeDuringUpload: true }
+      c = createUploadCoordinator({ store: e.store, uploader: e.uploader, log: e.deps.log, allowed: () => true, online: () => true, flushOpen: async () => {}, openIds: () => [], locks })
+      await uploaded(e, mkNote())
+      await e.store.writeNote(withStroke(mkNote(), PA, 'a2'))
+      e.drive.failAt('uploadSimple', 2, new DriveError('network'))
+      e.drive.hooks.afterUploadAsync = async () => void (seen.noteFreeDuringUpload = await free(noteLockName(NID)))
+      await c.noteClosed(NID)
+      expect((await e.sync()).info.state).toBe('synced')
+      expect(seen).toEqual({ syncFreeDuringSleep: true, noteFreeDuringSleep: false, noteFreeDuringUpload: false })
+      expect(await free(SYNC_LOCK_NAME)).toBe(true) // everything is released at the end
+      expect(await free(noteLockName(NID))).toBe(true)
+    })
+
+    test('a note open in another tab (its lock taken) is not uploaded here', async () => {
+      const locks = fakeLocks()
+      const e = await make()
+      const c = createUploadCoordinator({ store: e.store, uploader: e.uploader, log: e.deps.log, allowed: () => true, online: () => true, flushOpen: async () => {}, openIds: () => [], locks })
+      await e.store.writeNote(mkNote())
+      let release!: () => void
+      const held = new Promise<void>((r) => (release = r))
+      const taken = new Promise<void>((r) => void locks.request(noteLockName(NID), {}, () => (r(), held)))
+      await taken
+      await c.noteClosed(NID)
+      expect(e.drive.uploads).toHaveLength(0)
+      release()
+    })
+  })
+})

@@ -76,6 +76,9 @@ const releasing = new Map<string, Promise<void>>()
 // Editors mounted in this tab: a remount (StrictMode, fast leave and reopen) is not a close.
 const mountedNotes = new Set<string>()
 
+/** A closed-note upload (or another tab) holds the note lock: wait this long for the merged result, then open read-only. */
+const LOCK_WAIT_MS = 3000
+
 /** `readOnly`: another tab holds the note. `newer`: its Drive file is of a newer format (Story 3.18). */
 type Loaded = { title: string; writer: Writer; readOnly: boolean; newer: boolean }
 
@@ -89,6 +92,7 @@ export function NoteEditor({
   penStore = sharedPenSlots(),
   uploads,
   receiver,
+  lockWaitMs = LOCK_WAIT_MS,
 }: {
   noteId: string
   openStore?: () => NoteStore
@@ -97,6 +101,8 @@ export function NoteEditor({
   uploads?: Pick<UploadCoordinator, 'noteClosed'> & Partial<Pick<UploadCoordinator, 'conflictResolved' | 'syncNow'>>
   /** Receives remote changes before the editor opens and checks the remote head after (Story 3.14). */
   receiver?: Pick<NoteReceiver, 'beforeOpen' | 'noteOpened'> & Partial<Pick<NoteReceiver, 'noteClosed'>>
+  /** How long a held note lock is waited for before the note opens read-only (decision: 3 s). */
+  lockWaitMs?: number
 }) {
   const { t } = useI18n()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -284,6 +290,19 @@ export function NoteEditor({
     void (async () => {
       const l = await lockP
       if (!live) return // the cleanup releases it
+      // The working copy is read only with the lock (it is then what an upload left merged); a lock that stays
+      // taken opens the note read-only, and the editor takes over when it frees.
+      if (l.state === 'waiting' && lockWaitMs > 0) {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([l.whenHeld, new Promise<void>((r) => (timer = setTimeout(r, lockWaitMs)))])
+        } catch {
+          // a rejected wait is treated as the wait being over
+        } finally {
+          clearTimeout(timer)
+        }
+        if (!live) return
+      }
       const cur = await load(l.state === 'waiting')
       if (!cur) return void l.release()
       // A lock granted while the first load ran: do not show the stale read-only note.

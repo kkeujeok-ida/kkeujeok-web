@@ -246,6 +246,24 @@ describe('error notes', () => {
   })
 })
 
+describe('fatal reasons only a manual retry ends (Story 12.2)', () => {
+  test.each(['md5Mismatch', 'noRevisionId', 'localWrite', 'rootMissing'])('%s: one retry at the first trigger, none at later ones', async (reason) => {
+    const { e, coordinator } = await setup()
+    await unsentNote(e)
+    const fail = () => e.store.updateSync(NID, (c) => ({ ...c, state: 'error', lastError: { class: 'fatal', reason } }))
+    await fail()
+    const c = coordinator(undefined)
+    await c.unsent() // the one retry: it uploads
+    expect(e.drive.calls.length).toBeGreaterThan(0)
+    await fail()
+    const calls = e.drive.calls.length
+    await c.unsent()
+    await c.hidden()
+    expect(e.drive.calls.length).toBe(calls)
+    expect((await e.sync()).info.state).toBe('error')
+  })
+})
+
 describe('retry policy of the web display (Story 3.16)', () => {
   const quota = () => new DriveError('http', 403, 'storageQuotaExceeded')
   const reauth = () => new DriveError('http', 401, 'noToken')

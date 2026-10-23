@@ -4,9 +4,10 @@
 // with Web Locks in place of the lease file (AD-10):
 //   - a note that is open in this tab is uploaded by this tab (its editor holds the
 //     note's lock `kkeujeok-note:<id>`), only when the tab is hidden;
-//   - a closed note is uploaded by the one tab that holds the sync-only lock
-//     `kkeujeok-sync`, and only when no tab holds the note's own lock (an editor
-//     elsewhere has it open).
+//   - a closed note is uploaded by the one tab that holds the note's own lock for
+//     the whole upload (an editor elsewhere that has it open keeps it from us, and
+//     an editor that opens meanwhile waits for it: it reads the merged result), and
+//     the sync-only lock `kkeujeok-sync` per Drive request, not while a backoff sleeps.
 import type { DriveError } from '../drive/driveClient'
 import type { NoteStore } from '../storage/noteStore'
 import type { SyncInfo } from '../storage/syncInfo'
@@ -22,7 +23,8 @@ export const noteLockName = (noteId: string) => `kkeujeok-note:${noteId}`
 const RETRY_CLASSES = new Set(['backoff', 'quota', 'reauth', 'fatal'])
 // These end the same way again until something else changes, so they are retried
 // once per page session, not at every trigger.
-const RETRY_ONCE = new Set(['verifyExhausted', 'sessionLost', 'mergeFailed'])
+// `md5Mismatch`, `noRevisionId`, `localWrite` and `rootMissing` are fatal ones only a manual retry ends.
+const RETRY_ONCE = new Set(['verifyExhausted', 'sessionLost', 'mergeFailed', 'md5Mismatch', 'noRevisionId', 'localWrite', 'rootMissing'])
 
 export type CoordinatorDeps = {
   store: Pick<NoteStore, 'listIds' | 'readSync' | 'updateSync'>
@@ -70,9 +72,38 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
     return ran
   }
 
-  /** True when no tab has the note open (nobody holds its lock). */
-  async function closedEverywhere(noteId: string): Promise<boolean> {
-    return !locks || (await withLock(noteLockName(noteId), true, async () => {}))
+  /** A lock kept until `release` (null when `ifAvailable` found it taken). Without Web Locks: a no-op hold. */
+  async function hold(name: string, ifAvailable: boolean): Promise<{ release: () => Promise<void> } | null> {
+    if (!locks) return { release: async () => {} }
+    let free!: () => void
+    const kept = new Promise<void>((r) => (free = r))
+    let granted!: (ok: boolean) => void
+    const got = new Promise<boolean>((r) => (granted = r))
+    const done = locks
+      .request(name, ifAvailable ? { ifAvailable: true } : {}, (lock) => {
+        granted(lock !== null)
+        return lock ? kept : undefined
+      })
+      .catch(() => granted(false))
+    if (!(await got)) return null
+    return { release: () => (free(), done.then(() => {})) }
+  }
+
+  /** The `kkeujeok-sync` hold of each running upload, by note id. */
+  type Hold = { lock: Awaited<ReturnType<typeof hold>> }
+  const syncHolds = new Map<string, Hold>()
+
+  /** The uploader's sleep: the note's sync lock is let go while it waits, so another note's upload can go. */
+  async function pause(ms: number, noteId?: string): Promise<void> {
+    const mine = noteId === undefined ? undefined : syncHolds.get(noteId)
+    if (!mine?.lock || !locks) return void (await new Promise((r) => setTimeout(r, ms)))
+    await mine.lock.release()
+    mine.lock = null
+    await new Promise((r) => setTimeout(r, ms))
+    mine.lock = await hold(SYNC_LOCK_NAME, false)
+    // No lock back, or the upload was finished meanwhile (another tab): this one stops (a crash's state; "Start" repeats it).
+    if (!mine.lock) throw new Error('the sync lock could not be taken again')
+    if (!(await needsUpload(noteId!))) throw new Error('the upload was finished elsewhere')
   }
 
   /** From one read: an upload is needed, a resolved sidecar is still to be marked on Drive. */
@@ -90,13 +121,25 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
       const { upload, mark } = await needs(noteId)
       if (!upload && !mark) return
       if (upload && (!d.allowed() || !d.online())) return // stays pending; the next trigger picks it up
-      if (!o.openHere && !(await closedEverywhere(noteId))) return // open in another tab: its tab uploads it
-      await withLock(SYNC_LOCK_NAME, false, async () => {
-        // Re-check inside the lock: another tab may have uploaded it while this one waited.
-        if (await needsUpload(noteId)) await (o.recover ? d.uploader.resume(noteId) : d.uploader.upload(noteId))
-        // With nothing to send the resolve is already on Drive: the sidecar is marked under the same guards.
-        if (mark) await d.uploader.markResolved?.(noteId)
-      })
+      // A closed note's lock is kept for the whole upload; null: open in another tab, its tab uploads it.
+      const note = o.openHere ? { release: async () => {} } : await hold(noteLockName(noteId), true)
+      if (!note) return
+      try {
+        const mine: Hold = { lock: await hold(SYNC_LOCK_NAME, false) }
+        if (!mine.lock) return // no sync lock: nothing runs unguarded
+        syncHolds.set(noteId, mine)
+        try {
+          // Re-check inside the lock: another tab may have uploaded it while this one waited.
+          if (await needsUpload(noteId)) await (o.recover ? d.uploader.resume(noteId) : d.uploader.upload(noteId))
+          // With nothing to send the resolve is already on Drive: the sidecar is marked under the same guards.
+          if (mark) await d.uploader.markResolved?.(noteId)
+        } finally {
+          syncHolds.delete(noteId)
+          await mine.lock?.release()
+        }
+      } finally {
+        await note.release()
+      }
     } catch {
       // Whatever went wrong is in sync.json and the log, or it was a crash; "Start" repeats the step.
     }
@@ -141,6 +184,9 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
   }
 
   const api = {
+    /** The uploader's `sleep`: waits without holding `kkeujeok-sync`. */
+    pause,
+
     /** The editor is gone (its last save and lock are released): the note is uploaded when it has unsent changes. */
     noteClosed: (noteId: string) => one(noteId),
 

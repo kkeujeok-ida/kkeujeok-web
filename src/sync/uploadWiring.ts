@@ -37,7 +37,8 @@ export function defaultUploadCoordinator(auth: Auth, root: RootFolderStore): Upl
       merge: createMergeIo({ store, editedBy: detectEditedBy, now: () => new Date().toISOString(), newId }),
       allowed: () => uploadsAllowed(root),
       online: () => globalThis.navigator?.onLine !== false,
-      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      // A backoff wait lets go of the sync lock (the coordinator, made below, does that).
+      sleep: (ms, noteId) => (c ? c.pause(ms, noteId) : new Promise((r) => setTimeout(r, ms))),
       jitter: Math.random,
       thumbnail: renderThumbnail,
     })

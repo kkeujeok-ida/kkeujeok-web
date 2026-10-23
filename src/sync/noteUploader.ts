@@ -58,7 +58,8 @@ export type UploaderDeps = {
   allowed: () => boolean
   /** False while the browser knows it is offline: no request is made. */
   online: () => boolean
-  sleep: (ms: number) => Promise<void>
+  /** `noteId`: the note that waits (the coordinator lets go of its sync lock meanwhile). */
+  sleep: (ms: number, noteId?: string) => Promise<void>
   /** A number in [0, 1] for `sync.backoff`. */
   jitter: () => number
   /** PNG of a page at the size the summary names; null when it cannot be drawn. */
@@ -243,7 +244,7 @@ export function createNoteUploader(d: UploaderDeps) {
         const plan = backoffRule({ attempt, jitter: d.jitter() })
         if (!('retry' in plan) || plan.retry !== true) throw failure(cls, base)
         await log.append('backoff', { class: cls, attempt, delayMs: plan.delayMs, noteId })
-        await d.sleep(plan.delayMs)
+        await d.sleep(plan.delayMs, noteId)
       }
     }
   }
@@ -305,6 +306,9 @@ export function createNoteUploader(d: UploaderDeps) {
     let ours: string | null = null
     let uploaded: Note | null = null
     let skipPre = false
+    // Revisions this session uploaded: never a candidate of a verify round.
+    const own = new Set<string>()
+    let moved = 0
 
     // "Start": an unfinished upload.
     const pv = info.pendingVerify
@@ -401,16 +405,42 @@ export function createNoteUploader(d: UploaderDeps) {
           // Step 2, after the sidecars a merge may just have raised (step 0).
           await sidecars.upload(noteId)
           const snapshot = (await workingNote(noteId)) ?? working0
-          const up = await send(noteId, { fileId, snapshot, parent, round, intent: info.createIntent })
+          const fid = fileId
+          const par = parent
+          const up = await send(noteId, {
+            fileId,
+            snapshot,
+            parent,
+            round,
+            intent: info.createIntent,
+            // Just before the PATCH: the head is still what the merge used (or a revision of this session).
+            headStill:
+              fid === null
+                ? undefined
+                : async () => {
+                    const h = (await call(noteId, () => drive.get(fid, { fields: 'headRevisionId' }))).headRevisionId
+                    // A missing head (null or undefined) is no move.
+                    return h == null || h === par || own.has(h)
+                  },
+          })
+          if (up === null) {
+            // Drive has no If-Match: the head moved, so merge again first.
+            if (++moved > 3) throw failure('backoff', { reason: 'headMoved' })
+            await log.append('error', { class: 'backoff', noteId, reason: 'headMoved' })
+            skipPre = false
+            continue
+          }
           fileId = up.fileId
           ours = up.ours
           uploaded = up.note
+          own.add(up.ours)
         }
       }
 
       // Step 3.
       const id = fileId!
-      const again = await verify(noteId, id, { parent, ours, round, baseNote })
+      own.add(ours)
+      const again = await verify(noteId, id, { parent, ours, round, baseNote, own })
       if (again === null) {
         await finish(noteId, id, ours, uploaded!)
         return
@@ -426,8 +456,8 @@ export function createNoteUploader(d: UploaderDeps) {
   /** Step 2: one request that carries content, name and summary. */
   async function send(
     noteId: string,
-    a: { fileId: string | null; snapshot: Note; parent: string | null; round: number; intent: JsonMap | null },
-  ): Promise<{ fileId: string; ours: string; note: Note }> {
+    a: { fileId: string | null; snapshot: Note; parent: string | null; round: number; intent: JsonMap | null; headStill?: () => Promise<boolean> },
+  ): Promise<{ fileId: string; ours: string; note: Note } | null> {
     const { fileId, snapshot, parent, round } = a
     const bytes = await encodeKkj(snapshot)
     const sum = md5(bytes)
@@ -458,6 +488,7 @@ export function createNoteUploader(d: UploaderDeps) {
       ...(fileId === null && { mimeType: KKJ_MIME, parents: [a.intent?.parentId] }),
     }
 
+    if (a.headStill && !(await a.headStill())) return null
     // The intent of this upload is stored before the request goes out.
     await commit(noteId, (c) => ({
       ...c,
@@ -471,8 +502,9 @@ export function createNoteUploader(d: UploaderDeps) {
     let file: DriveFile
     if (kind === 'simple') {
       file = await call(noteId, () => drive.uploadSimple({ ...(fileId !== null && { fileId }), metadata, bytes }), {
-        // A create whose answer was lost may have happened: look for the file by its kkeujeokId first.
-        ...(fileId === null && { beforeRetry: () => adopt(noteId) }),
+        // A create whose answer was lost may have happened: look for the file by its kkeujeokId first. An
+        // update whose answer was lost may have landed: its head's md5 says so.
+        beforeRetry: fileId === null ? () => adopt(noteId, sum) : () => landed(noteId, fileId, sum),
       })
     } else {
       file = await resumable(noteId, fileId, metadata, bytes)
@@ -490,13 +522,18 @@ export function createNoteUploader(d: UploaderDeps) {
     return { fileId: file.id, ours: head, note: snapshot }
   }
 
-  /** The earliest file with this note's kkeujeokId (with its head and md5), or null. */
-  async function adopt(noteId: string): Promise<DriveFile | null> {
+  /** The earliest file with this note's kkeujeokId when its content is `sum` (it is ours), else null. */
+  async function adopt(noteId: string, sum: string): Promise<DriveFile | null> {
     const found = await all(noteId, kkeujeokIdQuery(noteId))
     if (found.length === 0) return null
     if (found.length > 1) await log.append('duplicatesCleaned', { count: found.length - 1 })
-    const keep = keepOf(noteId, found)
-    return call(noteId, () => drive.get(keep, { fields: 'id,headRevisionId,md5Checksum' }))
+    return landed(noteId, keepOf(noteId, found), sum)
+  }
+
+  /** The file `id` when its head holds `sum` (the lost request did happen), else null. */
+  async function landed(noteId: string, id: string, sum: string): Promise<DriveFile | null> {
+    const f = await call(noteId, () => drive.get(id, { fields: 'id,headRevisionId,md5Checksum' }))
+    return f.md5Checksum === sum ? f : null
   }
 
   async function resumable(noteId: string, fileId: string | null, metadata: Record<string, unknown>, bytes: Uint8Array): Promise<DriveFile> {
@@ -544,7 +581,7 @@ export function createNoteUploader(d: UploaderDeps) {
   async function verify(
     noteId: string,
     fileId: string,
-    a: { parent: string | null; ours: string; round: number; baseNote: Note | null },
+    a: { parent: string | null; ours: string; round: number; baseNote: Note | null; own: Set<string> },
   ): Promise<{ parent: string; round: number } | null> {
     const plan = await call(noteId, async () => {
       // An `invalidInput` plan is asked once more without using a backoff attempt; a
@@ -552,11 +589,13 @@ export function createNoteUploader(d: UploaderDeps) {
       for (let again = 0; again < 2; again++) {
         const head = (await drive.get(fileId, { fields: 'headRevisionId' })).headRevisionId
         const revs = await drive.listRevisions(fileId)
-        const p = verifyPlanRule({ base: a.parent, ours: a.ours, revisions: revs, head, round: a.round })
+        // Revisions of this session (not `ours` of this round, the rule drops that) are ours too, not another device's.
+        const mine = revs.filter((r) => r.id === a.ours || r.id === head || !a.own.has(r.id))
+        const p = verifyPlanRule({ base: a.parent, ours: a.ours, revisions: mine, head, round: a.round })
         if (!('error' in p)) return p
         // The listing may not have caught up: wait before asking again.
         const w = backoffRule({ attempt: 1, jitter: d.jitter() })
-        await d.sleep('delayMs' in w ? w.delayMs : 1000)
+        await d.sleep('delayMs' in w ? w.delayMs : 1000, noteId)
       }
       throw new DriveError('network')
     })

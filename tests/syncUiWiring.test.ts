@@ -385,7 +385,7 @@ describe('the writing screen', () => {
     Object.defineProperty(navigator, 'locks', { value: fakeLocks(), configurable: true })
     const p = () => ({ net: fakeNet(true), auth: fakeAuth({ expired: true }), status: fakeStatus({ [NID]: view('error', { lastError: { class: 'quota' } }) }) })
     await mountEditor(p())
-    const second = mountUi(provider(p(), createElement(NoteEditor, { noteId: NID, openStore })))
+    const second = mountUi(provider(p(), createElement(NoteEditor, { noteId: NID, openStore, lockWaitMs: 0 })))
     await flush()
     try {
       const banners = second.qa('[data-banner]')

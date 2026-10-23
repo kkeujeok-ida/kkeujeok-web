@@ -1447,7 +1447,7 @@ describe('same note in two tabs (story 2.13)', () => {
     const r = createRoot(h)
     act(() =>
       r.render(
-        createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: id, openStore: makeOpen(opts) })),
+        createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: id, openStore: makeOpen(opts), lockWaitMs: 0 })),
       ),
     )
     await flush()
@@ -1648,6 +1648,52 @@ describe('same note in two tabs (story 2.13)', () => {
     expect(strokesOf(await saved())).toHaveLength(1)
   })
 
+  test('a held lock is waited for before the note is read: read-only after the wait, writable once it frees', async () => {
+    await seed(newNote('n1'))
+    const holder = await acquireNoteLock('n1') // a closed-note upload
+    let loads = 0
+    const openStore = () => {
+      const s = openNoteStore()
+      stores.push(s)
+      return { ...s, loadNote: async (id: string) => (loads++, s.loadNote(id)) } as NoteStore
+    }
+    act(() =>
+      root.render(
+        createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: 'n1', openStore, lockWaitMs: 150 })),
+      ),
+    )
+    await flush()
+    expect(loads).toBe(0) // the unmerged working copy is not read while the lock is held
+    expect(q('.editor-banner')).toBeNull()
+    await new Promise((r) => setTimeout(r, 250))
+    await flush()
+    expect(q('.editor-banner')).not.toBeNull() // read-only notice after the wait
+    await holder.release()
+    await flush()
+    await flush()
+    expect(q('.editor-banner')).toBeNull() // the lock freed: the editor goes on
+    fire('pointerdown', { x: 20, y: 20 })
+    fire('pointerup', { x: 60, y: 20 })
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(1)
+  })
+
+  test('a lock freed within the wait opens the editor writable at once', async () => {
+    await seed(newNote('n1'))
+    const holder = await acquireNoteLock('n1')
+    act(() =>
+      root.render(
+        createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: 'n1', openStore: makeOpen(), lockWaitMs: 5000 })),
+      ),
+    )
+    await flush()
+    await holder.release()
+    await flush()
+    await flush()
+    expect(q('.editor-banner')).toBeNull()
+    expect(q('canvas.editor-canvas')).not.toBeNull()
+  })
+
   test('ko and en strings exist', () => {
     for (const lang of [resources.ko, resources.en]) {
       expect(lang['editor.otherTab']).toBeTruthy()
@@ -1779,7 +1825,7 @@ describe('pen pressure toggle', () => {
         createElement(
           I18nContext.Provider,
           { value: i18nFor('ko-KR') },
-          createElement(NoteEditor, { noteId: 'n1', openStore: makeOpen(), penStore: createPenSlots(storage) }),
+          createElement(NoteEditor, { noteId: 'n1', openStore: makeOpen(), penStore: createPenSlots(storage), lockWaitMs: 0 }),
         ),
       ),
     )
