@@ -64,6 +64,22 @@ describe('Writer transform', () => {
     canvas.remove()
   })
 
+  test('the selection box turns with the selection: same box, turned; undo forgets the turn', () => {
+    const w = make()
+    const sel = () => (w as unknown as { selected(): { els: never[] } }).selected()
+    const frame = () => (w as unknown as { frameOf(e: never[]): { b: { left: number; right: number; top: number; bottom: number }; angle: number } }).frameOf(sel().els)!
+    const f0 = frame()
+    expect(f0.angle).toBe(0)
+    expect(w.rotateSelection(90)).toBe(true)
+    const f1 = frame()
+    expect(f1.angle).toBe(90)
+    // The frame has the original size, not the axis-aligned bounds of the turned stroke.
+    expect(f1.b.right - f1.b.left).toBeCloseTo(f0.b.right - f0.b.left, 3)
+    expect(f1.b.bottom - f1.b.top).toBeCloseTo(f0.b.bottom - f0.b.top, 3)
+    w.undo()
+    expect(frame().angle).toBe(0)
+  })
+
   test('dragging inside moves: one op, one undo step', () => {
     const w = make()
     drag([150, 150], [170, 160])
@@ -200,7 +216,7 @@ describe('SelectionMenu', () => {
   test('buttons, names and the toggle state', () => {
     const m = mount()
     const btns = [...m.host.querySelectorAll('button')]
-    expect(btns.map((b) => b.textContent)).toEqual(['복사', '잘라내기', '삭제', '비율 잠금', '크게', '작게', '90° 회전'])
+    expect(btns.map((b) => b.getAttribute('aria-label'))).toEqual(['복사', '잘라내기', '삭제', '비율 잠금', '크게', '작게', '90° 회전'])
     expect(btns[3]!.getAttribute('aria-pressed')).toBe('true')
     act(() => btns.forEach((b) => b.click()))
     expect(m.calls).toEqual(['copy', 'cut', 'del', 'lock', 's1.25', 's0.8', 'r'])

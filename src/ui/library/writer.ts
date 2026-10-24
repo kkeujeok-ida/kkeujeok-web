@@ -3,7 +3,7 @@
 // and pan view). No React here.
 import { newId } from '../../model/ids'
 import { elementClipboard } from '../../model/elementClipboard'
-import { isTextBox, selectLasso, selectRect, selectTap, selectionBounds, type Bounds, type El } from '../../model/select'
+import { isTextBox, selectLasso, selectRect, selectTap, selectionBounds, selectionFrame, type Bounds, type El } from '../../model/select'
 import { cpIndex, formatAt, formatRange, retextRuns, type TextFormat } from '../../model/textEdit'
 import { COLOR_DEFAULT, SIZE_DEFAULT, WIDTH_MIN, cpLen, isBlankText, layoutText, normalizeNewlines, normalizeRuns, textHeight, type Run } from '../../model/textLayout'
 import { imageInitialSize } from '../../model/imageRules'
@@ -107,7 +107,7 @@ const MIN_SCALE = 0.05
 /** Arrow-key nudges this close together are one undo step. */
 const NUDGE_MS = 500
 /** A selection drag: `start`/`cur` and `b` (the selection bounds) are in the coordinates of the selection's page. `corner`: 0 tl, 1 tr, 2 bl, 3 br. */
-type Xform = { id: number; kind: 'move' | 'scale' | 'rotate' | 'width'; corner: number; slot: Slot; ids: string[]; b: Bounds; start: [number, number]; cur: [number, number]; shift: boolean; down: { x: number; y: number; doc: [number, number]; shift: boolean; alt: boolean } }
+type Xform = { id: number; kind: 'move' | 'scale' | 'rotate' | 'width'; corner: number; slot: Slot; ids: string[]; b: Bounds; /** The turn of the selection frame in degrees; `b` is the frame's box, centered where the selection is. */ angle: number; start: [number, number]; cur: [number, number]; shift: boolean; down: { x: number; y: number; doc: [number, number]; shift: boolean; alt: boolean } }
 /** The selection box in canvas CSS px, and the canvas size, for the floating menu. */
 export type SelectionBox = { left: number; top: number; right: number; bottom: number; w: number; h: number; /** The selection holds a stroke ([색]/[두께] apply) and the width of the first one. */ strokes?: boolean; width?: number }
 
@@ -603,11 +603,12 @@ export class Writer {
     }
     // Over the page clip: the box and its handles may stand outside the page.
     const sel = this.selected()
-    const b = sel ? selectionBounds(sel.els) : null
+    const fr = sel ? this.frameOf(sel.els) : null
+    const b = fr?.b ?? null
     const path = this.lasso?.moved ? this.lasso.path : null
     if (b || path) {
       // A drag shows the box as it would end up (the elements change on release).
-      const pv = this.xform && b ? this.preview(this.xform) : { b, angle: 0 }
+      const pv = this.xform && b ? this.preview(this.xform) : { b, angle: fr?.angle ?? 0 }
       const pb = pv.b
       const box = pb && sel && { left: pb.left + sel.slot.x, top: pb.top + sel.slot.y, right: pb.right + sel.slot.x, bottom: pb.bottom + sel.slot.y }
       const ts = this.textSel()
@@ -635,6 +636,8 @@ export class Writer {
 
   private setSelection(pageId: string, ids: Iterable<string>): void {
     const set = new Set(ids)
+    const same = this.selection?.pageId === pageId && this.selection.ids.size === set.size && [...set].every((i) => this.selection!.ids.has(i))
+    if (!same) this.selTurn = 0
     this.selection = set.size > 0 ? { pageId, ids: set } : null
     this.redraw()
     this.onSelection(set.size)
@@ -672,6 +675,24 @@ export class Writer {
     return !this.readOnly && !this.leaving && !this.history.isLocked(pageId)
   }
 
+  /** How far the selection was turned since it was picked (degrees): the angle of the frame of strokes and groups. */
+  private selTurn = 0
+
+  /** The angle of the selection frame: a single box element uses its own rotation, strokes and groups the turn so far. */
+  private selAngle(els: readonly El[]): number {
+    const one = els.length === 1 ? els[0]! : null
+    if (one && one.type !== 'stroke' && typeof one.rotation === 'number') return one.rotation
+    return this.selTurn
+  }
+
+  /** The selection box turned with the selection, in page coordinates (a plain box centered where the frame is) and its angle. */
+  private frameOf(els: readonly El[]): { b: Bounds; angle: number } | null {
+    const angle = this.selAngle(els)
+    const f = selectionFrame(els, angle)
+    if (!f) return null
+    return { b: { left: f.cx - f.w / 2, right: f.cx + f.w / 2, top: f.cy - f.h / 2, bottom: f.cy + f.h / 2 }, angle }
+  }
+
   private emitBox(): void {
     const sel = this.selected()
     const b = sel && this.canEdit(sel.slot.page.id) ? selectionBounds(sel.els) : null
@@ -696,20 +717,23 @@ export class Writer {
   private xformDown(e: PointerEvent): boolean {
     const sel = this.selected()
     if (!sel || !this.canEdit(sel.slot.page.id)) return false
-    const b = selectionBounds(sel.els)
-    if (!b) return false
+    const fr = this.frameOf(sel.els)
+    if (!fr) return false
+    const { b, angle } = fr
     const v = this.viewport
     const [lx, ly] = this.local(e.clientX, e.clientY)
     const sx = (x: number) => v.offsetX + (x + sel.slot.x) * v.scale
     const sy = (y: number) => v.offsetY + (y + sel.slot.y) * v.scale
-    let hit: ReturnType<typeof hitSelection> | 'width' = hitSelection(sx(b.left), sy(b.top), sx(b.right), sy(b.bottom), lx, ly)
+    // The corners, the rotate handle and the inside are tested in the frame of the selection: a turned box is hit where it is drawn.
+    const [fx, fy] = this.intoFrame(lx, ly, (sx(b.left) + sx(b.right)) / 2, (sy(b.top) + sy(b.bottom)) / 2, angle)
+    let hit: ReturnType<typeof hitSelection> | 'width' = hitSelection(sx(b.left), sy(b.top), sx(b.right), sy(b.bottom), fx, fy)
     // The side handles of a single text box change its width; a corner at least as near wins (short boxes).
     const ts = this.textSel()
     let side = -1
     if (ts && !e.shiftKey && !e.altKey) {
       const dl = Math.hypot(lx - (v.offsetX + ts.l[0] * v.scale), ly - (v.offsetY + ts.l[1] * v.scale))
       const dr = Math.hypot(lx - (v.offsetX + ts.r[0] * v.scale), ly - (v.offsetY + ts.r[1] * v.scale))
-      const corner = Math.min(...([[b.left, b.top], [b.right, b.top], [b.left, b.bottom], [b.right, b.bottom]] as const).map(([cx, cy]) => Math.hypot(lx - sx(cx), ly - sy(cy))))
+      const corner = Math.min(...([[b.left, b.top], [b.right, b.top], [b.left, b.bottom], [b.right, b.bottom]] as const).map(([cx, cy]) => Math.hypot(fx - sx(cx), fy - sy(cy))))
       if (Math.min(dl, dr) <= HANDLE_HIT && Math.min(dl, dr) < corner) side = dl <= dr ? 0 : 1
     }
     if (hit === null && side < 0) return false
@@ -732,6 +756,7 @@ export class Writer {
       slot: sel.slot,
       ids: sel.els.map((x) => x.id as string),
       b,
+      angle,
       start: at,
       cur: at,
       shift: e.shiftKey,
@@ -744,6 +769,14 @@ export class Writer {
       // focus is a convenience
     }
     return true
+  }
+
+  /** A screen point `(x, y)` turned back by `angle` degrees about `(cx, cy)`: where it lies in the selection frame. */
+  private intoFrame(x: number, y: number, cx: number, cy: number, angle: number): [number, number] {
+    if (!angle) return [x, y]
+    const a = (-angle * Math.PI) / 180
+    const dx = x - cx, dy = y - cy
+    return [cx + dx * Math.cos(a) - dy * Math.sin(a), cy + dx * Math.sin(a) + dy * Math.cos(a)]
   }
 
   /** The op the drag would make, or null when it changes nothing. */
@@ -767,6 +800,7 @@ export class Writer {
     // The anchor is the opposite corner; (vx, vy) runs from it to the grabbed corner.
     const right = x.corner % 2 === 1
     const bottom = x.corner >= 2
+    if (x.angle) return this.turnedScale(x, base, right, bottom)
     const anchor: [number, number] = [right ? b.left : b.right, bottom ? b.top : b.bottom]
     const vx = (right ? b.right : b.left) - anchor[0]
     const vy = (bottom ? b.bottom : b.top) - anchor[1]
@@ -784,24 +818,63 @@ export class Writer {
     return Number.isFinite(sx) && Number.isFinite(sy) && (sx !== 1 || sy !== 1) ? { op: 'scale', ...base, sx, sy, anchor } : null
   }
 
-  /** The selection box as the drag stands: bounds in page coordinates and a turn in degrees. */
+  /** A corner drag on a turned selection: the box keeps its shape (both axes scale alike) and the opposite corner stays. */
+  private turnedScale(x: Xform, base: { pageId: string; ids: string[] }, right: boolean, bottom: boolean): Op | null {
+    const { b } = x
+    const cx = (b.left + b.right) / 2, cy = (b.top + b.bottom) / 2
+    const local = (p: readonly [number, number]) => this.intoFrame(p[0], p[1], cx, cy, x.angle)
+    const [ax, ay] = [right ? b.left : b.right, bottom ? b.top : b.bottom]
+    const vx = (right ? b.right : b.left) - ax
+    const vy = (bottom ? b.bottom : b.top) - ay
+    const [sx0, sy0] = local(x.start)
+    const [cx1, cy1] = local(x.cur)
+    const nx = vx + cx1 - sx0
+    const ny = vy + cy1 - sy0
+    const d = vx * vx + vy * vy
+    if (d === 0) return null
+    const k = Math.max(MIN_SCALE, (nx * vx + ny * vy) / d)
+    if (!Number.isFinite(k) || Math.abs(k - 1) < 1e-3) return null
+    const a = (x.angle * Math.PI) / 180
+    const ox = ax - cx, oy = ay - cy
+    const anchor: [number, number] = [cx + ox * Math.cos(a) - oy * Math.sin(a), cy + ox * Math.sin(a) + oy * Math.cos(a)]
+    return { op: 'scale', ...base, sx: k, sy: k, anchor }
+  }
+
+  /** The selection box as the drag stands: bounds in page coordinates and its turn in degrees. */
   private preview(x: Xform): { b: Bounds; angle: number } {
     const op = this.xformOp(x)
-    const { b } = x
-    if (!op) return { b, angle: 0 }
+    const { b, angle } = x
+    if (!op) return { b, angle }
     if (op.op === 'setTextBoxWidth') {
       const el = x.slot.page.elements.find((e) => (e as El).id === x.ids[0]) as El | undefined
-      return { b: (el && selectionBounds([{ ...el, width: op.width }])) || b, angle: 0 }
+      return { b: (el && selectionBounds([{ ...el, width: op.width }])) || b, angle }
     }
     if (op.op === 'move') {
       const dx = op.dx as number
       const dy = op.dy as number
-      return { b: { left: b.left + dx, right: b.right + dx, top: b.top + dy, bottom: b.bottom + dy }, angle: 0 }
+      return { b: { left: b.left + dx, right: b.right + dx, top: b.top + dy, bottom: b.bottom + dy }, angle }
     }
-    if (op.op === 'rotate') return { b, angle: op.angle as number }
+    const [cx, cy] = [(b.left + b.right) / 2, (b.top + b.bottom) / 2]
+    if (op.op === 'rotate') {
+      // The op turns the elements about the center of their plain bounds.
+      const sel = x.slot.page.elements.filter((e) => x.ids.includes((e as El).id as string)) as El[]
+      const pb = selectionBounds(sel)
+      const [px, py] = pb ? [(pb.left + pb.right) / 2, (pb.top + pb.bottom) / 2] : [cx, cy]
+      const t = ((op.angle as number) * Math.PI) / 180
+      const nx = px + (cx - px) * Math.cos(t) - (cy - py) * Math.sin(t)
+      const ny = py + (cx - px) * Math.sin(t) + (cy - py) * Math.cos(t)
+      const hw = (b.right - b.left) / 2, hh = (b.bottom - b.top) / 2
+      return { b: { left: nx - hw, right: nx + hw, top: ny - hh, bottom: ny + hh }, angle: angle + (op.angle as number) }
+    }
     const [ax, ay] = op.anchor as [number, number]
     const sx = op.sx as number
     const sy = op.sy as number
+    if (angle) {
+      const nx = ax + (cx - ax) * sx
+      const ny = ay + (cy - ay) * sy
+      const hw = ((b.right - b.left) / 2) * sx, hh = ((b.bottom - b.top) / 2) * sy
+      return { b: { left: nx - hw, right: nx + hw, top: ny - hh, bottom: ny + hh }, angle }
+    }
     return { b: { left: ax + (b.left - ax) * sx, right: ax + (b.right - ax) * sx, top: ay + (b.top - ay) * sy, bottom: ay + (b.bottom - ay) * sy }, angle: 0 }
   }
 
@@ -851,6 +924,7 @@ export class Writer {
     const x = this.xform
     this.xform = null
     const op = x && this.xformOp(x)
+    if (op && op.op === 'rotate') this.selTurn += op.angle as number
     if (op) this.applyEdit(op)
     else this.redraw()
   }
@@ -1087,13 +1161,15 @@ export class Writer {
   /** The press lands on a handle of the selection (a corner, the rotate handle or a text box side). */
   private onHandle(e: PointerEvent): boolean {
     const sel = this.selected()
-    const b = sel && selectionBounds(sel.els)
-    if (!sel || !b) return false
+    const fr = sel && this.frameOf(sel.els)
+    if (!sel || !fr) return false
+    const { b } = fr
     const v = this.viewport
     const [lx, ly] = this.local(e.clientX, e.clientY)
     const sx = (x: number) => v.offsetX + (x + sel.slot.x) * v.scale
     const sy = (y: number) => v.offsetY + (y + sel.slot.y) * v.scale
-    const hit = hitSelection(sx(b.left), sy(b.top), sx(b.right), sy(b.bottom), lx, ly)
+    const [fx, fy] = this.intoFrame(lx, ly, (sx(b.left) + sx(b.right)) / 2, (sy(b.top) + sy(b.bottom)) / 2, fr.angle)
+    const hit = hitSelection(sx(b.left), sy(b.top), sx(b.right), sy(b.bottom), fx, fy)
     if (hit === 'rotate' || typeof hit === 'number') return true
     const ts = this.textSel()
     return !!ts && [ts.l, ts.r].some(([x, y]) => Math.hypot(lx - (v.offsetX + x * v.scale), ly - (v.offsetY + y * v.scale)) <= HANDLE_HIT)
@@ -1219,7 +1295,10 @@ export class Writer {
   /** [90° 회전] and the like: clockwise degrees about the center of the selection. */
   rotateSelection(angle: number): boolean {
     const e = this.editable()
-    return !!e && !this.applyEdit({ op: 'rotate', pageId: e.sel.slot.page.id, ids: e.sel.els.map((x) => x.id), angle })
+    if (!e) return false
+    const err = this.applyEdit({ op: 'rotate', pageId: e.sel.slot.page.id, ids: e.sel.els.map((x) => x.id), angle })
+    if (!err) this.selTurn += angle
+    return !err
   }
 
   /** Arrow keys: moves the selection by (dx, dy) page pt; a run within 500 ms is one undo step. False: nothing to move, the key is free. */
@@ -1603,6 +1682,7 @@ export class Writer {
 
   private replay(kind: 'undo' | 'redo'): boolean {
     this.commitEdit() // the box in edit is part of the history first
+    this.selTurn = 0 // the frame of a turned group is forgotten
     this.lastDot = null
     const depth = kind === 'undo' ? this.history.undoDepth : this.history.redoDepth
     this.clearNudge()

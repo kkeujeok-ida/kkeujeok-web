@@ -174,3 +174,26 @@ export function selectionBounds(elements: readonly El[]): Bounds | null {
   }
   return out
 }
+
+/**
+ * The box of `elements` in a frame turned by `angle` degrees (clockwise): its center in page coordinates and its size along
+ * the frame's axes. With angle 0 it is the plain bounds. Null when no element has a box.
+ */
+export function selectionFrame(elements: readonly El[], angle: number): { cx: number; cy: number; w: number; h: number } | null {
+  const a = (angle * Math.PI) / 180
+  const c = Math.cos(a), s = Math.sin(a)
+  let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity
+  for (const e of withHeights(elements).filter(usable)) {
+    const pts: readonly (readonly [number, number])[] = isStroke(e) ? points(e) : boxCorners(e)
+    for (const [x, y] of pts) {
+      const u = x * c + y * s, v = -x * s + y * c
+      l = Math.min(l, u)
+      r = Math.max(r, u)
+      t = Math.min(t, v)
+      b = Math.max(b, v)
+    }
+  }
+  if (!Number.isFinite(l + r + t + b)) return null
+  const cu = (l + r) / 2, cv = (t + b) / 2
+  return { cx: cu * c - cv * s, cy: cu * s + cv * c, w: r - l, h: b - t }
+}
