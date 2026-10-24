@@ -233,7 +233,14 @@ export function ConflictDialog({
         {page && (by || at) && (
           <span className="conflict-when">{by && at ? fmt(t('conflict.editedAt'), { device: by, time: at }) : by || at}</span>
         )}
-        {newer(thisDevice) && <span className="conflict-newer">{t('conflict.moreRecent')}</span>}
+        {/* Always one line, so both buttons sit at the same height. */}
+        {newer(thisDevice) ? (
+          <span className="conflict-newer">{t('conflict.moreRecent')}</span>
+        ) : (
+          <span className="conflict-newer-spacer" aria-hidden="true">
+            {t('conflict.moreRecent')}
+          </span>
+        )}
         {button}
       </div>
     )

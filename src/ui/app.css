@@ -1199,6 +1199,18 @@ h1 {
   line-height: var(--typography-label-line-height);
 }
 
+.conflict-newer-spacer {
+  visibility: hidden;
+  font-size: var(--typography-label-font-size);
+  font-weight: var(--typography-label-font-weight);
+  line-height: var(--typography-label-line-height);
+}
+
+/* Both buttons end at the bottom of their side, whatever is above them. */
+.conflict-side > .btn {
+  margin-top: auto;
+}
+
 .btn.conflict-primary {
   border-color: transparent;
   border-radius: var(--components-conflict-sheet-primary-rounded);
