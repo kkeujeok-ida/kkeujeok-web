@@ -3,7 +3,9 @@
 // and pan view). No React here.
 import { newId } from '../../model/ids'
 import { elementClipboard } from '../../model/elementClipboard'
-import { selectLasso, selectRect, selectTap, selectionBounds, type Bounds, type El } from '../../model/select'
+import { isTextBox, selectLasso, selectRect, selectTap, selectionBounds, type Bounds, type El } from '../../model/select'
+import { cpIndex, formatAt, formatRange, retextRuns, type TextFormat } from '../../model/textEdit'
+import { COLOR_DEFAULT, SIZE_DEFAULT, WIDTH_MIN, cpLen, isBlankText, layoutText, normalizeNewlines, normalizeRuns, textHeight, type Run } from '../../model/textLayout'
 import { ROTATE_GAP, paintSelection, selectionColors } from '../../render/selectionPainter'
 import type { Op } from '../../ops/ops'
 import type { Page, Stroke } from '../../model/note'
@@ -50,7 +52,39 @@ export type FitMode = 'width' | 'page' | 'free'
 // Who owns the pointers: nobody, a touch stroke, a touch outside the page, a
 // two-finger gesture, fingers to ignore until all lift, a pen/mouse, a pan drag.
 type Mode = 'none' | 'stroke' | 'idle' | 'gesture' | 'ignored' | 'pen' | 'pan' | 'lasso' | 'xform'
-export type Tool = 'pen' | 'lasso'
+export type Tool = 'pen' | 'lasso' | 'text'
+/** A press and release this close together (ms) and this near (CSS px) are a double click. */
+const DOUBLE_MS = 450
+const DOUBLE_SLOP = 8
+/** A text box being edited (Story 4.10). `el` holds the box without its text and runs; `before` is the stored content of an existing box. */
+type Edit = {
+  pageId: string
+  id: string
+  isNew: boolean
+  el: El
+  text: string
+  runs: Run[]
+  before: { text: string; runs: Run[] } | null
+  sel: [number, number]
+  /** Format for the next typed text, set at a caret by the bar or Ctrl+B / Ctrl+I; dropped when the caret moves. */
+  pending: { at: number; props: Record<string, unknown> } | null
+}
+/** What the editing overlay needs: the box on the canvas (CSS px), its content and the format at the selection. */
+export type EditInfo = {
+  id: string
+  left: number
+  top: number
+  width: number
+  height: number
+  scale: number
+  rotation: number
+  text: string
+  size: number
+  /** The canvas size, for placing the bar. */
+  w: number
+  h: number
+  format: TextFormat
+}
 /** A lasso drag or click: `path` is in document coordinates, `x`/`y` the client start (to tell a click from a drag). */
 type Lasso = { id: number; shift: boolean; alt: boolean; x: number; y: number; moved: boolean; path: [number, number][] }
 /** A drag shorter than this (CSS px) is a click. */
@@ -62,7 +96,7 @@ const MIN_SCALE = 0.05
 /** Arrow-key nudges this close together are one undo step. */
 const NUDGE_MS = 500
 /** A selection drag: `start`/`cur` and `b` (the selection bounds) are in the coordinates of the selection's page. `corner`: 0 tl, 1 tr, 2 bl, 3 br. */
-type Xform = { id: number; kind: 'move' | 'scale' | 'rotate'; corner: number; slot: Slot; ids: string[]; b: Bounds; start: [number, number]; cur: [number, number]; shift: boolean; down: { x: number; y: number; doc: [number, number]; shift: boolean; alt: boolean } }
+type Xform = { id: number; kind: 'move' | 'scale' | 'rotate' | 'width'; corner: number; slot: Slot; ids: string[]; b: Bounds; start: [number, number]; cur: [number, number]; shift: boolean; down: { x: number; y: number; doc: [number, number]; shift: boolean; alt: boolean } }
 /** The selection box in canvas CSS px, and the canvas size, for the floating menu. */
 export type SelectionBox = { left: number; top: number; right: number; bottom: number; w: number; h: number; /** The selection holds a stroke ([색]/[두께] apply) and the width of the first one. */ strokes?: boolean; width?: number }
 
@@ -117,6 +151,11 @@ export class Writer {
   private dpr = 1
   private finalizing: Promise<void> | null = null
   private tool: Tool = 'pen'
+  private edit: Edit | null = null
+  private lastEdit = ''
+  private lastTap: { t: number; x: number; y: number } | null = null
+  /** Undo depth right after a one-point stroke: a double click on a text box takes that dot back. */
+  private lastDot: number | null = null
   private lasso: Lasso | null = null
   private xform: Xform | null = null
   private nudgeRun: { key: string; depth: number; timer: ReturnType<typeof setTimeout> } | null = null
@@ -135,6 +174,8 @@ export class Writer {
   onSelection: (n: number) => void = () => {}
   /** Called when the box the floating menu hangs on changed (null: no editable selection). */
   onBox: (b: SelectionBox | null) => void = () => {}
+  /** Called when the text box being edited (or its place, content or format) changed; null when none. */
+  onEdit: (i: EditInfo | null) => void = () => {}
   /** Called whenever the view (scale, scrollbars) changed. */
   onView: (v: ViewInfo) => void = () => {}
   /** Someone tried to write or undo on a page with an unresolved conflict (Story 3.20). */
@@ -270,7 +311,13 @@ export class Writer {
     ro?.observe(canvas)
     globalThis.addEventListener?.('resize', relayout)
     this.layout()
+    // Glyphs are drawn with Pretendard: load both weights and repaint when they arrive.
+    const fonts = (globalThis.document as Document | undefined)?.fonts
+    const repaint = () => this.redraw()
+    void Promise.all([fonts?.load('400 16px Pretendard'), fonts?.load('600 16px Pretendard')]).then(repaint, () => {})
+    fonts?.addEventListener?.('loadingdone', repaint)
     return () => {
+      fonts?.removeEventListener?.('loadingdone', repaint)
       offs.forEach((off) => off())
       canvas.removeEventListener('wheel', onWheel)
       this.stopAnim()
@@ -399,7 +446,7 @@ export class Writer {
 
   /** A stroke is being drawn or the note is not on disk yet: closing the tab now would lose it. */
   unsaved(): boolean {
-    return this.drawing !== null || this.queue.pending
+    return this.drawing !== null || this.queue.pending || (this.edit !== null && !isBlankText(this.edit.text))
   }
 
   /** A stroke, a gesture or a pan is going on. */
@@ -515,6 +562,7 @@ export class Writer {
     const c = this.canvas
     if (!c || !this.page) return
     this.emitBox()
+    this.emitEdit()
     let ctx: CanvasRenderingContext2D | null = null
     try {
       ctx = c.getContext('2d')
@@ -530,13 +578,14 @@ export class Writer {
     const vp = this.viewport
     for (const id of [...this.caches.keys()]) if (!this.history.note.pages.some((p) => p.id === id)) this.caches.delete(id)
     const live = this.drawing ? this.build(this.drawing.points, this.drawing.strokeId) : null
+    const draft = this.edit ? { pageId: this.edit.pageId, id: this.edit.id, el: this.draftEl(this.edit) } : null
     for (const s of this.slots().list) {
       // A page that is off screen is not painted.
       const top = vp.offsetY + s.y * vp.scale
       const left = vp.offsetX + s.x * vp.scale
       if (top > this.cssH || top + s.page.height * vp.scale < 0 || left > this.cssW || left + s.page.width * vp.scale < 0) continue
       const at = { scale: vp.scale, offsetX: left, offsetY: top }
-      paintPage(ctx, s.page, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null)
+      paintPage(ctx, s.page, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null, draft && draft.pageId === s.page.id ? draft : null)
     }
     // Over the page clip: the box and its handles may stand outside the page.
     const sel = this.selected()
@@ -547,7 +596,8 @@ export class Writer {
       const pv = this.xform && b ? this.preview(this.xform) : { b, angle: 0 }
       const pb = pv.b
       const box = pb && sel && { left: pb.left + sel.slot.x, top: pb.top + sel.slot.y, right: pb.right + sel.slot.x, bottom: pb.bottom + sel.slot.y }
-      paintSelection(ctx, vp, box, path, selectionColors(c), pv.angle)
+      const ts = this.textSel()
+      paintSelection(ctx, vp, box, path, selectionColors(c), pv.angle, ts && !this.xform ? [ts.l, ts.r] : [])
     }
   }
 
@@ -583,8 +633,13 @@ export class Writer {
   /** The tool for pointer input; the pen tool has no selection. */
   setTool(t: Tool): void {
     if (t === this.tool) return
+    this.commitEdit() // another tool confirms the box
     this.tool = t
-    if (t === 'pen') this.clearSelection()
+    if (t !== 'lasso') this.clearSelection()
+  }
+
+  get currentTool(): Tool {
+    return this.tool
   }
 
   /** Ctrl+A: every element of the current page. */
@@ -633,10 +688,20 @@ export class Writer {
     const [lx, ly] = this.local(e.clientX, e.clientY)
     const sx = (x: number) => v.offsetX + (x + sel.slot.x) * v.scale
     const sy = (y: number) => v.offsetY + (y + sel.slot.y) * v.scale
-    const hit = hitSelection(sx(b.left), sy(b.top), sx(b.right), sy(b.bottom), lx, ly)
-    if (hit === null) return false
+    let hit: ReturnType<typeof hitSelection> | 'width' = hitSelection(sx(b.left), sy(b.top), sx(b.right), sy(b.bottom), lx, ly)
+    // The side handles of a single text box change its width; a corner at least as near wins (short boxes).
+    const ts = this.textSel()
+    let side = -1
+    if (ts && !e.shiftKey && !e.altKey) {
+      const dl = Math.hypot(lx - (v.offsetX + ts.l[0] * v.scale), ly - (v.offsetY + ts.l[1] * v.scale))
+      const dr = Math.hypot(lx - (v.offsetX + ts.r[0] * v.scale), ly - (v.offsetY + ts.r[1] * v.scale))
+      const corner = Math.min(...([[b.left, b.top], [b.right, b.top], [b.left, b.bottom], [b.right, b.bottom]] as const).map(([cx, cy]) => Math.hypot(lx - sx(cx), ly - sy(cy))))
+      if (Math.min(dl, dr) <= HANDLE_HIT && Math.min(dl, dr) < corner) side = dl <= dr ? 0 : 1
+    }
+    if (hit === null && side < 0) return false
     const [dx, dy] = toPage(v, lx, ly)
     const at: [number, number] = [dx - sel.slot.x, dy - sel.slot.y]
+    if (side >= 0) hit = 'width'
     // Shift or Alt on the inside is the lasso's toggle / rectangle. On a handle it starts the drag; a click without a drag is the lasso's (see onUp).
     if ((e.shiftKey || e.altKey) && hit === 'move') return false
     // A press inside the box on an element that is not selected picks that element (lasso/tap path), it does not move.
@@ -645,10 +710,11 @@ export class Writer {
       if (id !== null && !sel.els.some((x) => x.id === id)) return false
     }
     this.mode = 'xform'
+    const width = side >= 0
     this.xform = {
       id: e.pointerId,
-      kind: hit === 'move' || hit === 'rotate' ? hit : 'scale',
-      corner: typeof hit === 'number' ? hit : -1,
+      kind: width ? 'width' : hit === 'move' || hit === 'rotate' ? (hit as 'move' | 'rotate') : 'scale',
+      corner: width ? side : typeof hit === 'number' ? hit : -1,
       slot: sel.slot,
       ids: sel.els.map((x) => x.id as string),
       b,
@@ -672,6 +738,10 @@ export class Writer {
     const { b } = x
     const dx = x.cur[0] - x.start[0]
     const dy = x.cur[1] - x.start[1]
+    if (x.kind === 'width') {
+      const w = this.widthDrag(x)
+      return w === null ? null : { op: 'setTextBoxWidth', pageId: base.pageId, id: x.ids[0], width: w }
+    }
     if (x.kind === 'move') return dx || dy ? { op: 'move', ...base, dx, dy } : null
     if (x.kind === 'rotate') {
       const cx = (b.left + b.right) / 2
@@ -705,6 +775,10 @@ export class Writer {
     const op = this.xformOp(x)
     const { b } = x
     if (!op) return { b, angle: 0 }
+    if (op.op === 'setTextBoxWidth') {
+      const el = x.slot.page.elements.find((e) => (e as El).id === x.ids[0]) as El | undefined
+      return { b: (el && selectionBounds([{ ...el, width: op.width }])) || b, angle: 0 }
+    }
     if (op.op === 'move') {
       const dx = op.dx as number
       const dy = op.dy as number
@@ -717,9 +791,36 @@ export class Writer {
     return { b: { left: ax + (b.left - ax) * sx, right: ax + (b.right - ax) * sx, top: ay + (b.top - ay) * sy, bottom: ay + (b.bottom - ay) * sy }, angle: 0 }
   }
 
+  /** A single selected text box that can be edited: the points of its two side handles (document coordinates). */
+  private textSel(): { el: El; l: [number, number]; r: [number, number] } | null {
+    if (this.tool !== 'lasso') return null
+    const sel = this.selected()
+    if (!sel || sel.els.length !== 1 || !this.canEdit(sel.slot.page.id)) return null
+    const el = sel.els[0]!
+    if (!isTextBox(el)) return null
+    const w = Math.max(WIDTH_MIN, el.width as number)
+    const a = (((el.rotation as number | undefined) ?? 0) * Math.PI) / 180
+    const cx = (el.x as number) + w / 2 + sel.slot.x
+    const cy = (el.y as number) + textHeight(el) / 2 + sel.slot.y
+    const ux = (Math.cos(a) * w) / 2, uy = (Math.sin(a) * w) / 2
+    return { el, l: [cx - ux, cy - uy], r: [cx + ux, cy + uy] }
+  }
+
+  /** The width a side-handle drag would give, or null for no change. */
+  private widthDrag(x: Xform): number | null {
+    const el = x.slot.page.elements.find((e) => (e as El).id === x.ids[0]) as El | undefined
+    if (!el || !isTextBox(el)) return null
+    const w = Math.max(WIDTH_MIN, el.width as number)
+    const a = (((el.rotation as number | undefined) ?? 0) * Math.PI) / 180
+    const along = (x.cur[0] - x.start[0]) * Math.cos(a) + (x.cur[1] - x.start[1]) * Math.sin(a)
+    const nw = Math.max(WIDTH_MIN, w + (x.corner === 1 ? along : -along))
+    return Number.isFinite(nw) && Math.abs(nw - w) >= 0.01 ? nw : null
+  }
+
   /** Applies one edit: it is one undo step and joins the save queue. Returns the error code or null. */
   private applyEdit(op: Op, extra: { ids?: string[] } = {}): string | null {
     this.clearNudge() // nudge() reads its run before calling this and sets a new one after
+    this.lastDot = null
     const err = this.history.doOp(op, { ...this.ctx(), ...extra })
     if (err === 'pageReadOnly') this.onBlocked()
     else if (err === 'elementNotFound') this.clearSelection() // the selection is stale
@@ -790,7 +891,36 @@ export class Writer {
    */
   pasteClipboard(): boolean {
     const elements = elementClipboard.get()
-    if (elements.length === 0 || this.busy() || !this.canvas) return false
+    if (elements.length === 0) return false
+    const target = this.pasteTarget()
+    if (!target) return false
+    const { slot, at } = target
+    const ids = elements.map(() => newId())
+    const err = this.applyEdit({ op: 'paste', pageId: slot.page.id, elements, target: { pageId: slot.page.id, center: at } }, { ids })
+    if (err) return false
+    this.setSelection(slot.page.id, ids)
+    return true
+  }
+
+  /** Plain text from the system clipboard (a paste event): a new text box, half the page wide, centered like pasted elements. */
+  pasteText(text: string): boolean {
+    const t = normalizeNewlines(text)
+    if (isBlankText(t)) return false
+    const target = this.pasteTarget()
+    if (!target) return false
+    const { slot, at } = target
+    const width = slot.page.width / 2
+    const h = layoutText({ type: 'text', width, text: t, runs: [], size: SIZE_DEFAULT }).height
+    const id = newId()
+    const err = this.applyEdit({ op: 'createTextBox', pageId: slot.page.id, x: at[0] - width / 2, y: at[1] - h / 2, width, text: t, runs: [] }, { ids: [id] })
+    if (err) return false
+    this.setSelection(slot.page.id, [id])
+    return true
+  }
+
+  /** Where Ctrl+V puts things: the pointer when it is over a page, else the middle of the view. Null when nothing can be pasted there. */
+  private pasteTarget(): { slot: Slot; at: [number, number] } | null {
+    if (this.busy() || !this.canvas) return null
     let at: [number, number] | null = null
     let slot: Slot | undefined
     if (this.pointer) {
@@ -802,17 +932,213 @@ export class Writer {
     if (!slot || !at) {
       const [dx, dy] = toPage(this.viewport, this.cssW / 2, this.cssH / 2)
       slot = this.hit(dx, dy) ?? this.current
-      if (!slot) return false
+      if (!slot) return null
       at = [dx - slot.x, dy - slot.y]
       // Over a gap between pages: the current page's middle.
       if (!this.hit(dx, dy)) at = [slot.page.width / 2, slot.page.height / 2]
     }
-    if (!this.canEdit(slot.page.id) || at.some((v) => !Number.isFinite(v))) return false
-    const ids = elements.map(() => newId())
-    const err = this.applyEdit({ op: 'paste', pageId: slot.page.id, elements, target: { pageId: slot.page.id, center: at } }, { ids })
-    if (err) return false
-    this.setSelection(slot.page.id, ids)
+    if (!this.canEdit(slot.page.id) || at.some((v) => !Number.isFinite(v))) return null
+    return { slot, at }
+  }
+
+  // ---- text boxes (Story 4.10) ----
+
+  get editing(): boolean {
+    return this.edit !== null
+  }
+
+  /** The stored box under the edit, or undefined once it is gone (undo, a merge). */
+  private stored(ed: Edit): El | undefined {
+    return (this.history.note.pages.find((p) => p.id === ed.pageId)?.elements as El[] | undefined)?.find((e) => e?.id === ed.id)
+  }
+
+  private draftEl(ed: Edit): El {
+    return { ...ed.el, text: ed.text, runs: ed.runs }
+  }
+
+  private startEdit(slot: Slot, el: El, isNew: boolean): void {
+    this.clearSelection()
+    const text = isNew ? '' : (el.text as string)
+    const runs = isNew ? [] : (normalizeRuns(Array.isArray(el.runs) ? el.runs : [], cpLen(text)))
+    const { text: _t, runs: _r, ...rest } = el
+    const end = cpLen(text)
+    this.edit = { pageId: slot.page.id, id: el.id as string, isNew, el: rest, text, runs, before: isNew ? null : { text, runs }, sel: [end, end], pending: null }
+    this.lastEdit = ''
+    this.redraw()
+  }
+
+  /** A new empty box with its top-left at (x, y) of the page, half the page wide, in edit. */
+  private startNew(slot: Slot, x: number, y: number): void {
+    const width = slot.page.width / 2
+    const el: El = { id: newId(), type: 'text', x, y, width, rotation: 0, size: SIZE_DEFAULT, color: COLOR_DEFAULT, bold: false, italic: false }
+    this.startEdit(slot, el, true)
+  }
+
+  /** Text tool + Enter: a new box in the page at the middle of the view. */
+  createTextAtCenter(): boolean {
+    if (this.edit || this.busy() || !this.canvas || this.readOnly || this.leaving) return false
+    const [dx, dy] = toPage(this.viewport, this.cssW / 2, this.cssH / 2)
+    const slot = this.hit(dx, dy) ?? this.current
+    if (!slot) return false
+    if (!this.canEdit(slot.page.id)) return !this.onBlockedIfLocked(slot.page.id)
+    const inside = this.hit(dx, dy) !== undefined
+    const w = slot.page.width / 2
+    const x = Math.min(Math.max(0, (inside ? dx - slot.x : slot.page.width / 2) - w / 2), Math.max(0, slot.page.width - w))
+    const y = Math.max(0, inside ? dy - slot.y : slot.page.height / 2)
+    this.startNew(slot, x, y)
     return true
+  }
+
+  private onBlockedIfLocked(pageId: string): boolean {
+    if (!this.readOnly && this.history.isLocked(pageId)) {
+      this.onBlocked()
+      return true
+    }
+    return false
+  }
+
+  /** Text tool: a press on an empty spot of a page starts a box there. */
+  private textDown(e: PointerEvent): void {
+    e.preventDefault()
+    if (this.readOnly) return
+    const s = this.under(e)
+    if (!s) return
+    if (this.onBlockedIfLocked(s.page.id)) return
+    const p = this.point(e, e.timeStamp, undefined, s)!
+    if (selectTap(s.page.elements as El[], [p[0]!, p[1]!]) !== null) return
+    this.startNew(s, p[0]!, p[1]!)
+  }
+
+  /**
+   * A second press right after the first, on a text box, in any tool: edit it. Takes the dot the pen drew on the
+   * first press back. True: the press is used up.
+   */
+  private doubleDown(e: PointerEvent): boolean {
+    const prev = this.lastTap
+    const dot = this.lastDot // only the dot of the press right before this one counts
+    this.lastDot = null
+    this.lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY }
+    if (e.pointerType === 'pen' && this.tool === 'pen') return false // stylus taps are ink
+    if (this.tool === 'lasso' && this.onHandle(e)) return false
+    if (!prev || e.button !== 0 || e.timeStamp - prev.t > DOUBLE_MS || Math.hypot(e.clientX - prev.x, e.clientY - prev.y) > DOUBLE_SLOP) return false
+    const s = this.under(e)
+    if (!s || this.readOnly || !this.canEdit(s.page.id)) return false
+    const p = this.point(e, e.timeStamp, undefined, s)!
+    const boxes = (s.page.elements as El[]).filter(isTextBox)
+    const id = selectTap(boxes, [p[0]!, p[1]!])
+    const el = boxes.find((b) => b.id === id)
+    if (!el) return false
+    this.lastTap = null
+    if (dot === this.history.undoDepth) this.replay('undo')
+    e.preventDefault()
+    this.startEdit(s, el, false)
+    return true
+  }
+
+  /** The press lands on a handle of the selection (a corner, the rotate handle or a text box side). */
+  private onHandle(e: PointerEvent): boolean {
+    const sel = this.selected()
+    const b = sel && selectionBounds(sel.els)
+    if (!sel || !b) return false
+    const v = this.viewport
+    const [lx, ly] = this.local(e.clientX, e.clientY)
+    const sx = (x: number) => v.offsetX + (x + sel.slot.x) * v.scale
+    const sy = (y: number) => v.offsetY + (y + sel.slot.y) * v.scale
+    const hit = hitSelection(sx(b.left), sy(b.top), sx(b.right), sy(b.bottom), lx, ly)
+    if (hit === 'rotate' || typeof hit === 'number') return true
+    const ts = this.textSel()
+    return !!ts && [ts.l, ts.r].some(([x, y]) => Math.hypot(lx - (v.offsetX + x * v.scale), ly - (v.offsetY + y * v.scale)) <= HANDLE_HIT)
+  }
+
+  /** The overlay's view of the edit: the box in CSS px on the canvas. Null when not editing. */
+  editInfo(): EditInfo | null {
+    const ed = this.edit
+    if (!ed) return null
+    const slot = this.slots().list.find((s) => s.page.id === ed.pageId)
+    if (!slot || (!ed.isNew && !this.stored(ed))) {
+      this.edit = null // the page or the box went away under the edit
+      return null
+    }
+    const v = this.viewport
+    const el = this.draftEl(ed)
+    const w = Math.max(WIDTH_MIN, ed.el.width as number)
+    return {
+      id: ed.id,
+      left: v.offsetX + (slot.x + (ed.el.x as number)) * v.scale,
+      top: v.offsetY + (slot.y + (ed.el.y as number)) * v.scale,
+      width: w * v.scale,
+      height: textHeight(el) * v.scale,
+      scale: v.scale,
+      rotation: (ed.el.rotation as number | undefined) ?? 0,
+      text: ed.text,
+      size: (ed.el.size as number | undefined) ?? SIZE_DEFAULT,
+      w: this.cssW,
+      h: this.cssH,
+      format: formatAt(ed.el, ed.text, ed.runs, ed.sel, ed.pending && ed.pending.at === ed.sel[0] && ed.sel[0] === ed.sel[1] ? ed.pending.props : null),
+    }
+  }
+
+  private emitEdit(): void {
+    const info = this.editInfo()
+    const key = JSON.stringify(info)
+    if (key === this.lastEdit) return
+    this.lastEdit = key
+    this.onEdit(info)
+  }
+
+  /** The overlay's text changed (also during an IME composition): the runs follow, `sel` is the caret / selection in UTF-16 units. */
+  editInput(value: string, selStart: number, selEnd: number): void {
+    const ed = this.edit
+    if (!ed) return
+    const text = normalizeNewlines(value)
+    ed.runs = retextRuns(ed.text, text, ed.runs, ed.pending?.props ?? {}, cpIndex(text, selEnd))
+    ed.text = text
+    ed.pending = null
+    ed.sel = [cpIndex(text, selStart), cpIndex(text, selEnd)]
+    this.redraw()
+  }
+
+  /** The caret or selection moved (UTF-16 units). A caret that moved drops the format waiting for the next input. */
+  editSelect(selStart: number, selEnd: number): void {
+    const ed = this.edit
+    if (!ed) return
+    const sel: [number, number] = [cpIndex(ed.text, selStart), cpIndex(ed.text, selEnd)]
+    if (sel[0] === ed.sel[0] && sel[1] === ed.sel[1]) return
+    ed.sel = sel
+    if (ed.pending && (sel[0] !== sel[1] || sel[0] !== ed.pending.at)) ed.pending = null
+    this.redraw()
+  }
+
+  /** Bar / Ctrl+B / Ctrl+I: the property on the selected text, or on the next input when there is no selection. */
+  editFormat(props: Record<string, unknown>): void {
+    const ed = this.edit
+    if (!ed) return
+    const [a, b] = ed.sel[0] <= ed.sel[1] ? ed.sel : [ed.sel[1], ed.sel[0]]
+    if (a === b) ed.pending = { at: a, props: { ...ed.pending?.props, ...props } }
+    else ed.runs = formatRange(ed.runs, cpLen(ed.text), a, b, props)
+    this.redraw()
+  }
+
+  /** Ends the edit: one `createTextBox` (new) or `editText` (changed), nothing for a blank new box or no change. */
+  commitEdit(): void {
+    const ed = this.edit
+    if (!ed) return
+    this.edit = null
+    this.lastEdit = ''
+    try {
+      if (this.readOnly || this.leaving || this.history.isLocked(ed.pageId)) {
+        this.onBlockedIfLocked(ed.pageId)
+      } else if (ed.isNew) {
+        if (!isBlankText(ed.text)) {
+          this.applyEdit({ op: 'createTextBox', pageId: ed.pageId, x: ed.el.x, y: ed.el.y, width: ed.el.width, text: ed.text, runs: ed.runs }, { ids: [ed.id] })
+        }
+      } else if (ed.before && (ed.text !== ed.before.text || JSON.stringify(ed.runs) !== JSON.stringify(ed.before.runs))) {
+        this.applyEdit({ op: 'editText', pageId: ed.pageId, id: ed.id, text: ed.text, runs: ed.runs })
+      }
+    } finally {
+      this.redraw()
+      this.onEdit(null)
+    }
   }
 
   /** [크게]/[작게]: scales the selection by `factor` on both axes about the center of its box. */
@@ -927,7 +1253,7 @@ export class Writer {
 
   /** Starts a stroke at `e` when it is on the page. */
   private begin(e: PointerEvent): void {
-    if (this.readOnly || this.tool === 'lasso') return
+    if (this.readOnly || this.tool !== 'pen') return
     const s = this.under(e)
     if (!s) return
     if (this.history.isLocked(s.page.id)) return this.onBlocked() // a page waiting for its conflict to be settled
@@ -956,6 +1282,12 @@ export class Writer {
     if (!POINTER_TYPES.includes(e.pointerType)) return
     this.snap() // a running zoom ends at its target before new input
     this.layout() // the canvas may have moved or resized; the view stays unless its size changed
+    // A press on the canvas outside the box confirms it; with the text tool that press is used up.
+    if (this.edit) {
+      this.commitEdit()
+      if (this.tool === 'text') return void e.preventDefault()
+    }
+    if (this.mode === 'none' && this.doubleDown(e)) return
     if (e.pointerType === 'touch') return this.touchDown(e)
     // The pen's eraser end is Epic 4.
     if ((e.buttons & 32) !== 0) return
@@ -970,6 +1302,7 @@ export class Writer {
     this.capture(e)
     // The lasso selects on every page, read-only or conflicted too; before the pan branches so it never leaks into a pan.
     if (this.tool === 'lasso' && !middle && !this.hand) return this.lassoDown(e)
+    if (this.tool === 'text' && !middle && !this.hand && !this.readOnly && !this.onLockedPage(e)) return this.textDown(e)
     // Read-only: pen and mouse drags pan (touch took its own path above). So do they on a conflicted page.
     const blocked = !this.readOnly && !middle && !this.hand && this.onLockedPage(e)
     if (middle || this.readOnly || blocked || (this.hand && e.pointerType === 'mouse')) {
@@ -1004,6 +1337,7 @@ export class Writer {
       this.firstId = e.pointerId
       this.firstDown = e.timeStamp
       this.mode = 'idle'
+      if (this.tool === 'text' && !this.readOnly && !this.onLockedPage(e)) this.textDown(e)
       this.begin(e)
       if (this.drawing) this.mode = 'stroke'
     } else if ((this.mode === 'stroke' || this.mode === 'idle') && this.touches.size === 2) {
@@ -1169,6 +1503,7 @@ export class Writer {
     this.redraw()
     if (err) this.message('strokeNotAdded')
     else {
+      this.lastDot = d.points.length <= 1 ? this.history.undoDepth : null
       this.queue.commit(this.history.note)
       this.onChange()
     }
@@ -1196,6 +1531,8 @@ export class Writer {
   }
 
   private replay(kind: 'undo' | 'redo'): boolean {
+    this.commitEdit() // the box in edit is part of the history first
+    this.lastDot = null
     const depth = kind === 'undo' ? this.history.undoDepth : this.history.redoDepth
     this.clearNudge()
     if ((this.pageLocked || this.history.topLocked(kind)) && !this.readOnly && !this.leaving) {
@@ -1336,6 +1673,7 @@ export class Writer {
 
   private async finishAndClose(): Promise<void> {
     try {
+      this.commitEdit()
       this.finishStroke()
       // A read-only writer has nothing of its own to save.
       if (!this.readOnly && !(await this.queue.flush())) {

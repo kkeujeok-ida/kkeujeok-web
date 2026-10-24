@@ -1378,3 +1378,56 @@ h1 {
   font-size: var(--typography-label-font-size);
   font-weight: var(--typography-label-font-weight);
 }
+
+/* A text box in edit (Story 4.10): the textarea takes the typing, the canvas draws the formatted glyphs under it. */
+.text-edit-area {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 1px dashed var(--color-accent);
+  background: transparent;
+  color: transparent;
+  caret-color: var(--color-ink-primary);
+  font-family: Pretendard, system-ui, sans-serif;
+  white-space: pre-wrap;
+  overflow: hidden;
+  resize: none;
+}
+
+.text-format-bar {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: var(--components-popover-padding);
+  border-radius: var(--components-popover-rounded);
+  background: var(--components-popover-background);
+  box-shadow: var(--components-popover-shadow);
+}
+
+.text-format-btn,
+.text-format-size {
+  min-width: var(--spacing-hit-min-web);
+  min-height: var(--spacing-hit-min-web);
+  font-size: var(--typography-label-font-size);
+}
+
+.text-format-size {
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--rounded-sm);
+  background: none;
+  color: var(--color-ink-primary);
+}
+
+.text-format-swatch {
+  display: block;
+  min-width: 20px;
+  min-height: 20px;
+  width: 20px;
+  height: 20px;
+}

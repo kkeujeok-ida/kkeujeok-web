@@ -2,7 +2,8 @@
 import { type Note, type Page, type Stroke, SUPPORTED_FORMAT_VERSION, isValidStroke, roundStroke } from '../model/note'
 import { normalizeTitle } from '../model/noteTitle'
 import { round2 } from '../model/number'
-import { selectionBounds, type El } from '../model/select'
+import { isTextBox, selectionBounds, type El } from '../model/select'
+import { COLOR_DEFAULT, SIZE_DEFAULT, SIZE_MAX, SIZE_MIN, WIDTH_MIN, cpLen, isBlankText, normalizeNewlines, normalizeRuns, textHeight, validRuns } from '../model/textLayout'
 
 export type Ctx = { rev: string; now: string; editedBy: string; lastSeenRemoteSeq: number; /** New element ids for `paste`, one per pasted element. */ ids?: string[] }
 export type Op = { op: string; [k: string]: unknown }
@@ -73,6 +74,11 @@ export function applyOp(note: Note, op: Op, ctx: Ctx): OpResult {
       return insertElements(note, op, ctx)
     case 'paste':
       return paste(note, op, ctx)
+    case 'createTextBox':
+      return createTextBox(note, op, ctx)
+    case 'editText':
+    case 'setTextBoxWidth':
+      return editText(note, op, ctx)
     default:
       return { error: 'unknownOp' }
   }
@@ -87,6 +93,11 @@ function touch(page: Page, ctx: Ctx) {
 
 const findPage = (n: Note, id: unknown) => n.pages.find((p) => p.id === id)
 const elId = (e: unknown) => (e as { id?: unknown }).id
+// A stored `height` of a text box is ignored and dropped on any write.
+const noHeight = <T extends El>(e: T): T => {
+  if (isTextBox(e)) delete e.height
+  return e
+}
 
 function addStroke(note: Note, op: Op, ctx: Ctx): OpResult {
   const next = structuredClone(note)
@@ -135,7 +146,7 @@ function transformOp(note: Note, op: Op, ctx: Ctx): OpResult {
   const have = new Set(els.map((e) => e?.id))
   if (![...ids].every((i) => have.has(i))) return { error: 'elementNotFound' }
   const chosen = els.filter((e) => ids.has(e?.id))
-  const before = structuredClone(chosen)
+  const before = structuredClone(chosen).map(noHeight)
   const bounds = selectionBounds(chosen)
   if (!bounds) return { note, inverse: null }
 
@@ -163,19 +174,49 @@ function transformOp(note: Note, op: Op, ctx: Ctx): OpResult {
         p[1] = round2(y)
       }
     } else {
-      const w = e.width as number, h = e.height as number
+      const text = isTextBox(e)
+      const w = e.width as number, h = text ? textHeight(e) : (e.height as number)
       const [cx, cy] = f((e.x as number) + w / 2, (e.y as number) + h / 2)
+      if (text) {
+        delete e.height
+        if (op.op === 'scale') {
+          scaleText(e, sx, cx, cy)
+        } else {
+          e.x = round2(cx - w / 2)
+          e.y = round2(cy - h / 2)
+          e.width = round2(w)
+          if (op.op === 'rotate') e.rotation = turned(e, turn)
+        }
+        continue
+      }
       const nw = w * sx, nh = h * sy
       e.x = round2(cx - nw / 2)
       e.y = round2(cy - nh / 2)
       e.width = round2(nw)
       e.height = round2(nh)
       // round2 can reach 360 (359.999): stored as 0.
-      if (op.op === 'rotate') e.rotation = round2((((((e.rotation as number | undefined) ?? 0) + turn) % 360) + 360) % 360) % 360
+      if (op.op === 'rotate') e.rotation = turned(e, turn)
     }
   }
   touch(page, ctx)
   return { note: next, inverse: { op: 'replaceElements', pageId: op.pageId, elements: before } }
+}
+
+// round2 can reach 360 (359.999): stored as 0.
+const turned = (e: El, turn: number) => round2((((((e.rotation as number | undefined) ?? 0) + turn) % 360) + 360) % 360) % 360
+
+// spec/transform.md "Text boxes": scale. (cx, cy) is the mapped center; only sx scales the text.
+function scaleText(e: El, sx: number, cx: number, cy: number) {
+  const clampSize = (v: number) => round2(Math.min(SIZE_MAX, Math.max(SIZE_MIN, v)))
+  const nw = Math.max(WIDTH_MIN, round2((e.width as number) * sx))
+  e.width = nw
+  e.size = clampSize(((e.size as number | undefined) ?? SIZE_DEFAULT) * sx)
+  if (Array.isArray(e.runs)) {
+    for (const r of e.runs as El[]) if (r.size !== undefined && r.size !== null) r.size = clampSize((r.size as number) * sx)
+    e.runs = normalizeRuns(e.runs, cpLen(e.text as string))
+  }
+  e.x = round2(cx - nw / 2)
+  e.y = round2(cy - textHeight(e) / 2)
 }
 
 // Inverse-only: each given element replaces the page element with its id, in place.
@@ -230,7 +271,7 @@ function deleteOp(note: Note, op: Op, ctx: Ctx): OpResult {
   const next = structuredClone(note)
   const r = select(next, op, () => null)
   if ('error' in r) return r
-  const items = r.idx.map((index) => ({ index, element: r.page.elements[index] }))
+  const items = r.idx.map((index) => ({ index, element: noHeight(r.page.elements[index] as El) }))
   for (const i of [...r.idx].reverse()) r.page.elements.splice(i, 1)
   touch(r.page, ctx)
   return { note: next, inverse: { op: 'insertElements', pageId: op.pageId, items } }
@@ -260,7 +301,7 @@ function paste(note: Note, op: Op, ctx: Ctx): OpResult {
   if (!page) return { error: 'pageNotFound' }
   const src = (Array.isArray(op.elements) ? op.elements : []) as El[]
   if (src.length === 0) return { error: 'emptySelection' }
-  const copies = src.map((e, i) => ({ ...structuredClone(e), id: ctx.ids![i] }) as El)
+  const copies = src.map((e, i) => ({ ...noHeight(structuredClone(e)), id: ctx.ids![i] }) as El)
   let dx = 0, dy = 0
   const c = (op.target as { center?: [number, number] } | undefined)?.center
   const union = selectionBounds(copies)
@@ -295,4 +336,56 @@ function paste(note: Note, op: Op, ctx: Ctx): OpResult {
   page.elements.push(...(out as unknown as Page['elements']))
   touch(page, ctx)
   return { note: next, inverse: { op: 'delete', pageId: op.pageId, ids: out.map((e) => e.id) } }
+}
+
+// ---- text box operations (spec/ops.md "Text box operations") ----
+
+const widthOk = (w: unknown) => typeof w === 'number' && Number.isFinite(w) && round2(w) >= WIDTH_MIN
+
+function createTextBox(note: Note, op: Op, ctx: Ctx): OpResult {
+  const next = structuredClone(note)
+  const page = findPage(next, op.pageId)
+  if (!page) return { error: 'pageNotFound' }
+  if (!widthOk(op.width)) return { error: 'invalidWidth' }
+  const runs = op.runs === undefined ? [] : op.runs
+  if (!validRuns(runs)) return { error: 'invalidRuns' }
+  const text = normalizeNewlines(op.text as string)
+  if (isBlankText(text)) return { note, inverse: null }
+  const id = ctx.ids![0]!
+  page.elements.push({
+    id, type: 'text', x: round2(op.x as number), y: round2(op.y as number), width: round2(op.width as number), rotation: 0,
+    text, runs: normalizeRuns(runs as unknown[], cpLen(text)),
+    size: SIZE_DEFAULT, color: COLOR_DEFAULT, bold: false, italic: false,
+  })
+  touch(page, ctx)
+  return { note: next, inverse: { op: 'delete', pageId: op.pageId, ids: [id] } }
+}
+
+// editText and setTextBoxWidth share the error order and the lookup.
+function editText(note: Note, op: Op, ctx: Ctx): OpResult {
+  const width = op.op === 'setTextBoxWidth'
+  const next = structuredClone(note)
+  const page = findPage(next, op.pageId)
+  if (!page) return { error: 'pageNotFound' }
+  if (width ? !widthOk(op.width) : !validRuns(op.runs)) return { error: width ? 'invalidWidth' : 'invalidRuns' }
+  const index = page.elements.findIndex((e) => elId(e) === op.id)
+  if (index < 0) return { error: 'elementNotFound' }
+  const e = page.elements[index] as El
+  if (e.type !== 'text') return { error: 'notTextBox' }
+  const before = structuredClone(e)
+  delete before.height
+  delete e.height
+  touch(page, ctx)
+  if (width) {
+    e.width = round2(op.width as number)
+  } else {
+    const text = normalizeNewlines(op.text as string)
+    if (isBlankText(text)) {
+      page.elements.splice(index, 1)
+      return { note: next, inverse: { op: 'insertElements', pageId: op.pageId, items: [{ index, element: before }] } }
+    }
+    e.text = text
+    e.runs = normalizeRuns(op.runs as unknown[], cpLen(text))
+  }
+  return { note: next, inverse: { op: 'replaceElements', pageId: op.pageId, elements: [before] } }
 }

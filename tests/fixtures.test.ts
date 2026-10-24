@@ -13,6 +13,7 @@ import { round2 } from '../src/model/number'
 import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
 import { selectLasso, selectRect, selectTap, type El, type P } from '../src/model/select'
+import { layoutText, type LineBox } from '../src/model/textLayout'
 import { snapScale } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
 import { strokeOutline } from '../src/render/strokeOutline'
@@ -77,6 +78,38 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'ops.setStrokeWidth': opRunner,
   'ops.delete': opRunner,
   'ops.paste': opRunner,
+  'ops.createTextBox': opRunner,
+  'ops.editText': opRunner,
+  'ops.setTextBoxWidth': opRunner,
+  'ops.textBox': opRunner,
+  'text.unknownFields': async ({ input, expected }) => {
+    const i = input as { note: Note; op?: Op; ctx?: Ctx }
+    if (!i.op) {
+      const r = await decodeKkj(await encodeKkj(i.note))
+      expect(r.result).toBe('ok')
+      expect({ note: r.note }).toEqual(expected)
+      return
+    }
+    const r = applyOp(i.note, i.op, i.ctx!)
+    expect({ note: 'note' in r ? r.note : undefined }).toEqual(expected)
+  },
+  'text.layout': ({ input, expected, tolerance }) => {
+    const l = layoutText((input as { element: Record<string, unknown> }).element)
+    const e = expected as { height: number; lines: LineBox[] }
+    const near = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThanOrEqual(tolerance! + 1e-9)
+    near(l.height, e.height)
+    expect(l.lines).toHaveLength(e.lines.length)
+    e.lines.forEach((x, k) => {
+      const y = l.lines[k]!
+      expect([y.start, y.end]).toEqual([x.start, x.end])
+      near(y.width, x.width); near(y.top, x.top); near(y.baseline, x.baseline); near(y.height, x.height)
+    })
+  },
+  'select.textBox': ({ input, expected }) => {
+    const i = input as { fn: 'lasso' | 'tap' | 'rect'; elements: El[]; polygon?: P[]; point?: P; tolerance?: number; rect?: [number, number, number, number] }
+    const got = i.fn === 'lasso' ? selectLasso(i.elements, i.polygon!) : i.fn === 'tap' ? selectTap(i.elements, i.point!, i.tolerance) : selectRect(i.elements, i.rect!)
+    expect(got).toEqual(expected)
+  },
   'ops.undoRedo': ({ input, expected }) => {
     type Step = { kind: 'do' | 'undo' | 'redo'; op?: Op; ctx: Ctx }
     const i = input as { note: Note; steps: Step[] }
@@ -180,16 +213,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Sync rules (Story 3.2) arrive with the web sync stories (3.4, 3.6, 3.10, ...);
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
-// Text box rules (Story 4.8) arrive with Story 4.10.
-const PENDING: string[] = [
-  'ops.createTextBox',
-  'ops.editText',
-  'ops.setTextBoxWidth',
-  'ops.textBox',
-  'select.textBox',
-  'text.layout',
-  'text.unknownFields',
-]
+const PENDING: string[] = []
 
 function mergeRunner({ input, expected }: Case) {
   const i = input as { base: Note | null; local: Note; remote: Note; ctx: MergeCtx }

@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyEvent } from 'react'
 import { fmt, useI18n, type Key } from '../../i18n'
 import type { Pen } from '../../model/pen'
+import { elementClipboard } from '../../model/elementClipboard'
+import { isBlankText } from '../../model/textLayout'
 import { sessionHistory } from '../../ops/sessionHistories'
 import { auth } from '../../drive/auth'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
@@ -21,11 +23,12 @@ import { ConflictDialog, type ConflictItem, type ResolveOutcome, pageNo, resultK
 import { PenPopover } from './PenPopover'
 import { PenToolbar } from './PenToolbar'
 import { SelectionMenu } from './SelectionMenu'
+import { TextEditOverlay } from './TextEditOverlay'
 import { VersionHistory } from './VersionHistory'
 import { onResolveRequest, takeResolveRequest } from './resolveRequest'
 import { detectEditedBy } from './useLibrary'
 import { ZOOM_MAX, ZOOM_MIN } from '../../render/pagePainter'
-import { ARROW_STEP, Writer, ZOOM_STEP, type SelectionBox, type ViewInfo, type WriterMessage } from './writer'
+import { ARROW_STEP, Writer, ZOOM_STEP, type EditInfo, type SelectionBox, type ViewInfo, type WriterMessage } from './writer'
 
 /** The noteId of a `#/notes/{noteId}` hash, else null. */
 export function parseNoteRoute(hash: string): string | null {
@@ -113,7 +116,8 @@ export function NoteEditor({
   const popoverOpen = useRef(false)
   popoverOpen.current = popover !== null
   const [selected, setSelected] = useState(0)
-  const [tool, setTool] = useState<'pen' | 'lasso'>('pen')
+  const [tool, setTool] = useState<'pen' | 'lasso' | 'text'>('pen')
+  const [edit, setEdit] = useState<EditInfo | null>(null)
   const [box, setBox] = useState<SelectionBox | null>(null)
   const [ratio, setRatio] = useState(true)
   const selectedRef = useRef(0)
@@ -228,6 +232,7 @@ export function NoteEditor({
               }
               w.onView = (v) => live && setView(v)
               w.onBox = (b) => live && setBox(b)
+              w.onEdit = (i) => live && setEdit(i)
               // Nothing is announced for an empty selection.
               w.onSelection = (n) => live && n > 0 && setResultText(fmt(tRef.current('editor.selected'), { n }))
               return w
@@ -455,6 +460,10 @@ export function NoteEditor({
         const target = e.target as Element | null
         const inside = [toolbar.current, canvas.current].some((r) => r && (r.contains(target) || r.contains(active)))
         if (inside && !target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) setTool('lasso')
+      } else if ((e.code === 'KeyT' || e.key.toLowerCase() === 't') && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat && !e.isComposing) {
+        const target = e.target as Element | null
+        const inside = [toolbar.current, canvas.current].some((r) => r && (r.contains(target) || r.contains(active)))
+        if (inside && !readOnly && !target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) setTool('text')
       }
     }
     // Capture, so a handler lower down cannot hide the key.
@@ -535,7 +544,8 @@ export function NoteEditor({
       if (mod) {
         if (k === 'c') done = writer.copySelection()
         else if (k === 'x') done = writer.cutSelection()
-        else if (k === 'v' && (done = writer.pasteClipboard())) {
+        // Elements copied here and nothing since the window lost focus: they win; else the paste event decides (text first).
+        else if (k === 'v' && elementClipboard.fresh && (done = writer.pasteClipboard())) {
           writer.setTool('lasso')
           setTool('lasso')
         }
@@ -545,6 +555,56 @@ export function NoteEditor({
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
   }, [loaded])
+
+  // The paste event on the canvas (Story 4.10): plain text from the system clipboard becomes a text box. It is read from the
+  // event only, never with the async clipboard API. Elements copied in this tab win while the window kept its focus.
+  useEffect(() => {
+    if (!loaded) return
+    const { writer } = loaded
+    const onPaste = (e: ClipboardEvent) => {
+      if (document.activeElement !== canvas.current || popoverOpen.current) return
+      if ((e.target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return
+      if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return
+      const text = e.clipboardData?.getData('text/plain') ?? ''
+      const done = !elementClipboard.fresh && !isBlankText(text) ? writer.pasteText(text) : elementClipboard.size > 0 ? writer.pasteClipboard() : writer.pasteText(text)
+      if (done) {
+        writer.setTool('lasso')
+        setTool('lasso')
+      }
+      e.preventDefault()
+    }
+    document.addEventListener('paste', onPaste, true)
+    return () => document.removeEventListener('paste', onPaste, true)
+  }, [loaded])
+
+  // A press outside the box in edit (and outside its bar) confirms it; the canvas handles its own presses.
+  useEffect(() => {
+    setEdit(null)
+    if (!loaded) return
+    const { writer } = loaded
+    const onPress = (e: PointerEvent) => {
+      if (!writer.editing) return
+      const n = e.target as Element | null
+      if (n?.closest?.('[data-text-edit]') || (n && canvas.current?.contains(n))) return
+      writer.commitEdit()
+    }
+    document.addEventListener('pointerdown', onPress, true)
+    return () => document.removeEventListener('pointerdown', onPress, true)
+  }, [loaded])
+
+  // Text tool + Enter (not while typing in a box): a new box in the middle of the view.
+  useEffect(() => {
+    if (!loaded || tool !== 'text') return
+    const { writer } = loaded
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || e.repeat || e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+      if (document.activeElement !== canvas.current || writer.editing || popoverOpen.current) return
+      if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return
+      if (writer.createTextAtCenter()) e.preventDefault()
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [loaded, tool])
 
   // Canvas focus: Ctrl/Cmd+= + - 0 zoom and fit, arrows scroll. Space is the hand
   // while focus is on the canvas, and not in a text field.
@@ -899,6 +959,8 @@ export function NoteEditor({
       : undefined
   }
   const pageLabel = labelOf(at)
+  // The confirmed text boxes, readable by a screen reader.
+  const textBoxes = pages.flatMap((p) => (p.elements as { id?: string; type?: string; text?: unknown }[]).filter((e) => e?.type === 'text' && typeof e.text === 'string').map((e) => ({ id: e.id as string, text: e.text as string })))
 
   return (
     <section ref={section} className="editor" aria-label={loaded?.title} aria-busy={!loaded}>
@@ -1051,6 +1113,16 @@ export function NoteEditor({
                 onDelete={() => (loaded.writer.deleteSelection(), canvas.current?.focus())}
                 onLeave={() => canvas.current?.focus()}
               />
+            )}
+            {edit && !readOnly && (
+              <TextEditOverlay key={edit.id} info={edit} writer={loaded.writer} origin={{ x: canvas.current?.offsetLeft ?? 0, y: canvas.current?.offsetTop ?? 0 }} onDone={() => canvas.current?.focus()} />
+            )}
+            {textBoxes.length > 0 && (
+              <ul className="sr-only" aria-label={t('editor.textBoxes')}>
+                {textBoxes.map((b) => (
+                  <li key={b.id}>{b.text}</li>
+                ))}
+              </ul>
             )}
             <span id={descId} className="sr-only">
               {loaded.writer.pageLocked ? `${t('editor.handwriting')}. ${t('editor.conflictDescription')}` : t('editor.handwriting')}

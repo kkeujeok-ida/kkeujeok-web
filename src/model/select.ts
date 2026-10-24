@@ -1,6 +1,8 @@
 // spec rules select.lasso, select.tap, select.rect (spec/select.md) and the bounding box of
 // spec/transform.md. Pure functions over raw elements (port of the Android lib/model/select.dart).
 
+import { textHeight } from './textLayout'
+
 export type El = Record<string, unknown>
 export type P = readonly [number, number]
 export type Bounds = { left: number; top: number; right: number; bottom: number }
@@ -8,6 +10,12 @@ export type Bounds = { left: number; top: number; right: number; bottom: number 
 const EPS = 1e-9
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 const isStroke = (e: El) => e.type === 'stroke'
+
+/** A text box has a string `text`; a bare `type: text` box keeps its stored height (spec/transform.md "Text boxes"). */
+export const isTextBox = (e: El) => e.type === 'text' && typeof e.text === 'string'
+
+// A text box is a box element whose height is computed from its content.
+export const withHeights = (els: readonly El[]): El[] => els.map((e) => (isTextBox(e) ? { ...e, height: textHeight(e) } : e))
 
 // An element that cannot be judged (no id, a box without numeric geometry, a malformed point) is ignored, never thrown on.
 function usable(e: El): boolean {
@@ -99,7 +107,7 @@ function clip(subject: P[], clipPoly: readonly P[]): P[] {
 export function selectLasso(elements: readonly El[], polygon: readonly P[]): string[] {
   if (polygon.length < 3 || area(polygon) === 0) return []
   const ids: string[] = []
-  for (const e of elements.filter(usable)) {
+  for (const e of withHeights(elements).filter(usable)) {
     if (isStroke(e)) {
       const pts = points(e)
       if (pts.length === 0) continue
@@ -122,7 +130,7 @@ function segDist(p: P, a: P, b: P): number {
 
 /** `select.tap`: the topmost hit element id, or null. */
 export function selectTap(elements: readonly El[], point: P, tolerance = 6): string | null {
-  for (const e of elements.filter(usable).reverse()) {
+  for (const e of withHeights(elements).filter(usable).reverse()) {
     if (isStroke(e)) {
       const pts = points(e)
       if (pts.length === 0) continue
@@ -151,7 +159,7 @@ export const selectRect = (elements: readonly El[], r: readonly [number, number,
 /** Union of the bounding boxes of `elements` (transform.md); null when none has one. */
 export function selectionBounds(elements: readonly El[]): Bounds | null {
   let out: Bounds | null = null
-  for (const e of elements.filter(usable)) {
+  for (const e of withHeights(elements).filter(usable)) {
     const pts = isStroke(e) ? points(e) : boxCorners(e)
     if (pts.length === 0) continue
     const b = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity }

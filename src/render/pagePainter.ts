@@ -4,6 +4,7 @@
 import { isValidStroke, type Page, type Stroke } from '../model/note'
 import { pageBackground } from './pageBackground'
 import { outlinePath, strokeOutline } from './strokeOutline'
+import { drawableText, paintTextBox } from './textPainter'
 
 /** page point = (local - offset) / scale. Only 2.12 (zoom/pan) changes it. */
 export type PageViewport = { scale: number; offsetX: number; offsetY: number }
@@ -158,6 +159,8 @@ export function paintPage(
   viewport: PageViewport,
   cache: StrokePathCache,
   live?: Stroke | null,
+  /** A text box being edited: this draft is drawn in place of the stored element `id` (or on top when it is new). */
+  draft?: { id: string; el: Record<string, unknown> } | null,
 ): void {
   const { width: w, height: h } = page
   const { scale, offsetX, offsetY } = viewport
@@ -199,13 +202,25 @@ export function paintPage(
 
     const ids = new Set<string>()
     const elements: unknown = page.elements
+    let drafted = false
     for (const e of Array.isArray(elements) ? elements : []) {
       try {
+        if (draft && (e as { id?: unknown } | null)?.id === draft.id) {
+          drafted = true
+          paintTextBox(ctx, draft.el)
+        } else if (drawableText(e)) paintTextBox(ctx, e)
         if (!isValidStroke(e)) continue
         ids.add(e.id)
         fill(ctx, cache.pathOf(e), e.color)
       } catch {
         // one bad element must not hide the rest
+      }
+    }
+    if (draft && !drafted) {
+      try {
+        paintTextBox(ctx, draft.el)
+      } catch {
+        // the draft is skipped for this frame
       }
     }
     cache.keepOnly(ids)

@@ -14,9 +14,9 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
   selected: number
   onSelect: (i: number) => void
   onEdit: (i: number) => void
-  /** The lasso is a toggle: pressed = lasso, else the pen. It works read-only too (selecting changes nothing). */
-  tool: 'pen' | 'lasso'
-  onToolChange: (t: 'pen' | 'lasso') => void
+  /** The lasso and the text tool are toggles: pressed = that tool, else the pen. The lasso works read-only too (selecting changes nothing); the text tool does not. */
+  tool: 'pen' | 'lasso' | 'text'
+  onToolChange: (t: 'pen' | 'lasso' | 'text') => void
   canUndo: boolean
   canRedo: boolean
   onUndo: () => void
@@ -105,6 +105,20 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
       >
         <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
           <path d="M8 2C4.5 2 2 3.8 2 6s2.5 4 6 4 6-1.8 6-4-2.5-4-6-4zM6 10c-1 1-1 3 1 4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeDasharray="2 2" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        aria-pressed={tool === 'text'}
+        aria-label={t('editor.text')}
+        title={readOnly ? t('editor.readOnlyTip') : t('editor.textTip')}
+        aria-disabled={readOnly || undefined}
+        className="toolbar-action"
+        data-tool="text"
+        onClick={() => !readOnly && onToolChange(tool === 'text' ? 'pen' : 'text')}
+      >
+        <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 3.5V2h10v1.5M8 2v12M6 14h4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
     </div>

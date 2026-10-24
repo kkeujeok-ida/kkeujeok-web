@@ -27,6 +27,8 @@ export function paintSelection(
   colors: ReturnType<typeof selectionColors>,
   /** Degrees: the box is drawn turned about its center (rotate-drag preview). */
   angle = 0,
+  /** Document points of the side handles of a single text box (they change its width). */
+  widthHandles: readonly (readonly [number, number])[] = [],
 ): void {
   const sx = (x: number) => vp.offsetX + x * vp.scale
   const sy = (y: number) => vp.offsetY + y * vp.scale
@@ -61,6 +63,14 @@ export function paintSelection(
       ctx.strokeStyle = colors.border
       ctx.stroke()
     }
+  }
+  for (const [x, y] of widthHandles) {
+    ctx.beginPath()
+    ctx.arc(sx(x), sy(y), HANDLE_RADIUS, 0, Math.PI * 2)
+    ctx.fillStyle = colors.fill
+    ctx.fill()
+    ctx.strokeStyle = colors.border
+    ctx.stroke()
   }
   ctx.restore()
 }
