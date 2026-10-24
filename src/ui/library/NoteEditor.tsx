@@ -78,8 +78,6 @@ const mountedNotes = new Set<string>()
 
 /** A closed-note upload (or another tab) holds the note lock: wait this long for the merged result, then open read-only. */
 const LOCK_WAIT_MS = 3000
-/** An open note is uploaded after this long without an edit (decision: web-idle-upload). */
-export const IDLE_UPLOAD_MS = 10_000
 
 /** `readOnly`: another tab holds the note. `newer`: its Drive file is of a newer format (Story 3.18). */
 type Loaded = { title: string; writer: Writer; readOnly: boolean; newer: boolean }
@@ -150,8 +148,6 @@ export function NoteEditor({
   const receiving = useNoteReceiving(noteId)
   const receivingRef = useRef(receiving)
   receivingRef.current = receiving
-  const uploadsRef = useRef(uploads)
-  uploadsRef.current = uploads
 
   const section = useRef<HTMLElement>(null)
   const back = useRef<HTMLButtonElement>(null)
@@ -174,33 +170,6 @@ export function NoteEditor({
     let live = true
     let writer: Writer | null = null
     let unregister: () => void = () => {}
-    // Idle upload: every edit restarts the timer; one that expires while an upload runs restarts after it.
-    let idle: ReturnType<typeof setTimeout> | undefined
-    let uploading = false
-    let again = false
-    const armIdle = () => {
-      clearTimeout(idle)
-      if (!live) return
-      if (uploading) {
-        again = true
-        return
-      }
-      idle = setTimeout(() => {
-        if (!live || readOnlyRef.current) return // read-only is permanent
-        if (receivingRef.current) return armIdle() // the receive ends later: look again
-        uploading = true
-        void Promise.resolve()
-          .then(() => uploadsRef.current?.syncNow?.(noteId))
-          .catch(() => {})
-          .finally(() => {
-            uploading = false
-            if (again) {
-              again = false
-              armIdle()
-            }
-          })
-      }, IDLE_UPLOAD_MS)
-    }
 
     // A save of this note that is still running must land before it is read.
     const load = async (readOnly: boolean): Promise<Loaded | null> => {
@@ -229,11 +198,7 @@ export function NoteEditor({
                 },
                 (key) => live && setMessage((p) => ({ key, n: (p?.n ?? 0) + 1 })),
                 detectEditedBy,
-                () => {
-                  if (!live) return
-                  setRevision((n) => n + 1)
-                  armIdle()
-                },
+                () => live && setRevision((n) => n + 1),
               )
               w.readOnly = readOnly || newer
               // Pages with an unresolved conflict are read-only from the first frame (Story 3.20).
@@ -360,7 +325,6 @@ export function NoteEditor({
 
     return () => {
       live = false
-      clearTimeout(idle)
       mounted.current = false
       mountedNotes.delete(noteId)
       // Leaving by the browser's back button ends here: finish and save in the

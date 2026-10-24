@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Writing screen: input -> addStroke -> serial saves, rendering, semantics (story 2.10).
 import 'fake-indexeddb/auto'
-import { act, createElement, type ComponentProps } from 'react'
+import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { I18nContext, createI18n, resources } from '../src/i18n'
@@ -19,10 +19,9 @@ import { type NoteStore, openNoteStore } from '../src/storage/noteStore'
 import { SaveQueue, savesSettled, trackSave } from '../src/storage/saveQueue'
 import { getOpenNote } from '../src/sync/openNotes'
 import { App } from '../src/ui/App'
-import { IDLE_UPLOAD_MS, NoteEditor } from '../src/ui/library/NoteEditor'
+import { NoteEditor } from '../src/ui/library/NoteEditor'
 import { Writer } from '../src/ui/library/writer'
 import { fakeLocks, signedIn } from './helpers'
-import { SyncUiProvider, fakeAuth, fakeNet, fakeStatus } from './syncUiHarness'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -104,7 +103,7 @@ async function saved(id = 'n1'): Promise<Note> {
 }
 const strokesOf = (n: Note) => n.pages[0]!.elements as Stroke[]
 
-async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note | null; pens?: PenSlotsStore; uploads?: ComponentProps<typeof NoteEditor>['uploads'] } = {}) {
+async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note | null; pens?: PenSlotsStore } = {}) {
   const id = o.id ?? 'n1'
   if (o.note !== null) await seed(o.note ?? newNote(id))
   act(() =>
@@ -112,7 +111,7 @@ async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: 
       createElement(
         I18nContext.Provider,
         { value: i18nFor(o.lang ?? 'ko-KR') },
-        createElement(NoteEditor, { noteId: id, openStore: makeOpen(o.opts), penStore: o.pens, uploads: o.uploads }),
+        createElement(NoteEditor, { noteId: id, openStore: makeOpen(o.opts), penStore: o.pens }),
       ),
     ),
   )
@@ -437,120 +436,6 @@ describe('saving', () => {
     done()
     await new Promise((r) => setTimeout(r, 5))
     expect(settled).toBe(true)
-  })
-})
-
-describe('idle upload of the open note (story 12.5)', () => {
-  const stroke1 = async (y: number) => {
-    fire('pointerdown', { x: 10, y })
-    fire('pointerup', { x: 30, y })
-    await act(async () => void (await savesSettled())) // the save is on disk before the fake clock moves
-  }
-  const advance = (ms: number) => act(async () => void vi.advanceTimersByTime(ms))
-  const rx = () => {
-    let receiving = new Set<string>()
-    const ls = new Set<() => void>()
-    let state = { receiving: receiving as ReadonlySet<string> }
-    return {
-      subscribe: (f: () => void) => (ls.add(f), () => void ls.delete(f)),
-      getState: () => state,
-      set: (on: boolean) => {
-        receiving = new Set(on ? ['n1'] : [])
-        state = { receiving }
-        act(() => ls.forEach((f) => f()))
-      },
-    }
-  }
-  type Setup = { syncNow?: () => Promise<void>; receiver?: ReturnType<typeof rx>; lockWaitMs?: number }
-  const setup = async (o: Setup = {}) => {
-    const syncNow = vi.fn(o.syncNow ?? (async () => {}))
-    const noteClosed = vi.fn(async () => {})
-    await seed(newNote('n1'))
-    const editor = createElement(NoteEditor, { noteId: 'n1', openStore: makeOpen(), uploads: { noteClosed, syncNow }, ...(o.lockWaitMs !== undefined && { lockWaitMs: o.lockWaitMs }) })
-    act(() =>
-      root.render(
-        createElement(
-          I18nContext.Provider,
-          { value: i18nFor('ko-KR') },
-          createElement(SyncUiProvider, { auth: fakeAuth() as never, status: fakeStatus() as never, net: fakeNet() as never, ...(o.receiver && { receiver: o.receiver }) }, editor),
-        ),
-      ),
-    )
-    await flush()
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    return { syncNow }
-  }
-  afterEach(() => vi.useRealTimers())
-
-  test('syncNow runs once, 10 s after the edit', async () => {
-    const { syncNow } = await setup()
-    await stroke1(10)
-    await advance(IDLE_UPLOAD_MS - 1)
-    expect(syncNow).not.toHaveBeenCalled()
-    await advance(1)
-    expect(syncNow).toHaveBeenCalledTimes(1)
-    expect(syncNow).toHaveBeenCalledWith('n1')
-    await advance(IDLE_UPLOAD_MS * 2)
-    expect(syncNow).toHaveBeenCalledTimes(1)
-  })
-
-  test('an edit within 10 s restarts the timer', async () => {
-    const { syncNow } = await setup()
-    await stroke1(10)
-    await advance(IDLE_UPLOAD_MS - 1000)
-    await stroke1(50)
-    await advance(IDLE_UPLOAD_MS - 1)
-    expect(syncNow).not.toHaveBeenCalled()
-    await advance(1)
-    expect(syncNow).toHaveBeenCalledTimes(1)
-  })
-
-  test('closing the editor clears the timer', async () => {
-    const { syncNow } = await setup()
-    await stroke1(10)
-    act(() => root.render(createElement('div')))
-    await advance(IDLE_UPLOAD_MS * 2)
-    expect(syncNow).not.toHaveBeenCalled()
-  })
-
-  test('an edit during an upload starts a new 10 s timer after it ends', async () => {
-    let done!: () => void
-    const { syncNow } = await setup({ syncNow: () => new Promise<void>((r) => (done = r)) })
-    await stroke1(10)
-    await advance(IDLE_UPLOAD_MS)
-    expect(syncNow).toHaveBeenCalledTimes(1)
-    await stroke1(50) // while the upload is pending
-    await advance(IDLE_UPLOAD_MS * 2)
-    expect(syncNow).toHaveBeenCalledTimes(1)
-    done()
-    await advance(0)
-    await advance(IDLE_UPLOAD_MS - 1)
-    expect(syncNow).toHaveBeenCalledTimes(1)
-    await advance(1)
-    expect(syncNow).toHaveBeenCalledTimes(2)
-  })
-
-  test('a read-only editor never uploads', async () => {
-    Object.defineProperty(navigator, 'locks', { value: fakeLocks(), configurable: true })
-    const holder = await acquireNoteLock('n1')
-    const { syncNow } = await setup({ lockWaitMs: 0 })
-    await stroke1(10)
-    await advance(IDLE_UPLOAD_MS * 2)
-    expect(syncNow).not.toHaveBeenCalled()
-    await holder.release()
-    delete (navigator as { locks?: unknown }).locks
-  })
-
-  test('while the note is being received nothing uploads; 10 s after it ends one does', async () => {
-    const receiver = rx()
-    const { syncNow } = await setup({ receiver })
-    await stroke1(10)
-    receiver.set(true)
-    await advance(IDLE_UPLOAD_MS * 3)
-    expect(syncNow).not.toHaveBeenCalled()
-    receiver.set(false)
-    await advance(IDLE_UPLOAD_MS)
-    expect(syncNow).toHaveBeenCalledTimes(1)
   })
 })
 
