@@ -77,8 +77,8 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
       <span className="toolbar-divider" aria-hidden="true" />
       {(
         [
-          ['undo', canUndo, onUndo, 'M6 3L2 7l4 4M2 7h7a4 4 0 010 8H6'],
-          ['redo', canRedo, onRedo, 'M10 3l4 4-4 4M14 7H7a4 4 0 000 8h3'],
+          ['undo', canUndo, onUndo, 'M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z'],
+          ['redo', canRedo, onRedo, 'M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z'],
         ] as const
       ).map(([name, enabled, run, d]) => (
         <button
@@ -91,8 +91,8 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
           className={enabled ? 'toolbar-action' : 'toolbar-action toolbar-action-disabled'}
           onClick={() => enabled && run()}
         >
-          <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
-            <path d={d} stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d={d} fill="currentColor" />
           </svg>
         </button>
       ))}
@@ -105,8 +105,8 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
         data-tool="lasso"
         onClick={() => onToolChange(tool === 'lasso' ? 'pen' : 'lasso')}
       >
-        <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M8 2C4.5 2 2 3.8 2 6s2.5 4 6 4 6-1.8 6-4-2.5-4-6-4zM6 10c-1 1-1 3 1 4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeDasharray="2 2" />
+        <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M17 5h-2V3h2v2zm-2 16h2v-2.59L19.59 21 21 19.59 18.41 17H21v-2h-6v6zm4-12h2V7h-2v2zm0 4h2v-2h-2v2zm-8 8h2v-2h-2v2zM7 5h2V3H7v2zM3 17h2v-2H3v2zm2 4v-2H3c0 1.1.9 2 2 2zM19 3v2h2c0-1.1-.9-2-2-2zm-8 2h2V3h-2v2zM3 9h2V7H3v2zm4 12h2v-2H7v2zm-4-8h2v-2H3v2zm0-8h2V3c-1.1 0-2 .9-2 2z" fill="currentColor" />
         </svg>
       </button>
       <button
@@ -119,8 +119,8 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
         data-tool="text"
         onClick={() => !readOnly && onToolChange(tool === 'text' ? 'pen' : 'text')}
       >
-        <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M3 3.5V2h10v1.5M8 2v12M6 14h4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M2.5 4v3h5v12h3V7h5V4h-13zm19 5h-9v3h3v7h3v-7h3V9z" fill="currentColor" />
         </svg>
       </button>
       <button
@@ -132,8 +132,8 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
         data-tool="image"
         onClick={() => !readOnly && onImage?.()}
       >
-        <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M2.5 3h11v10h-11zM2.5 11l3.5-3.5 3 3 2-2 2.5 2.5M10.5 6.5h.01" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M19 5v14H5V5h14m0-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-4.86 8.86l-3 3.87L9 13.14 6 17h12l-3.86-5.14z" fill="currentColor" />
         </svg>
       </button>
     </div>

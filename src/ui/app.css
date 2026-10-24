@@ -1498,3 +1498,9 @@ h1 {
   width: 20px;
   height: 20px;
 }
+
+/* Toolbar icons: the same Material glyphs and size as the Android toolbar. */
+.pen-toolbar .toolbar-action .icon {
+  width: 20px;
+  height: 20px;
+}

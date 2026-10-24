@@ -44,6 +44,24 @@ describe('Writer selection edit', () => {
     canvas.remove()
   })
 
+  test('an image copies, pastes (same asset, new id) and deletes like any element', () => {
+    const w = make()
+    const img = { id: 'img1', type: 'image', x: 300, y: 300, width: 100, height: 80, rotation: 0, asset: 'a'.repeat(64), ext: 'png', pxWidth: 200, pxHeight: 160 }
+    w.history.note.pages[0]!.elements.push(img as never)
+    w.clearSelection()
+    w.setTool('lasso')
+    ev('pointerdown', 350, 340)
+    ev('pointerup', 350, 340)
+    expect(w.selectedCount).toBe(1)
+    expect(w.copySelection()).toBe(true)
+    expect(w.pasteClipboard()).toBe(true)
+    const copies = (w.history.note.pages[0]!.elements as { id: string; type: string; asset?: string }[]).filter((e) => e.type === 'image')
+    expect(copies).toHaveLength(2)
+    expect(copies[1]!.asset).toBe(copies[0]!.asset)
+    expect(copies[1]!.id).not.toBe('img1')
+    expect(w.deleteSelection()).toBe(true)
+  })
+
   test('color and width: one op each, one undo step', () => {
     const w = make()
     expect(w.setSelectionColor('#ff0000')).toBe(true)
