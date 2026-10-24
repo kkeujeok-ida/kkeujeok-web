@@ -1377,6 +1377,8 @@ h1 {
 
 .selection-menu {
   flex-wrap: nowrap;
+  max-width: calc(100% - var(--spacing-3) * 2);
+  overflow-x: auto;
   position: absolute;
   z-index: 4;
   display: flex;

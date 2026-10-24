@@ -78,6 +78,24 @@ describe('Writer text boxes', () => {
     expect(boxes(w)).toHaveLength(0)
   })
 
+  test('text tool click on a stored box edits it; on a stroke it still starts a new box', () => {
+    const w = make(true)
+    w.setTool('text')
+    click(150, 108)
+    expect(w.editing).toBe(true)
+    expect(w.editInfo()!.text).toBe('abc')
+    w.commitEdit()
+    expect(boxes(w)).toHaveLength(1)
+    // A stroke is under the second click: it does not block a new box.
+    const w2 = make()
+    w2.history.doOp({ op: 'addStroke', pageId: 'p', stroke: { id: 's1', color: '#000000', width: 2, points: [[300, 300, 0.5, 0], [320, 300, 0.5, 10]] } } as never, { rev: 'r', now: 'n', editedBy: 'x', lastSeenRemoteSeq: 0 } as never)
+    expect(w2.history.note.pages[0]!.elements).toHaveLength(1)
+    w2.setTool('text')
+    click(310, 300)
+    expect(w2.editing).toBe(true)
+    expect(w2.editInfo()!.text).toBe('')
+  })
+
   test('a press outside the box in edit confirms it; with the text tool it does not start the next box', () => {
     const w = make()
     w.setTool('text')
