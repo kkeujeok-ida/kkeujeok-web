@@ -654,6 +654,10 @@ h1 {
   cursor: pointer;
 }
 
+.toolbar-action[aria-pressed='true'] {
+  background: var(--color-accent-soft);
+}
+
 .toolbar-action-disabled {
   color: var(--color-ink-disabled);
   cursor: default;

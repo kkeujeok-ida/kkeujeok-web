@@ -2,6 +2,8 @@
 // History -> serial saves, and the canvas that shows the page (with its zoom
 // and pan view). No React here.
 import { newId } from '../../model/ids'
+import { selectLasso, selectRect, selectTap, selectionBounds, type El } from '../../model/select'
+import { paintSelection, selectionColors } from '../../render/selectionPainter'
 import type { Page, Stroke } from '../../model/note'
 import type { Pen } from '../../model/pen'
 import type { History } from '../../ops/history'
@@ -45,7 +47,12 @@ export const PAGE_GAP = 16
 export type FitMode = 'width' | 'page' | 'free'
 // Who owns the pointers: nobody, a touch stroke, a touch outside the page, a
 // two-finger gesture, fingers to ignore until all lift, a pen/mouse, a pan drag.
-type Mode = 'none' | 'stroke' | 'idle' | 'gesture' | 'ignored' | 'pen' | 'pan'
+type Mode = 'none' | 'stroke' | 'idle' | 'gesture' | 'ignored' | 'pen' | 'pan' | 'lasso'
+export type Tool = 'pen' | 'lasso'
+/** A lasso drag or click: `path` is in document coordinates, `x`/`y` the client start (to tell a click from a drag). */
+type Lasso = { id: number; shift: boolean; alt: boolean; x: number; y: number; moved: boolean; path: [number, number][] }
+/** A drag shorter than this (CSS px) is a click. */
+const CLICK_SLOP = 4
 /** `page`: index of the current page (the one in view, or the one a page key moved to); `pages`: how many there are. */
 export type ViewInfo = { scale: number; x: Thumb | null; y: Thumb | null; page: number; pages: number }
 /** A page and where it starts in the document: all pages stacked vertically, centered, `PAGE_GAP` apart. */
@@ -79,10 +86,16 @@ export class Writer {
   private cssH = 0
   private dpr = 1
   private finalizing: Promise<void> | null = null
+  private tool: Tool = 'pen'
+  private lasso: Lasso | null = null
+  /** Selection is UI state (never in the note): the page and the ids of its selected elements. */
+  private selection: { pageId: string; ids: Set<string> } | null = null
   /** Padding and the room under the page's end; the editor knows the toolbar. */
   insets: () => ViewInsets = () => ({ gap: 0, extraBottom: 0 })
   /** Another tab holds the note: view, zoom and pan only (spec 2.13). */
   readOnly = false
+  /** Called with the number of selected elements whenever the selection changed. */
+  onSelection: (n: number) => void = () => {}
   /** Called whenever the view (scale, scrollbars) changed. */
   onView: (v: ViewInfo) => void = () => {}
   /** Someone tried to write or undo on a page with an unresolved conflict (Story 3.20). */
@@ -205,6 +218,7 @@ export class Writer {
       this.touches.clear()
       this.pan = null
       this.gesture = null
+      this.lasso = null
       this.mode = 'none'
       canvas.classList.remove('is-panning')
       this.setHand(false)
@@ -349,7 +363,7 @@ export class Writer {
 
   /** A stroke, a gesture or a pan is going on. */
   busy(): boolean {
-    return this.drawing !== null || this.mode === 'gesture' || this.mode === 'pan'
+    return this.drawing !== null || this.mode === 'gesture' || this.mode === 'pan' || this.mode === 'lasso'
   }
 
   /** Moves to `to`; at once when the system asks for no motion. Not under a stroke or a drag. */
@@ -482,6 +496,94 @@ export class Writer {
       const at = { scale: vp.scale, offsetX: left, offsetY: top }
       paintPage(ctx, s.page, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null)
     }
+    // Over the page clip: the box and its handles may stand outside the page.
+    const sel = this.selected()
+    const b = sel ? selectionBounds(sel.els) : null
+    const path = this.lasso?.moved ? this.lasso.path : null
+    if (b || path) {
+      const box = b && sel && { left: b.left + sel.slot.x, top: b.top + sel.slot.y, right: b.right + sel.slot.x, bottom: b.bottom + sel.slot.y }
+      paintSelection(ctx, vp, box, path, selectionColors(c))
+    }
+  }
+
+  /** The selected elements that still exist (undo or a merge may have removed some), with their page's place. */
+  private selected(): { slot: Slot; els: El[] } | null {
+    const sel = this.selection
+    const slot = sel && this.slots().list.find((s) => s.page.id === sel.pageId)
+    if (!sel) return null
+    const els = slot ? (slot.page.elements as El[]).filter((e) => sel.ids.has(e?.id as string)) : []
+    // Ids that undo or a merge removed are dropped for good, so a redo does not bring the box back.
+    if (els.length !== sel.ids.size) {
+      this.selection = els.length > 0 ? { pageId: sel.pageId, ids: new Set(els.map((e) => e.id as string)) } : null
+      this.onSelection(els.length)
+    }
+    return slot && els.length > 0 ? { slot, els } : null
+  }
+
+  get selectedCount(): number {
+    return this.selected()?.els.length ?? 0
+  }
+
+  private setSelection(pageId: string, ids: Iterable<string>): void {
+    const set = new Set(ids)
+    this.selection = set.size > 0 ? { pageId, ids: set } : null
+    this.redraw()
+    this.onSelection(set.size)
+  }
+
+  clearSelection(): void {
+    if (this.selection) this.setSelection('', [])
+  }
+
+  /** The tool for pointer input; the pen tool has no selection. */
+  setTool(t: Tool): void {
+    if (t === this.tool) return
+    this.tool = t
+    if (t === 'pen') this.clearSelection()
+  }
+
+  /** Ctrl+A: every element of the current page. */
+  selectAll(): void {
+    const s = this.current
+    if (s) this.setSelection(s.page.id, (s.page.elements as El[]).map((e) => e?.id as string).filter((id) => typeof id === 'string'))
+  }
+
+  private lassoDown(e: PointerEvent): void {
+    const d = toPage(this.viewport, ...this.local(e.clientX, e.clientY))
+    this.mode = 'lasso'
+    this.lasso = { id: e.pointerId, shift: e.shiftKey, alt: e.altKey, x: e.clientX, y: e.clientY, moved: false, path: [d] }
+    e.preventDefault()
+    try {
+      this.canvas?.focus({ preventScroll: true })
+    } catch {
+      // focus is a convenience
+    }
+  }
+
+  /** The lasso ended: a click picks one element, a drag selects by the lasso (Alt: its rectangle). */
+  private lassoUp(): void {
+    const l = this.lasso
+    this.lasso = null
+    if (!l) return
+    const at = l.path[0]!
+    // The page the gesture started on, else the current one; judged in that page's coordinates.
+    const slot = this.hit(at[0], at[1]) ?? this.current
+    if (!slot) return this.redraw()
+    const els = slot.page.elements as El[]
+    const loc = ([x, y]: [number, number]): [number, number] => [x - slot.x, y - slot.y]
+    if (!l.moved) {
+      const id = selectTap(els, loc(at))
+      if (l.shift) {
+        if (!id) return this.redraw()
+        const ids = new Set(this.selection?.pageId === slot.page.id ? this.selection.ids : [])
+        if (!ids.delete(id)) ids.add(id)
+        return this.setSelection(slot.page.id, ids)
+      }
+      return this.setSelection(slot.page.id, id ? [id] : [])
+    }
+    const end = l.path[l.path.length - 1]!
+    const ids = l.alt ? selectRect(els, [...loc(at), ...loc(end)]) : selectLasso(els, l.path.map(loc))
+    this.setSelection(slot.page.id, ids)
   }
 
   private build(points: number[][], id: string): Stroke {
@@ -526,7 +628,7 @@ export class Writer {
 
   /** Starts a stroke at `e` when it is on the page. */
   private begin(e: PointerEvent): void {
-    if (this.readOnly) return
+    if (this.readOnly || this.tool === 'lasso') return
     const s = this.under(e)
     if (!s) return
     if (this.history.isLocked(s.page.id)) return this.onBlocked() // a page waiting for its conflict to be settled
@@ -560,12 +662,14 @@ export class Writer {
     const middle = e.pointerType === 'mouse' && e.button === 1
     if (e.button !== 0 && !middle) return
     if (this.ownedBy(e.pointerId)) this.onCancel(e) // its release was lost
-    if (this.mode === 'pen' || this.mode === 'pan') return
+    if (this.mode === 'pen' || this.mode === 'pan' || this.mode === 'lasso') return
     // A pen or mouse takes over: the touch stroke or gesture is dropped. Fingers
     // still down stay in `touches`, so they never turn into ink.
     this.discardStroke()
     this.gesture = null
     this.capture(e)
+    // The lasso selects on every page, read-only or conflicted too; before the pan branches so it never leaks into a pan.
+    if (this.tool === 'lasso' && !middle && !this.hand) return this.lassoDown(e)
     // Read-only: pen and mouse drags pan (touch took its own path above). So do they on a conflicted page.
     const blocked = !this.readOnly && !middle && !this.hand && this.onLockedPage(e)
     if (middle || this.readOnly || blocked || (this.hand && e.pointerType === 'mouse')) {
@@ -634,7 +738,7 @@ export class Writer {
   }
 
   private ownedBy(id: number): boolean {
-    return (this.mode === 'pen' && this.penId === id) || (this.mode === 'pan' && this.pan?.id === id)
+    return (this.mode === 'pen' && this.penId === id) || (this.mode === 'pan' && this.pan?.id === id) || (this.mode === 'lasso' && this.lasso?.id === id)
   }
 
   private onMove(e: PointerEvent): void {
@@ -657,6 +761,13 @@ export class Writer {
       this.movePan(x - e.clientX, y - e.clientY)
       return
     }
+    if (this.mode === 'lasso' && this.lasso && e.pointerId === this.lasso.id) {
+      const l = this.lasso
+      l.path.push(toPage(this.viewport, ...this.local(e.clientX, e.clientY)))
+      if (Math.hypot(e.clientX - l.x, e.clientY - l.y) > CLICK_SLOP) l.moved = true
+      if (l.moved) this.redraw()
+      return
+    }
     const d = this.drawing
     if (!d || e.pointerId !== d.id) return
     const coalesced = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : []
@@ -669,6 +780,18 @@ export class Writer {
   }
 
   private onUp(e: PointerEvent): void {
+    if (this.mode === 'lasso' && this.lasso?.id === e.pointerId) {
+      const l = this.lasso
+      if (this.leaving) this.lasso = null
+      else {
+        // The release point counts too (a quick flick may arrive without a move).
+        const end = toPage(this.viewport, ...this.local(e.clientX, e.clientY))
+        if (Number.isFinite(end[0]) && Number.isFinite(end[1])) l.path.push(end)
+        if (Math.hypot(e.clientX - l.x, e.clientY - l.y) > CLICK_SLOP) l.moved = true
+        this.lassoUp()
+      }
+      this.mode = 'none'
+    }
     const d = this.drawing
     if (!this.leaving && d && e.pointerId === d.id) {
       // A pen reports pressure 0 on release: the last point's pressure stays.
@@ -681,6 +804,11 @@ export class Writer {
   }
 
   private onCancel(e: PointerEvent): void {
+    if (this.mode === 'lasso' && this.lasso?.id === e.pointerId) {
+      this.lasso = null
+      this.mode = 'none'
+      this.redraw()
+    }
     if (!this.leaving && this.drawing && e.pointerId === this.drawing.id) this.finishStroke()
     this.release(e.pointerId)
   }

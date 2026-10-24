@@ -12,6 +12,7 @@ import type { Note } from '../src/model/note'
 import { round2 } from '../src/model/number'
 import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
+import { selectLasso, selectRect, selectTap, type El, type P } from '../src/model/select'
 import { snapScale } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
 import { strokeOutline } from '../src/render/strokeOutline'
@@ -150,6 +151,18 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'synclog.entry': ({ input, expected }) => {
     expect(checkLogEntry((input as { entry: unknown }).entry)).toEqual(expected)
   },
+  'select.lasso': ({ input, expected }) => {
+    const i = input as { elements: El[]; polygon: P[] }
+    expect(selectLasso(i.elements, i.polygon)).toEqual(expected)
+  },
+  'select.tap': ({ input, expected }) => {
+    const i = input as { elements: El[]; point: P; tolerance?: number }
+    expect(selectTap(i.elements, i.point, i.tolerance)).toEqual(expected)
+  },
+  'select.rect': ({ input, expected }) => {
+    const i = input as { elements: El[]; rect: [number, number, number, number] }
+    expect(selectRect(i.elements, i.rect)).toEqual(expected)
+  },
   'zoom.snap': ({ input, expected }) => {
     const i = input as { scale: number; fitScale: number }
     expect(snapScale(i.scale, i.fitScale)).toBe(expected)
@@ -161,9 +174,6 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
-  'select.lasso',
-  'select.tap',
-  'select.rect',
   'ops.move',
   'ops.scale',
   'ops.rotate',
@@ -321,8 +331,8 @@ describe('harness refuses a broken setup', () => {
     const fx = (rule: string) => JSON.stringify({ rule, cases: [{ name: 'a', input: 1, expected: 1 }] })
     expect(loadFixtures(sharedDir).has('stroke.outline.pen')).toBe(true)
     expect(loadFixtures(sharedDir).get('stroke.outline.pen')![0]!.tolerance).toBe(0.02)
-    // a synthetic pending id: PENDING itself is empty now
-    const only = ['stroke.hitTest']
+    // a synthetic pending id, next to the real pending rules (the real fixtures include them)
+    const only = ['stroke.hitTest', ...PENDING]
     expect(loadFixtures(mkOnly({ ...real, 'stroke.hitTest.json': fx('stroke.hitTest') }), only).has('stroke.hitTest')).toBe(false)
     expect(() => loadWith({ 'stroke.hitTest.json': fx('stroke.hitTest') })).toThrow('"stroke.hitTest"')
   })

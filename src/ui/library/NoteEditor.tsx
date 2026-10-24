@@ -112,6 +112,7 @@ export function NoteEditor({
   const popoverOpen = useRef(false)
   popoverOpen.current = popover !== null
   const [selected, setSelected] = useState(0)
+  const [tool, setTool] = useState<'pen' | 'lasso'>('pen')
   const selectedRef = useRef(0)
   selectedRef.current = selected
   // Bumped when the history changes so the undo/redo buttons re-read their state.
@@ -223,6 +224,8 @@ export function NoteEditor({
                 return { gap: g, extraBottom: (toolbar.current?.offsetHeight ?? 0) + g }
               }
               w.onView = (v) => live && setView(v)
+              // Nothing is announced for an empty selection.
+              w.onSelection = (n) => live && n > 0 && setResultText(fmt(tRef.current('editor.selected'), { n }))
               return w
             }
             let w = make(note, store)
@@ -413,6 +416,10 @@ export function NoteEditor({
   useEffect(() => {
     if (readOnly) setPopover(null)
   }, [readOnly])
+  // The writer follows the tool (a reloaded writer starts as the pen); the pen drops the selection.
+  useEffect(() => {
+    loaded?.writer.setTool(tool)
+  }, [loaded, tool])
   // F6 / Shift+F6 cycle corner -> toolbar -> canvas; 1 picks the first slot.
   useEffect(() => {
     if (!ready) return
@@ -433,7 +440,14 @@ export function NoteEditor({
       } else if (e.key === '1' && !e.shiftKey) {
         const target = e.target as Node | null
         const inside = [toolbar.current, canvas.current].some((r) => r && (r.contains(target) || r.contains(active)))
-        if (inside && !readOnly) setSelected(0)
+        if (inside && !readOnly) {
+          setSelected(0)
+          setTool('pen')
+        }
+      } else if ((e.code === 'KeyL' || e.key.toLowerCase() === 'l') && !e.shiftKey && !e.repeat && !e.isComposing) {
+        const target = e.target as Element | null
+        const inside = [toolbar.current, canvas.current].some((r) => r && (r.contains(target) || r.contains(active)))
+        if (inside && !target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) setTool('lasso')
       }
     }
     // Capture, so a handler lower down cannot hide the key.
@@ -462,6 +476,34 @@ export function NoteEditor({
       if (writer.readOnly) return
       const redo = k === 'y' || e.shiftKey
       if (redo ? writer.redo() : writer.undo()) e.preventDefault()
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [loaded])
+
+  // Ctrl/Cmd+A on the canvas selects the whole page with the lasso; Esc drops the selection.
+  useEffect(() => {
+    if (!loaded) return
+    const { writer } = loaded
+    const typingTarget = (n: EventTarget | null) => !!(n as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.altKey) return
+      if (e.key === 'Escape') {
+        if (typingTarget(e.target)) return
+        // A menu, popover or dialog closes first.
+        if (popoverOpen.current || document.querySelector('[role="dialog"], [aria-modal="true"], [role="menu"]')) return
+        if (writer.selectedCount > 0) {
+          writer.clearSelection()
+          e.preventDefault()
+        }
+        return
+      }
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || !(e.code === 'KeyA' || e.key.toLowerCase() === 'a')) return
+      if (document.activeElement !== canvas.current || typingTarget(e.target) || popoverOpen.current) return
+      e.preventDefault()
+      writer.setTool('lasso')
+      setTool('lasso')
+      writer.selectAll()
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
@@ -836,9 +878,14 @@ export function NoteEditor({
               ref={toolbar}
               pens={pens}
               selected={selected}
-              onSelect={(i) => !readOnly && setSelected(i)}
+              onSelect={(i) => {
+                if (readOnly) return
+                setSelected(i)
+                setTool('pen')
+              }}
               onEdit={(i) => {
                 if (readOnly || loaded.writer.busy()) return
+                setTool('pen')
                 setPens(penStore.read()) // another tab may have changed it
                 setPopover(i)
               }}
@@ -846,6 +893,8 @@ export function NoteEditor({
               canRedo={loaded.writer.canRedo}
               onUndo={() => loaded.writer.undo()}
               onRedo={() => loaded.writer.redo()}
+              tool={tool}
+              onToolChange={setTool}
               readOnly={readOnly}
             />
             <div

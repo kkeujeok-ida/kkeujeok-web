@@ -9,11 +9,14 @@ const COLOR_NAME: Record<Pen['colorName'], Key> = { black: 'editor.colorBlack' }
  * divider | undo, redo. Slots are one radiogroup; activating the selected one
  * opens the pen popover (onEdit). The slot buttons carry data-slot for the owner.
  */
-export function PenToolbar({ pens, selected, onSelect, onEdit, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
+export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChange, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
   pens: readonly Pen[]
   selected: number
   onSelect: (i: number) => void
   onEdit: (i: number) => void
+  /** The lasso is a toggle: pressed = lasso, else the pen. It works read-only too (selecting changes nothing). */
+  tool: 'pen' | 'lasso'
+  onToolChange: (t: 'pen' | 'lasso') => void
   canUndo: boolean
   canRedo: boolean
   onUndo: () => void
@@ -91,6 +94,19 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, canUndo, canRedo,
           </svg>
         </button>
       ))}
+      <button
+        type="button"
+        aria-pressed={tool === 'lasso'}
+        aria-label={t('editor.lasso')}
+        title={t('editor.lassoTip')}
+        className="toolbar-action"
+        data-tool="lasso"
+        onClick={() => onToolChange(tool === 'lasso' ? 'pen' : 'lasso')}
+      >
+        <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 2C4.5 2 2 3.8 2 6s2.5 4 6 4 6-1.8 6-4-2.5-4-6-4zM6 10c-1 1-1 3 1 4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeDasharray="2 2" />
+        </svg>
+      </button>
     </div>
   )
 }
