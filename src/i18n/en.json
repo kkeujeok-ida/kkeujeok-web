@@ -219,5 +219,10 @@
   "version.restorePinFailed": "Could not mark the version before restore, so nothing was restored.",
   "version.restoreUnreadable": "This version cannot be read.",
   "version.restoreBusyStroke": "Cannot restore while writing. Finish the stroke and press again.",
-  "version.restoreChanged": "The note changed in the meantime, so nothing was restored. Press again."
+  "version.restoreChanged": "The note changed in the meantime, so nothing was restored. Press again.",
+  "library.noteMenu": "More",
+  "library.noteDelete": "Delete",
+  "library.noteDeleteBody": "Delete this note? It moves to the Drive trash. You can restore it from Drive.",
+  "library.noteDeleteConfirm": "Delete",
+  "library.cancel": "Cancel"
 }

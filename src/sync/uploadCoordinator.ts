@@ -11,7 +11,7 @@
 import type { DriveError } from '../drive/driveClient'
 import type { NoteStore } from '../storage/noteStore'
 import type { SyncInfo } from '../storage/syncInfo'
-import type { NoteUploader } from './noteUploader'
+import { PENDING_TRASH, type NoteUploader } from './noteUploader'
 import { openNoteIds } from './openNotes'
 import type { SyncLog } from './syncLog'
 import { transition } from './syncRules'
@@ -28,7 +28,7 @@ const RETRY_ONCE = new Set(['verifyExhausted', 'sessionLost', 'mergeFailed', 'md
 
 export type CoordinatorDeps = {
   store: Pick<NoteStore, 'listIds' | 'readSync' | 'updateSync'>
-  uploader: Pick<NoteUploader, 'upload' | 'resume'> & Partial<Pick<NoteUploader, 'conflictResolved' | 'markResolved' | 'cleanResolvedSidecars' | 'uploadVerified' | 'reportFailure'>>
+  uploader: Pick<NoteUploader, 'upload' | 'resume'> & Partial<Pick<NoteUploader, 'markTrash' | 'trashNote' | 'conflictResolved' | 'markResolved' | 'cleanResolvedSidecars' | 'uploadVerified' | 'reportFailure'>>
   log: Pick<SyncLog, 'append'>
   allowed: () => boolean
   online: () => boolean
@@ -118,9 +118,10 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
 
   async function one(noteId: string, o: { recover?: boolean; openHere?: boolean } = {}): Promise<void> {
     try {
+      const trash = (await d.store.readSync(noteId)).info.extra[PENDING_TRASH] === true
       const { upload, mark } = await needs(noteId)
-      if (!upload && !mark) return
-      if (upload && (!d.allowed() || !d.online())) return // stays pending; the next trigger picks it up
+      if (!trash && !upload && !mark) return
+      if ((trash || upload) && (!d.allowed() || !d.online())) return // stays pending; the next trigger picks it up
       // A closed note's lock is kept for the whole upload; null: open in another tab, its tab uploads it.
       const note = o.openHere ? { release: async () => {} } : await hold(noteLockName(noteId), true)
       if (!note) return
@@ -129,6 +130,10 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
         if (!mine.lock) return // no sync lock: nothing runs unguarded
         syncHolds.set(noteId, mine)
         try {
+          if (trash) {
+            await d.uploader.trashNote?.(noteId) // sends what is unsent first
+            return
+          }
           // Re-check inside the lock: another tab may have uploaded it while this one waited.
           if (await needsUpload(noteId)) await (o.recover ? d.uploader.resume(noteId) : d.uploader.upload(noteId))
           // With nothing to send the resolve is already on Drive: the sidecar is marked under the same guards.
@@ -189,6 +194,15 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
 
     /** The editor is gone (its last save and lock are released): the note is uploaded when it has unsent changes. */
     noteClosed: (noteId: string) => one(noteId),
+
+    /** Story 7.8: the note is hidden at once; unsent changes go up, then the Drive file is trashed (offline: when connected). */
+    async deleteNote(noteId: string): Promise<void> {
+      try {
+        if (await d.uploader.markTrash?.(noteId)) await one(noteId, { openHere: openIds().includes(noteId) })
+      } catch {
+        // the mark stays; the next trigger repeats the step
+      }
+    },
 
     /** The tab became hidden: open editors are flushed, then every unsent note, the open ones too, goes. */
     async hidden(): Promise<void> {

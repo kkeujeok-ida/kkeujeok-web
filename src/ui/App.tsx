@@ -124,7 +124,7 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
         ) : noteId ? (
           <NoteEditor key={noteId} noteId={noteId} uploads={uploads} receiver={receiver} />
         ) : (
-          <Library root={root} signOut={auth.signOut} receiver={receiver} />
+          <Library root={root} signOut={auth.signOut} receiver={receiver} uploads={uploads} />
         )}
       </main>
     </div>

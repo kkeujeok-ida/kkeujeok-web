@@ -8,6 +8,7 @@ import { createNote } from '../../ops/ops'
 import type { Background, NewNoteDefaults, Orientation } from '../../storage/newNoteDefaults'
 import type { NoteStore } from '../../storage/noteStore'
 import { savesSettled } from '../../storage/saveQueue'
+import { PENDING_TRASH } from '../../sync/noteUploader'
 import type { NoteReceiver } from '../../sync/noteReceiver'
 
 /**
@@ -150,6 +151,9 @@ export function useLibrary(
       const cards = await s.remote.list().catch(() => [])
       if (mine !== seq.current || storeRef.current !== s) return
       const here = new Set(list.map((e) => e.noteId))
+      // Story 7.8: a deleted note that still waits to be trashed is not shown.
+      const hidden = new Set<string>()
+      for (const e of list) if ((await s.readSync(e.noteId)).info.extra[PENDING_TRASH] === true) hidden.add(e.noteId)
       const remote: LibraryItem[] = cards
         .filter((c) => !here.has(c.noteId))
         .map((c) => ({
@@ -159,7 +163,7 @@ export function useLibrary(
           remote: true as const,
           ...(c.blocked && { blocked: { reason: c.blocked, fileId: c.fileId } }),
         }))
-      setState({ status: 'ready', items: sortItems([...list.map(toItem), ...remote]), failed: false })
+      setState({ status: 'ready', items: sortItems([...list.filter((e) => !hidden.has(e.noteId)).map(toItem), ...remote]), failed: false })
     } catch {
       if (mine !== seq.current || storeRef.current !== s) return
       setState((p) => (p.status === 'ready' ? { ...p, failed: true } : { status: 'error', items: [], failed: false }))

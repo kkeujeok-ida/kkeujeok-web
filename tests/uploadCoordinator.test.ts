@@ -366,3 +366,28 @@ describe('retry policy of the web display (Story 3.16)', () => {
     expect((await b.e.sync()).info.state).toBe('error')
   })
 })
+
+describe('delete (Story 7.8)', () => {
+  test('a deleted note is sent, trashed on Drive and removed locally', async () => {
+    const { e, coordinator } = await setup({ locks: undefined })
+    await unsentNote(e)
+    await coordinator(undefined).deleteNote(NID)
+    expect(driveCount(e)).toBe(1)
+    expect(e.drive.calls.at(-1)).toContain('"trashed":true')
+    expect(await e.store.loadNote(NID)).toBeNull()
+  })
+
+  test('a note deleted offline is hidden by its mark and trashed when connected', async () => {
+    const { e, coordinator } = await setup({ locks: undefined })
+    await unsentNote(e)
+    e.flags.online = false
+    const c = coordinator(undefined)
+    await c.deleteNote(NID)
+    expect((await e.sync()).info.extra.pendingTrash).toBe(true)
+    expect(await e.store.loadNote(NID)).not.toBeNull()
+    e.flags.online = true
+    await c.unsent()
+    expect(await e.store.loadNote(NID)).toBeNull()
+  })
+})
+

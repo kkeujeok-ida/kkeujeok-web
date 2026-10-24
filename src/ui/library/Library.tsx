@@ -15,6 +15,8 @@ import { downloadBlob } from '../download'
 import { LibrarySyncing, SyncBadge, useCardStatus, BADGE_KEY } from '../sync/SyncIndicator'
 import { useNoteConflicts, useNoteIssue, useOffline } from '../sync/syncUi'
 import { useDisplayLabel } from '../sync/useDisplayLabel'
+import type { UploadCoordinator } from '../../sync/uploadCoordinator'
+import { ConfirmDialog } from '../ConfirmDialog'
 import { LibraryFab } from './LibraryFab'
 import { NewNoteDialog } from './NewNoteDialog'
 import { noteHref } from './NoteEditor'
@@ -36,6 +38,8 @@ type Props = {
   signOut?: () => void
   /** Remote changes (Story 3.14): cards of notes not downloaded yet, the ↓ badge, the scan placeholder. */
   receiver?: Pick<NoteReceiver, 'subscribe' | 'getState'>
+  /** Story 7.8: deleting a note sends what is unsent, then trashes it on Drive. Without it no delete is offered. */
+  uploads?: Pick<UploadCoordinator, 'deleteNote'>
 }
 
 const NO_RECEIVE: ReceiveState = { version: 0, receiving: new Set(), scanning: false, revived: 0 }
@@ -55,7 +59,7 @@ function formatDate(ms: number | null, locale: string): string {
   }
 }
 
-export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver }: Props) {
+export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver, uploads }: Props) {
   const { t, locale } = useI18n()
   const lib = useLibrary(openStore, defaults, editedBy, receiver)
   const rx = receiver ?? NO_RECEIVER
@@ -153,6 +157,14 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   const items = useMemo(() => sortBy(lib.items, sort), [lib.items, sort])
   const { status } = lib
   const offline = useOffline()
+  const [deleting, setDeleting] = useState<{ noteId: string; from: HTMLElement | null } | null>(null)
+  async function confirmDelete() {
+    const target = deleting
+    setDeleting(null)
+    if (!target || !uploads) return
+    await uploads.deleteNote(target.noteId)
+    if (mounted.current) void lib.reload()
+  }
   return (
     <section ref={section} className="library" aria-label={t('library.label')} aria-busy={status === 'loading'}>
       <Banner />
@@ -239,6 +251,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             blocked={() => entering.current}
             receiving={receive.receiving.has(item.noteId)}
             offline={offline}
+            onDelete={uploads ? (from) => setDeleting({ noteId: item.noteId, from }) : undefined}
             exportCopy={async () => {
               const f = await lib.exportCopy(item.noteId)
               downloadBlob(f.name, f.bytes as BlobPart, 'application/octet-stream')
@@ -256,6 +269,19 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           onCreate={create}
           onClose={() => {
             if (!entering.current) setSheet(null)
+          }}
+        />
+      )}
+      {deleting && (
+        <ConfirmDialog
+          destructive
+          body={t('library.noteDeleteBody')}
+          confirmLabel={t('library.noteDeleteConfirm')}
+          cancelLabel={t('library.cancel')}
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => {
+            setDeleting(null)
+            deleting.from?.focus()
           }}
         />
       )}
@@ -331,6 +357,7 @@ function Card({
   blocked,
   receiving,
   offline,
+  onDelete,
   exportCopy,
 }: {
   item: LibraryItem
@@ -338,6 +365,7 @@ function Card({
   blocked: () => boolean
   receiving: boolean
   offline: boolean
+  onDelete?: (from: HTMLElement | null) => void
   exportCopy: () => Promise<void>
 }) {
   const { t } = useI18n()
@@ -383,10 +411,16 @@ function Card({
     )
   }
   return (
-    <li>
+    <li className="cover-item">
       <a
         className="cover-card"
         href={noteHref(item.noteId)}
+        onKeyDown={(e) => {
+          if (e.key === 'Delete' && onDelete) {
+            e.preventDefault()
+            onDelete(e.currentTarget)
+          }
+        }}
         aria-labelledby={titleId}
         aria-describedby={described}
         title={item.title}
@@ -411,6 +445,37 @@ function Card({
           </span>
         )}
       </a>
+      {onDelete && <NoteMenu onDelete={onDelete} />}
     </li>
+  )
+}
+
+/** The ⋯ button of a card, a sibling of the card link (UX-DR83): [삭제] for now. */
+function NoteMenu({ onDelete }: { onDelete: (from: HTMLElement | null) => void }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const button = useRef<HTMLButtonElement>(null)
+  return (
+    <div className="cover-menu" onKeyDown={(e) => e.key === 'Escape' && open && (setOpen(false), button.current?.focus())}>
+      <button ref={button} type="button" className="btn cover-menu-button" aria-label={t('library.noteMenu')} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+        ⋯
+      </button>
+      {open && (
+        <div role="menu" className="cover-menu-list">
+          <button
+            type="button"
+            role="menuitem"
+            className="btn"
+            autoFocus
+            onClick={() => {
+              setOpen(false)
+              onDelete(button.current)
+            }}
+          >
+            {t('library.noteDelete')}
+          </button>
+        </div>
+      )}
+    </div>
   )
 }

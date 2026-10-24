@@ -219,5 +219,10 @@
   "version.restorePinFailed": "복원 전 버전을 표시하지 못해서 복원하지 않았어요.",
   "version.restoreUnreadable": "이 버전을 읽을 수 없어요.",
   "version.restoreBusyStroke": "쓰는 중에는 복원할 수 없어요. 획을 끝내고 다시 눌러 주세요.",
-  "version.restoreChanged": "그사이 노트가 바뀌어서 복원하지 않았어요. 다시 눌러 주세요."
+  "version.restoreChanged": "그사이 노트가 바뀌어서 복원하지 않았어요. 다시 눌러 주세요.",
+  "library.noteMenu": "더 보기",
+  "library.noteDelete": "삭제",
+  "library.noteDeleteBody": "노트를 지울까요? Drive 휴지통으로 옮겨져요. 복원은 Drive에서 할 수 있어요.",
+  "library.noteDeleteConfirm": "지우기",
+  "library.cancel": "취소"
 }

@@ -32,6 +32,9 @@ import { createSidecarUploader } from './sidecarUploader'
 import type { SyncLog } from './syncLog'
 import { backoffRule, transition, uploadKindRule, verifyPlanRule } from './syncRules'
 
+/** The `sync.json` key of a deleted note that still waits to be trashed (an unknown key, kept by every commit). */
+export const PENDING_TRASH = 'pendingTrash'
+
 export type UploadOutcome = 'uploaded' | 'skipped' | 'failed'
 
 /** A thumbnail PNG over this is not written. */
@@ -801,7 +804,50 @@ export function createNoteUploader(d: UploaderDeps) {
     }
   }
 
+  /** Story 7.8: the person deleted the note; the library hides it and every trigger runs `trashNote` until it is done. */
+  async function markTrash(noteId: string): Promise<boolean> {
+    try {
+      await store.updateSync(noteId, (c) => ({ ...c, extra: { ...c.extra, [PENDING_TRASH]: true } }))
+      return true
+    } catch (e) {
+      if (e instanceof NoteSaveError) return false
+      throw e
+    }
+  }
+
+  /** Sends what is unsent, trashes the Drive file, removes the local note. False while it must wait; the mark stays. */
+  async function trashNote(noteId: string): Promise<boolean> {
+    try {
+      let s = await store.readSync(noteId)
+      if (s.hasUnsent || s.info.pendingVerify !== null) {
+        if ((await run(noteId, false)) !== 'uploaded') return false
+        s = await store.readSync(noteId)
+        if (s.hasUnsent || s.info.pendingVerify !== null) return false
+      }
+      const { fileId } = s.info
+      if (fileId !== null) {
+        if (!d.allowed() || !d.online()) return false
+        try {
+          await call(noteId, () => drive.update(fileId, { trashed: true }), { pass: (e) => e.status === 404 })
+        } catch (e) {
+          if (!(e instanceof DriveError)) throw e // 404: already gone
+        }
+      }
+      const note = await workingNote(noteId)
+      return !note || (await store.removeNote(noteId, note))
+    } catch (e) {
+      if (e instanceof UploadFailure) {
+        await fail(noteId, e.f)
+        return false
+      }
+      if (e instanceof NoteSaveError) return false
+      throw e
+    }
+  }
+
   return {
+    markTrash: (noteId: string) => chained(noteId, () => markTrash(noteId)),
+    trashNote: (noteId: string) => chained(noteId, () => trashNote(noteId)),
     uploadVerified: (noteId: string) => chained(noteId, () => verifiedHead(noteId)),
     reportFailure: (noteId: string, e: DriveError) => chained(noteId, () => failed(noteId, e)),
     /** A conflict was settled in the editor (chained with this note's uploads). */
