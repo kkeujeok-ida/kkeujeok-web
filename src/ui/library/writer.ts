@@ -1168,6 +1168,17 @@ export class Writer {
     this.redraw()
   }
 
+  /** A side handle of the box in edit: `dx` page points along the box; the left handle only narrows or widens. */
+  editWidth(dx: number, right: boolean): void {
+    const ed = this.edit
+    if (!ed || !Number.isFinite(dx)) return
+    const slot = this.slots().list.find((s) => s.page.id === ed.pageId)
+    if (!slot) return
+    const w = Math.max(WIDTH_MIN, ed.el.width as number) + (right ? dx : -dx)
+    ed.el = { ...ed.el, width: Math.round(Math.min(slot.page.width, Math.max(WIDTH_MIN, w)) * 100) / 100 }
+    this.redraw()
+  }
+
   /** Ends the edit: one `createTextBox` (new) or `editText` (changed), nothing for a blank new box or no change. */
   commitEdit(): void {
     const ed = this.edit
@@ -1181,8 +1192,15 @@ export class Writer {
         if (!isBlankText(ed.text)) {
           this.applyEdit({ op: 'createTextBox', pageId: ed.pageId, x: ed.el.x, y: ed.el.y, width: ed.el.width, text: ed.text, runs: ed.runs }, { ids: [ed.id] })
         }
-      } else if (ed.before && (ed.text !== ed.before.text || JSON.stringify(ed.runs) !== JSON.stringify(ed.before.runs))) {
-        this.applyEdit({ op: 'editText', pageId: ed.pageId, id: ed.id, text: ed.text, runs: ed.runs })
+      } else {
+        if (ed.before && (ed.text !== ed.before.text || JSON.stringify(ed.runs) !== JSON.stringify(ed.before.runs))) {
+          this.applyEdit({ op: 'editText', pageId: ed.pageId, id: ed.id, text: ed.text, runs: ed.runs })
+        }
+        // A new width on a stored box is its own op (and undo step).
+        const stored = this.stored(ed)
+        if (stored && typeof stored.width === 'number' && Math.abs((ed.el.width as number) - stored.width) > 0.01) {
+          this.applyEdit({ op: 'setTextBoxWidth', pageId: ed.pageId, id: ed.id, width: ed.el.width })
+        }
       }
     } finally {
       this.redraw()

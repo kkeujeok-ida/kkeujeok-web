@@ -96,6 +96,21 @@ describe('Writer text boxes', () => {
     expect(w2.editInfo()!.text).toBe('')
   })
 
+  test('side handle of the box in edit sets the width: one setTextBoxWidth, one undo step', () => {
+    const w = make(true)
+    w.setTool('text')
+    click(150, 108)
+    const before = w.history.undoDepth
+    w.editWidth(60, true)
+    w.editWidth(10, false) // the left handle dragged right narrows
+    expect(w.editInfo()!.width).toBeCloseTo(250 * w.info().scale, 5)
+    w.commitEdit()
+    expect(boxes(w)[0]!.width).toBe(250)
+    expect(w.history.undoDepth).toBe(before + 1)
+    w.undo()
+    expect(boxes(w)[0]!.width).toBe(200)
+  })
+
   test('a press outside the box in edit confirms it; with the text tool it does not start the next box', () => {
     const w = make()
     w.setTool('text')

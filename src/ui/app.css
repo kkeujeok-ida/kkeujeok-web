@@ -1429,6 +1429,41 @@ h1 {
   resize: none;
 }
 
+.text-edit-handles {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.text-edit-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 14px;
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.text-edit-handle-right {
+  left: auto;
+  right: 0;
+}
+
+.text-edit-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  width: 6px;
+  height: 28px;
+  max-height: 100%;
+  border-radius: 3px;
+  background: var(--color-accent);
+  transform: translateY(-50%);
+}
+
 .text-format-bar {
   position: absolute;
   z-index: 4;

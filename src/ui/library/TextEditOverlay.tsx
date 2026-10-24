@@ -17,6 +17,7 @@ export function TextEditOverlay({ info, writer, origin, onDone }: { info: EditIn
   const { t } = useI18n()
   const area = useRef<HTMLTextAreaElement>(null)
   const bar = useRef<HTMLDivElement>(null)
+  const drag = useRef<{ id: number; x: number; y: number } | null>(null)
   const [barSize, setBarSize] = useState({ w: 220, h: 52 })
 
   // The caret starts at the end of the text, in the textarea, once it is on screen.
@@ -120,6 +121,38 @@ export function TextEditOverlay({ info, writer, origin, onDone }: { info: EditIn
         onMouseUp={sync}
         onKeyDown={onKeyDown}
       />
+      <div
+        data-text-edit=""
+        className="text-edit-handles"
+        style={{ left: origin.x + info.left, top: origin.y + info.top, width: info.width, height: info.height, transform: info.rotation ? `rotate(${info.rotation}deg)` : undefined }}
+      >
+        {([false, true] as const).map((right) => (
+          <div
+            key={String(right)}
+            className={right ? 'text-edit-handle text-edit-handle-right' : 'text-edit-handle'}
+            aria-hidden="true"
+            onPointerDown={(e) => {
+              e.preventDefault()
+              try {
+                e.currentTarget.setPointerCapture(e.pointerId)
+              } catch {
+                // not capturable (synthetic event): moves still arrive over the handle
+              }
+              drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY }
+            }}
+            onPointerMove={(e) => {
+              const d = drag.current
+              if (!d || d.id !== e.pointerId) return
+              const a = (info.rotation * Math.PI) / 180
+              const along = ((e.clientX - d.x) * Math.cos(a) + (e.clientY - d.y) * Math.sin(a)) / info.scale
+              drag.current = { id: d.id, x: e.clientX, y: e.clientY }
+              writer.editWidth(along, right)
+            }}
+            onPointerUp={() => (drag.current = null)}
+            onPointerCancel={() => (drag.current = null)}
+          />
+        ))}
+      </div>
       <div ref={bar} role="toolbar" aria-label={t('editor.formatBar')} className="text-format-bar" data-text-edit="" style={{ left: origin.x + barLeft, top: origin.y + barTop }}>
         <select
           className="text-format-size"
