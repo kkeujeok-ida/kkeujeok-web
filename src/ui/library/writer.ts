@@ -1043,7 +1043,7 @@ export class Writer {
     return false
   }
 
-  /** Text tool: a press on an empty spot of a page starts a box there. */
+  /** Text tool: a press on a text box edits it; on any other spot of a page it starts a box there. */
   private textDown(e: PointerEvent): void {
     e.preventDefault()
     if (this.readOnly) return
@@ -1051,7 +1051,10 @@ export class Writer {
     if (!s) return
     if (this.onBlockedIfLocked(s.page.id)) return
     const p = this.point(e, e.timeStamp, undefined, s)!
-    if (selectTap(s.page.elements as El[], [p[0]!, p[1]!]) !== null) return
+    // On an existing text box: edit it. Anywhere else (strokes and images do not block): a new box.
+    const boxes = (s.page.elements as El[]).filter(isTextBox)
+    const hit = boxes.find((b) => b.id === selectTap(boxes, [p[0]!, p[1]!]))
+    if (hit) return this.startEdit(s, hit, false)
     this.startNew(s, p[0]!, p[1]!)
   }
 

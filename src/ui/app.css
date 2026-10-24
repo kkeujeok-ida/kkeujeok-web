@@ -587,6 +587,20 @@ h1 {
   background: var(--components-editor-corner-background);
 }
 
+.editor-top > .editor-corner:first-child {
+  justify-self: start;
+  padding: var(--spacing-1);
+}
+
+.editor-top > .editor-corner:last-child {
+  justify-self: end;
+}
+
+.editor-banner .btn {
+  border-color: transparent;
+  background: transparent;
+}
+
 .editor-back {
   justify-content: center;
   border-color: transparent;
@@ -747,6 +761,10 @@ h1 {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+}
+
+.editor-canvas:focus-visible {
+  outline: none;
 }
 
 .editor-canvas.is-hand {
@@ -1358,8 +1376,7 @@ h1 {
 }
 
 .selection-menu {
-  flex-wrap: wrap;
-  max-width: 420px;
+  flex-wrap: nowrap;
   position: absolute;
   z-index: 4;
   display: flex;
@@ -1371,9 +1388,10 @@ h1 {
 }
 
 .selection-menu-btn {
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0 var(--spacing-2);
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  justify-content: center;
   white-space: nowrap;
   font-size: var(--typography-label-font-size);
   font-weight: var(--typography-label-font-weight);
