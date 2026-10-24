@@ -88,7 +88,7 @@ describe('Writer text boxes', () => {
     expect(boxes(w)).toHaveLength(1)
     // A stroke is under the second click: it does not block a new box.
     const w2 = make()
-    w2.history.doOp({ op: 'addStroke', pageId: 'p', stroke: { id: 's1', color: '#000000', width: 2, points: [[300, 300, 0.5, 0], [320, 300, 0.5, 10]] } } as never, { rev: 'r', now: 'n', editedBy: 'x', lastSeenRemoteSeq: 0 } as never)
+    w2.history.doOp({ op: 'addStroke', pageId: 'p', stroke: { id: 's1', type: 'stroke', tool: 'pen', color: '#000000', width: 2, usePressure: false, points: [[300, 300, 0.5, 0], [320, 300, 0.5, 10]] } as never }, { rev: 'r2', now: 'n', editedBy: 'X', lastSeenRemoteSeq: 0 })
     expect(w2.history.note.pages[0]!.elements).toHaveLength(1)
     w2.setTool('text')
     click(310, 300)
