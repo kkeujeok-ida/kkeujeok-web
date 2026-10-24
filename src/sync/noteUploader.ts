@@ -507,7 +507,7 @@ export function createNoteUploader(d: UploaderDeps) {
       file = await call(noteId, () => drive.uploadSimple({ ...(fileId !== null && { fileId }), metadata, bytes }), {
         // A create whose answer was lost may have happened: look for the file by its kkeujeokId first. An
         // update whose answer was lost may have landed: its head's md5 says so.
-        beforeRetry: fileId === null ? () => adopt(noteId, sum) : () => landed(noteId, fileId, sum),
+        beforeRetry: fileId === null ? () => adopt(noteId, sum) : () => landed(noteId, fileId, sum, a.parent),
       })
     } else {
       file = await resumable(noteId, fileId, metadata, bytes)
@@ -530,13 +530,14 @@ export function createNoteUploader(d: UploaderDeps) {
     const found = await all(noteId, kkeujeokIdQuery(noteId))
     if (found.length === 0) return null
     if (found.length > 1) await log.append('duplicatesCleaned', { count: found.length - 1 })
-    return landed(noteId, keepOf(noteId, found), sum)
+    return landed(noteId, keepOf(noteId, found), sum, null)
   }
 
   /** The file `id` when its head holds `sum` (the lost request did happen), else null. */
-  async function landed(noteId: string, id: string, sum: string): Promise<DriveFile | null> {
+  /** The file [id] when its head holds [sum] and is not [parent] (the lost request did happen). */
+  async function landed(noteId: string, id: string, sum: string, parent: string | null): Promise<DriveFile | null> {
     const f = await call(noteId, () => drive.get(id, { fields: 'id,headRevisionId,md5Checksum' }))
-    return f.md5Checksum === sum ? f : null
+    return f.headRevisionId != null && f.headRevisionId !== parent && f.md5Checksum === sum ? f : null
   }
 
   async function resumable(noteId: string, fileId: string | null, metadata: Record<string, unknown>, bytes: Uint8Array): Promise<DriveFile> {
