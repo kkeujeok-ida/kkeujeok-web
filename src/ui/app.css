@@ -1383,21 +1383,20 @@ h1 {
   position: absolute;
   z-index: 4;
   display: flex;
-  gap: var(--spacing-1);
-  padding: var(--components-popover-padding);
-  border-radius: var(--components-popover-rounded);
-  background: var(--components-popover-background);
-  box-shadow: var(--components-popover-shadow);
+  align-items: center;
+  gap: 2px;
+  padding: 2px var(--spacing-2);
+  border-radius: var(--components-toolbar-rounded);
+  background: var(--components-toolbar-background);
+  box-shadow: var(--components-toolbar-shadow);
 }
 
 .selection-menu-btn {
-  min-width: 40px;
-  min-height: 40px;
+  flex: none;
+  min-width: 36px;
+  min-height: 36px;
   padding: 0;
   justify-content: center;
-  white-space: nowrap;
-  font-size: var(--typography-label-font-size);
-  font-weight: var(--typography-label-font-weight);
 }
 
 /* A text box in edit (Story 4.10): the textarea takes the typing, the canvas draws the formatted glyphs under it. */

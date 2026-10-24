@@ -48,7 +48,7 @@ export function SelectionMenu({ box, origin, ratioLock, onRatioLock, onScale, on
 }) {
   const { t } = useI18n()
   const ref = useRef<HTMLDivElement>(null)
-  const [size, setSize] = useState({ w: 220, h: 68 })
+  const [size, setSize] = useState({ w: 340, h: 40 })
   const [pop, setPop] = useState<'color' | 'width' | null>(null)
   const [width, setWidth] = useState(box.width ?? 2)
   const dirty = useRef(false)
@@ -90,7 +90,7 @@ export function SelectionMenu({ box, origin, ratioLock, onRatioLock, onScale, on
   }
   const btn = (label: string, icon: string, onClick: () => void, extra: Record<string, unknown> = {}) => (
     <button type="button" className="toolbar-action selection-menu-btn" title={label} aria-label={label} onClick={onClick} {...extra}>
-      <svg className="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
         <path d={icon} fill="currentColor" />
       </svg>
     </button>
