@@ -116,6 +116,7 @@ export function SyncUiProvider({
       e.preventDefault()
       e.returnValue = ''
     }
+    status.revive?.()
     refresh()
     doc.addEventListener('visibilitychange', onVisible)
     win.addEventListener('online', refresh)

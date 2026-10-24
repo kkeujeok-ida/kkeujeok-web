@@ -74,6 +74,18 @@ describe('the store', () => {
     s.dispose()
   })
 
+  test('revive after dispose reads again (StrictMode runs the effect cleanup, then the effect)', async () => {
+    await store.writeNote(mkNote())
+    const s = createSyncStatus({ store })
+    s.dispose()
+    await s.refreshAll()
+    expect(s.getSnapshot().loaded).toBe(false) // a disposed store stays idle
+    s.revive()
+    await s.refreshAll()
+    expect(s.getSnapshot().loaded).toBe(true)
+    s.dispose()
+  })
+
   test('unsent is assumed until the first refreshAll finishes', async () => {
     const s = createSyncStatus({ store })
     expect(s.anyUnsent()).toBe(true)

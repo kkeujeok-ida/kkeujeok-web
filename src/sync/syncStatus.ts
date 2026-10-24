@@ -95,14 +95,16 @@ export function createSyncStatus(d: {
     void readQueued()
     timer = setTimeout(tick, d.delayMs ?? STATUS_DELAY_MS)
   }
-  const unsub = (d.signal ?? onSyncChanged)((noteId) => {
-    if (disposed) return
-    queued.add(noteId)
-    touched?.add(noteId)
-    if (timer) return
-    void readQueued()
-    timer = setTimeout(tick, d.delayMs ?? STATUS_DELAY_MS)
-  })
+  const listen = () =>
+    (d.signal ?? onSyncChanged)((noteId) => {
+      if (disposed) return
+      queued.add(noteId)
+      touched?.add(noteId)
+      if (timer) return
+      void readQueued()
+      timer = setTimeout(tick, d.delayMs ?? STATUS_DELAY_MS)
+    })
+  let unsub = listen()
 
   const api = {
     getSnapshot: () => snap,
@@ -147,6 +149,12 @@ export function createSyncStatus(d: {
     },
     /** True when some note has changes Drive does not have; synchronous, for `beforeunload`. */
     anyUnsent: () => !snap.loaded || [...snap.notes.values()].some((v) => v.hasUnsent),
+    /** Undoes `dispose` (React StrictMode runs an effect's cleanup and then the effect again on the same object). */
+    revive() {
+      if (!disposed) return
+      disposed = false
+      unsub = listen()
+    },
     dispose() {
       disposed = true
       if (timer) clearTimeout(timer)
