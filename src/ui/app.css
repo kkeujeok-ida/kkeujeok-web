@@ -1339,3 +1339,24 @@ h1 {
   color: var(--color-ink-secondary);
   text-align: center;
 }
+
+/* The floating menu of a selection (Story 4.5): over the canvas, next to the selection box. */
+.selection-menu {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  gap: var(--spacing-1);
+  padding: var(--components-popover-padding);
+  border-radius: var(--components-popover-rounded);
+  background: var(--components-popover-background);
+  box-shadow: var(--components-popover-shadow);
+}
+
+.selection-menu-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 var(--spacing-2);
+  white-space: nowrap;
+  font-size: var(--typography-label-font-size);
+  font-weight: var(--typography-label-font-weight);
+}

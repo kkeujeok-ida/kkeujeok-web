@@ -57,9 +57,17 @@ export class History {
     const r = applyOp(this.note, op, ctx)
     if ('error' in r) return r.error
     this.note = r.note
-    this.undoStack.push(r.inverse)
-    this.redoStack = []
+    // A null inverse (nothing changed) is not recorded.
+    if (r.inverse) {
+      this.undoStack.push(r.inverse)
+      this.redoStack = []
+    }
     return null
+  }
+
+  /** Folds the newest undo record into the one below it: a run of nudges becomes one undo step (replaceElements inverses restore the first state). */
+  foldLastUndo(): void {
+    if (this.undoStack.length > 1) this.undoStack.pop()
   }
 
   undo(ctx: Ctx) {
@@ -77,7 +85,7 @@ export class History {
     if ('error' in r) return r.error
     this.note = r.note
     from.pop()
-    to.push(r.inverse)
+    if (r.inverse) to.push(r.inverse)
     return null
   }
 }

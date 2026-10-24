@@ -2,8 +2,9 @@
 // History -> serial saves, and the canvas that shows the page (with its zoom
 // and pan view). No React here.
 import { newId } from '../../model/ids'
-import { selectLasso, selectRect, selectTap, selectionBounds, type El } from '../../model/select'
-import { paintSelection, selectionColors } from '../../render/selectionPainter'
+import { selectLasso, selectRect, selectTap, selectionBounds, type Bounds, type El } from '../../model/select'
+import { ROTATE_GAP, paintSelection, selectionColors } from '../../render/selectionPainter'
+import type { Op } from '../../ops/ops'
 import type { Page, Stroke } from '../../model/note'
 import type { Pen } from '../../model/pen'
 import type { History } from '../../ops/history'
@@ -47,12 +48,40 @@ export const PAGE_GAP = 16
 export type FitMode = 'width' | 'page' | 'free'
 // Who owns the pointers: nobody, a touch stroke, a touch outside the page, a
 // two-finger gesture, fingers to ignore until all lift, a pen/mouse, a pan drag.
-type Mode = 'none' | 'stroke' | 'idle' | 'gesture' | 'ignored' | 'pen' | 'pan' | 'lasso'
+type Mode = 'none' | 'stroke' | 'idle' | 'gesture' | 'ignored' | 'pen' | 'pan' | 'lasso' | 'xform'
 export type Tool = 'pen' | 'lasso'
 /** A lasso drag or click: `path` is in document coordinates, `x`/`y` the client start (to tell a click from a drag). */
 type Lasso = { id: number; shift: boolean; alt: boolean; x: number; y: number; moved: boolean; path: [number, number][] }
 /** A drag shorter than this (CSS px) is a click. */
 const CLICK_SLOP = 4
+/** Smallest radius (CSS px) that hits a handle; a box smaller than this on both sides is grabbed inside first. */
+const HANDLE_HIT = 24
+const SMALL_BOX = 48
+const MIN_SCALE = 0.05
+/** Arrow-key nudges this close together are one undo step. */
+const NUDGE_MS = 500
+/** A selection drag: `start`/`cur` and `b` (the selection bounds) are in the coordinates of the selection's page. `corner`: 0 tl, 1 tr, 2 bl, 3 br. */
+type Xform = { id: number; kind: 'move' | 'scale' | 'rotate'; corner: number; slot: Slot; ids: string[]; b: Bounds; start: [number, number]; cur: [number, number]; shift: boolean; down: { x: number; y: number; doc: [number, number]; shift: boolean; alt: boolean } }
+/** The selection box in canvas CSS px, and the canvas size, for the floating menu. */
+export type SelectionBox = { left: number; top: number; right: number; bottom: number; w: number; h: number }
+
+/** What a screen point (CSS px) grabs of the selection box `l,t,r,b`: its inside (move), the rotate handle or a corner (0 tl, 1 tr, 2 bl, 3 br). */
+export function hitSelection(l: number, t: number, r: number, b: number, x: number, y: number): 'move' | 'rotate' | number | null {
+  const inside = (pad: number) => x >= l - pad && x <= r + pad && y >= t - pad && y <= b + pad
+  if (r - l < SMALL_BOX && b - t < SMALL_BOX && inside(6)) return 'move' // handles would cover it
+  if (Math.hypot(x - (l + r) / 2, y - (t - ROTATE_GAP)) <= HANDLE_HIT) return 'rotate'
+  let best = -1
+  let bd = HANDLE_HIT
+  for (const [i, [cx, cy]] of ([[l, t], [r, t], [l, b], [r, b]] as const).entries()) {
+    const d = Math.hypot(x - cx, y - cy)
+    if (d <= bd) {
+      best = i
+      bd = d
+    }
+  }
+  if (best >= 0) return best
+  return inside(0) ? 'move' : null
+}
 /** `page`: index of the current page (the one in view, or the one a page key moved to); `pages`: how many there are. */
 export type ViewInfo = { scale: number; x: Thumb | null; y: Thumb | null; page: number; pages: number }
 /** A page and where it starts in the document: all pages stacked vertically, centered, `PAGE_GAP` apart. */
@@ -88,6 +117,11 @@ export class Writer {
   private finalizing: Promise<void> | null = null
   private tool: Tool = 'pen'
   private lasso: Lasso | null = null
+  private xform: Xform | null = null
+  private nudgeRun: { key: string; depth: number; timer: ReturnType<typeof setTimeout> } | null = null
+  private lastBox = ''
+  /** Keep the aspect ratio when resizing (Shift flips it for one drag). UI state, not saved. */
+  ratioLock = true
   /** Selection is UI state (never in the note): the page and the ids of its selected elements. */
   private selection: { pageId: string; ids: Set<string> } | null = null
   /** Padding and the room under the page's end; the editor knows the toolbar. */
@@ -96,6 +130,8 @@ export class Writer {
   readOnly = false
   /** Called with the number of selected elements whenever the selection changed. */
   onSelection: (n: number) => void = () => {}
+  /** Called when the box the floating menu hangs on changed (null: no editable selection). */
+  onBox: (b: SelectionBox | null) => void = () => {}
   /** Called whenever the view (scale, scrollbars) changed. */
   onView: (v: ViewInfo) => void = () => {}
   /** Someone tried to write or undo on a page with an unresolved conflict (Story 3.20). */
@@ -219,6 +255,7 @@ export class Writer {
       this.pan = null
       this.gesture = null
       this.lasso = null
+      this.xform = null
       this.mode = 'none'
       canvas.classList.remove('is-panning')
       this.setHand(false)
@@ -363,7 +400,7 @@ export class Writer {
 
   /** A stroke, a gesture or a pan is going on. */
   busy(): boolean {
-    return this.drawing !== null || this.mode === 'gesture' || this.mode === 'pan' || this.mode === 'lasso'
+    return this.drawing !== null || this.mode === 'gesture' || this.mode === 'pan' || this.mode === 'lasso' || this.mode === 'xform'
   }
 
   /** Moves to `to`; at once when the system asks for no motion. Not under a stroke or a drag. */
@@ -473,6 +510,7 @@ export class Writer {
   redraw(): void {
     const c = this.canvas
     if (!c || !this.page) return
+    this.emitBox()
     let ctx: CanvasRenderingContext2D | null = null
     try {
       ctx = c.getContext('2d')
@@ -501,8 +539,11 @@ export class Writer {
     const b = sel ? selectionBounds(sel.els) : null
     const path = this.lasso?.moved ? this.lasso.path : null
     if (b || path) {
-      const box = b && sel && { left: b.left + sel.slot.x, top: b.top + sel.slot.y, right: b.right + sel.slot.x, bottom: b.bottom + sel.slot.y }
-      paintSelection(ctx, vp, box, path, selectionColors(c))
+      // A drag shows the box as it would end up (the elements change on release).
+      const pv = this.xform && b ? this.preview(this.xform) : { b, angle: 0 }
+      const pb = pv.b
+      const box = pb && sel && { left: pb.left + sel.slot.x, top: pb.top + sel.slot.y, right: pb.right + sel.slot.x, bottom: pb.bottom + sel.slot.y }
+      paintSelection(ctx, vp, box, path, selectionColors(c), pv.angle)
     }
   }
 
@@ -548,7 +589,191 @@ export class Writer {
     if (s) this.setSelection(s.page.id, (s.page.elements as El[]).map((e) => e?.id as string).filter((id) => typeof id === 'string'))
   }
 
+  private clearNudge(): void {
+    if (this.nudgeRun) clearTimeout(this.nudgeRun.timer)
+    this.nudgeRun = null
+  }
+
+  /** Editing the page is allowed: not read-only, not closing, no unresolved conflict. */
+  private canEdit(pageId: string): boolean {
+    return !this.readOnly && !this.leaving && !this.history.isLocked(pageId)
+  }
+
+  private emitBox(): void {
+    const sel = this.selected()
+    const b = sel && this.canEdit(sel.slot.page.id) ? selectionBounds(sel.els) : null
+    const v = this.viewport
+    const box = b && sel && {
+      left: v.offsetX + (b.left + sel.slot.x) * v.scale,
+      top: v.offsetY + (b.top + sel.slot.y) * v.scale,
+      right: v.offsetX + (b.right + sel.slot.x) * v.scale,
+      bottom: v.offsetY + (b.bottom + sel.slot.y) * v.scale,
+      w: this.cssW,
+      h: this.cssH,
+    }
+    const key = JSON.stringify(box)
+    if (key === this.lastBox) return
+    this.lastBox = key
+    this.onBox(box)
+  }
+
+  /** A press on the selection box or a handle starts a move, resize or rotation. False: the press is for the lasso. */
+  private xformDown(e: PointerEvent): boolean {
+    const sel = this.selected()
+    if (!sel || !this.canEdit(sel.slot.page.id)) return false
+    const b = selectionBounds(sel.els)
+    if (!b) return false
+    const v = this.viewport
+    const [lx, ly] = this.local(e.clientX, e.clientY)
+    const sx = (x: number) => v.offsetX + (x + sel.slot.x) * v.scale
+    const sy = (y: number) => v.offsetY + (y + sel.slot.y) * v.scale
+    const hit = hitSelection(sx(b.left), sy(b.top), sx(b.right), sy(b.bottom), lx, ly)
+    if (hit === null) return false
+    const [dx, dy] = toPage(v, lx, ly)
+    const at: [number, number] = [dx - sel.slot.x, dy - sel.slot.y]
+    // Shift or Alt on the inside is the lasso's toggle / rectangle. On a handle it starts the drag; a click without a drag is the lasso's (see onUp).
+    if ((e.shiftKey || e.altKey) && hit === 'move') return false
+    // A press inside the box on an element that is not selected picks that element (lasso/tap path), it does not move.
+    if (hit === 'move') {
+      const id = selectTap(sel.slot.page.elements as El[], at)
+      if (id !== null && !sel.els.some((x) => x.id === id)) return false
+    }
+    this.mode = 'xform'
+    this.xform = {
+      id: e.pointerId,
+      kind: hit === 'move' || hit === 'rotate' ? hit : 'scale',
+      corner: typeof hit === 'number' ? hit : -1,
+      slot: sel.slot,
+      ids: sel.els.map((x) => x.id as string),
+      b,
+      start: at,
+      cur: at,
+      shift: e.shiftKey,
+      down: { x: e.clientX, y: e.clientY, doc: [dx, dy], shift: e.shiftKey, alt: e.altKey },
+    }
+    e.preventDefault()
+    try {
+      this.canvas?.focus({ preventScroll: true })
+    } catch {
+      // focus is a convenience
+    }
+    return true
+  }
+
+  /** The op the drag would make, or null when it changes nothing. */
+  private xformOp(x: Xform): Op | null {
+    const base = { pageId: x.slot.page.id, ids: x.ids }
+    const { b } = x
+    const dx = x.cur[0] - x.start[0]
+    const dy = x.cur[1] - x.start[1]
+    if (x.kind === 'move') return dx || dy ? { op: 'move', ...base, dx, dy } : null
+    if (x.kind === 'rotate') {
+      const cx = (b.left + b.right) / 2
+      const cy = (b.top + b.bottom) / 2
+      const turn = Math.atan2(x.cur[1] - cy, x.cur[0] - cx) - Math.atan2(x.start[1] - cy, x.start[0] - cx)
+      const angle = ((((turn * 180) / Math.PI + 180) % 360) + 360) % 360 - 180
+      return Number.isFinite(angle) && Math.abs(angle) > 1e-9 ? { op: 'rotate', ...base, angle } : null
+    }
+    // The anchor is the opposite corner; (vx, vy) runs from it to the grabbed corner.
+    const right = x.corner % 2 === 1
+    const bottom = x.corner >= 2
+    const anchor: [number, number] = [right ? b.left : b.right, bottom ? b.top : b.bottom]
+    const vx = (right ? b.right : b.left) - anchor[0]
+    const vy = (bottom ? b.bottom : b.top) - anchor[1]
+    const nx = vx + dx
+    const ny = vy + dy
+    let sx = vx ? nx / vx : 1
+    let sy = vy ? ny / vy : 1
+    if (this.ratioLock !== x.shift) {
+      const d = vx * vx + vy * vy
+      if (d === 0) return null
+      sx = sy = (nx * vx + ny * vy) / d
+    }
+    sx = Math.max(MIN_SCALE, sx)
+    sy = Math.max(MIN_SCALE, sy)
+    return Number.isFinite(sx) && Number.isFinite(sy) && (sx !== 1 || sy !== 1) ? { op: 'scale', ...base, sx, sy, anchor } : null
+  }
+
+  /** The selection box as the drag stands: bounds in page coordinates and a turn in degrees. */
+  private preview(x: Xform): { b: Bounds; angle: number } {
+    const op = this.xformOp(x)
+    const { b } = x
+    if (!op) return { b, angle: 0 }
+    if (op.op === 'move') {
+      const dx = op.dx as number
+      const dy = op.dy as number
+      return { b: { left: b.left + dx, right: b.right + dx, top: b.top + dy, bottom: b.bottom + dy }, angle: 0 }
+    }
+    if (op.op === 'rotate') return { b, angle: op.angle as number }
+    const [ax, ay] = op.anchor as [number, number]
+    const sx = op.sx as number
+    const sy = op.sy as number
+    return { b: { left: ax + (b.left - ax) * sx, right: ax + (b.right - ax) * sx, top: ay + (b.top - ay) * sy, bottom: ay + (b.bottom - ay) * sy }, angle: 0 }
+  }
+
+  /** Applies one edit: it is one undo step and joins the save queue. Returns the error code or null. */
+  private applyEdit(op: Op): string | null {
+    this.clearNudge() // nudge() reads its run before calling this and sets a new one after
+    const err = this.history.doOp(op, this.ctx())
+    if (err === 'pageReadOnly') this.onBlocked()
+    else if (err === 'elementNotFound') this.clearSelection() // the selection is stale
+    else if (err) this.message('historyNotApplied')
+    this.redraw()
+    if (!err) {
+      this.queue.commit(this.history.note)
+      this.onChange()
+    }
+    return err
+  }
+
+  private finishXform(): void {
+    const x = this.xform
+    this.xform = null
+    const op = x && this.xformOp(x)
+    if (op) this.applyEdit(op)
+    else this.redraw()
+  }
+
+  /** The selection when it can be edited now (not mid-drag), with its bounds in page coordinates. */
+  private editable() {
+    const sel = this.selected()
+    const b = sel && selectionBounds(sel.els)
+    return sel && b && !this.busy() && this.canEdit(sel.slot.page.id) ? { sel, b } : null
+  }
+
+  /** [크게]/[작게]: scales the selection by `factor` on both axes about the center of its box. */
+  scaleSelection(factor: number): boolean {
+    const e = this.editable()
+    if (!e) return false
+    const anchor = [(e.b.left + e.b.right) / 2, (e.b.top + e.b.bottom) / 2]
+    return !this.applyEdit({ op: 'scale', pageId: e.sel.slot.page.id, ids: e.sel.els.map((x) => x.id), sx: factor, sy: factor, anchor })
+  }
+
+  /** [90° 회전] and the like: clockwise degrees about the center of the selection. */
+  rotateSelection(angle: number): boolean {
+    const e = this.editable()
+    return !!e && !this.applyEdit({ op: 'rotate', pageId: e.sel.slot.page.id, ids: e.sel.els.map((x) => x.id), angle })
+  }
+
+  /** Arrow keys: moves the selection by (dx, dy) page pt; a run within 500 ms is one undo step. False: nothing to move, the key is free. */
+  nudge(dx: number, dy: number): boolean {
+    const e = this.editable()
+    if (!e) return false
+    const ids = e.sel.els.map((x) => x.id as string)
+    const key = `${e.sel.slot.page.id}:${ids.join()}`
+    const run = this.nudgeRun
+    const depth = this.history.undoDepth
+    if (this.applyEdit({ op: 'move', pageId: e.sel.slot.page.id, ids, dx, dy })) return true
+    // Nothing else was recorded since the last nudge: this record folds into it.
+    if (run && run.key === key && run.depth === depth && this.history.undoDepth === depth + 1) this.history.foldLastUndo()
+    if (run) clearTimeout(run.timer)
+    const timer = setTimeout(() => (this.nudgeRun = null), NUDGE_MS)
+    this.nudgeRun = { key, depth: this.history.undoDepth, timer }
+    return true
+  }
+
   private lassoDown(e: PointerEvent): void {
+    if (this.xformDown(e)) return
     const d = toPage(this.viewport, ...this.local(e.clientX, e.clientY))
     this.mode = 'lasso'
     this.lasso = { id: e.pointerId, shift: e.shiftKey, alt: e.altKey, x: e.clientX, y: e.clientY, moved: false, path: [d] }
@@ -662,7 +887,7 @@ export class Writer {
     const middle = e.pointerType === 'mouse' && e.button === 1
     if (e.button !== 0 && !middle) return
     if (this.ownedBy(e.pointerId)) this.onCancel(e) // its release was lost
-    if (this.mode === 'pen' || this.mode === 'pan' || this.mode === 'lasso') return
+    if (this.mode === 'pen' || this.mode === 'pan' || this.mode === 'lasso' || this.mode === 'xform') return
     // A pen or mouse takes over: the touch stroke or gesture is dropped. Fingers
     // still down stay in `touches`, so they never turn into ink.
     this.discardStroke()
@@ -738,7 +963,7 @@ export class Writer {
   }
 
   private ownedBy(id: number): boolean {
-    return (this.mode === 'pen' && this.penId === id) || (this.mode === 'pan' && this.pan?.id === id) || (this.mode === 'lasso' && this.lasso?.id === id)
+    return (this.mode === 'pen' && this.penId === id) || (this.mode === 'pan' && this.pan?.id === id) || (this.mode === 'lasso' && this.lasso?.id === id) || (this.mode === 'xform' && this.xform?.id === id)
   }
 
   private onMove(e: PointerEvent): void {
@@ -761,6 +986,14 @@ export class Writer {
       this.movePan(x - e.clientX, y - e.clientY)
       return
     }
+    if (this.mode === 'xform' && this.xform && e.pointerId === this.xform.id) {
+      const x = this.xform
+      const [dx, dy] = toPage(this.viewport, ...this.local(e.clientX, e.clientY))
+      if (Number.isFinite(dx) && Number.isFinite(dy)) x.cur = [dx - x.slot.x, dy - x.slot.y]
+      x.shift = e.shiftKey
+      this.redraw()
+      return
+    }
     if (this.mode === 'lasso' && this.lasso && e.pointerId === this.lasso.id) {
       const l = this.lasso
       l.path.push(toPage(this.viewport, ...this.local(e.clientX, e.clientY)))
@@ -780,6 +1013,21 @@ export class Writer {
   }
 
   private onUp(e: PointerEvent): void {
+    if (this.mode === 'xform' && this.xform?.id === e.pointerId) {
+      const x = this.xform
+      const [dx, dy] = toPage(this.viewport, ...this.local(e.clientX, e.clientY))
+      if (Number.isFinite(dx) && Number.isFinite(dy)) x.cur = [dx - x.slot.x, dy - x.slot.y]
+      x.shift = e.shiftKey
+      this.mode = 'none'
+      const d = x.down
+      if (this.leaving) this.xform = null
+      else if ((d.shift || d.alt) && Math.hypot(e.clientX - d.x, e.clientY - d.y) <= CLICK_SLOP) {
+        // Shift/Alt-click on a handle point: the lasso's toggle, not a resize.
+        this.xform = null
+        this.lasso = { id: x.id, shift: d.shift, alt: d.alt, x: d.x, y: d.y, moved: false, path: [d.doc] }
+        this.lassoUp()
+      } else this.finishXform()
+    }
     if (this.mode === 'lasso' && this.lasso?.id === e.pointerId) {
       const l = this.lasso
       if (this.leaving) this.lasso = null
@@ -804,6 +1052,11 @@ export class Writer {
   }
 
   private onCancel(e: PointerEvent): void {
+    if (this.mode === 'xform' && this.xform?.id === e.pointerId) {
+      this.xform = null
+      this.mode = 'none'
+      this.redraw()
+    }
     if (this.mode === 'lasso' && this.lasso?.id === e.pointerId) {
       this.lasso = null
       this.mode = 'none'
@@ -868,6 +1121,7 @@ export class Writer {
 
   private replay(kind: 'undo' | 'redo'): boolean {
     const depth = kind === 'undo' ? this.history.undoDepth : this.history.redoDepth
+    this.clearNudge()
     if ((this.pageLocked || this.history.topLocked(kind)) && !this.readOnly && !this.leaving) {
       this.onBlocked() // the record of a conflicted page is gone; nothing else is undone under it
       return false
@@ -1000,6 +1254,7 @@ export class Writer {
   finalize(): Promise<void> {
     // finishAndClose runs its first, synchronous part (the stroke ends) before
     // `finalizing` is set; no input event can interleave there.
+    this.clearNudge()
     return (this.finalizing ??= trackSave(this.finishAndClose()))
   }
 

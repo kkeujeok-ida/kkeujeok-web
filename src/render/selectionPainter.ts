@@ -25,6 +25,8 @@ export function paintSelection(
   box: Bounds | null,
   lasso: readonly (readonly [number, number])[] | null,
   colors: ReturnType<typeof selectionColors>,
+  /** Degrees: the box is drawn turned about its center (rotate-drag preview). */
+  angle = 0,
 ): void {
   const sx = (x: number) => vp.offsetX + x * vp.scale
   const sy = (y: number) => vp.offsetY + y * vp.scale
@@ -39,6 +41,11 @@ export function paintSelection(
   if (box) {
     const l = sx(box.left), t = sy(box.top), r = sx(box.right), b = sy(box.bottom)
     const cx = (l + r) / 2
+    if (angle) {
+      ctx.translate(cx, (t + b) / 2)
+      ctx.rotate((angle * Math.PI) / 180)
+      ctx.translate(-cx, -(t + b) / 2)
+    }
     ctx.setLineDash(DASH)
     ctx.strokeRect(l, t, r - l, b - t)
     ctx.setLineDash([])

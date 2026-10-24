@@ -20,11 +20,12 @@ import { SyncIndicator } from '../sync/SyncIndicator'
 import { ConflictDialog, type ConflictItem, type ResolveOutcome, pageNo, resultKey } from './ConflictDialog'
 import { PenPopover } from './PenPopover'
 import { PenToolbar } from './PenToolbar'
+import { SelectionMenu } from './SelectionMenu'
 import { VersionHistory } from './VersionHistory'
 import { onResolveRequest, takeResolveRequest } from './resolveRequest'
 import { detectEditedBy } from './useLibrary'
 import { ZOOM_MAX, ZOOM_MIN } from '../../render/pagePainter'
-import { ARROW_STEP, Writer, ZOOM_STEP, type ViewInfo, type WriterMessage } from './writer'
+import { ARROW_STEP, Writer, ZOOM_STEP, type SelectionBox, type ViewInfo, type WriterMessage } from './writer'
 
 /** The noteId of a `#/notes/{noteId}` hash, else null. */
 export function parseNoteRoute(hash: string): string | null {
@@ -113,6 +114,8 @@ export function NoteEditor({
   popoverOpen.current = popover !== null
   const [selected, setSelected] = useState(0)
   const [tool, setTool] = useState<'pen' | 'lasso'>('pen')
+  const [box, setBox] = useState<SelectionBox | null>(null)
+  const [ratio, setRatio] = useState(true)
   const selectedRef = useRef(0)
   selectedRef.current = selected
   // Bumped when the history changes so the undo/redo buttons re-read their state.
@@ -224,6 +227,7 @@ export function NoteEditor({
                 return { gap: g, extraBottom: (toolbar.current?.offsetHeight ?? 0) + g }
               }
               w.onView = (v) => live && setView(v)
+              w.onBox = (b) => live && setBox(b)
               // Nothing is announced for an empty selection.
               w.onSelection = (n) => live && n > 0 && setResultText(fmt(tRef.current('editor.selected'), { n }))
               return w
@@ -420,6 +424,9 @@ export function NoteEditor({
   useEffect(() => {
     loaded?.writer.setTool(tool)
   }, [loaded, tool])
+  useEffect(() => {
+    if (loaded) loaded.writer.ratioLock = ratio
+  }, [loaded, ratio])
   // F6 / Shift+F6 cycle corner -> toolbar -> canvas; 1 picks the first slot.
   useEffect(() => {
     if (!ready) return
@@ -490,6 +497,8 @@ export function NoteEditor({
       if (e.isComposing || e.altKey) return
       if (e.key === 'Escape') {
         if (typingTarget(e.target)) return
+        // Esc in the selection menu only returns to the canvas (the selection stays).
+        if ((e.target as HTMLElement | null)?.closest?.('[data-selection-menu]')) return
         // A menu, popover or dialog closes first.
         if (popoverOpen.current || document.querySelector('[role="dialog"], [aria-modal="true"], [role="menu"]')) return
         if (writer.selectedCount > 0) {
@@ -558,6 +567,13 @@ export function NoteEditor({
         ArrowRight: [ARROW_STEP, 0],
         ArrowUp: [0, -ARROW_STEP],
         ArrowDown: [0, ARROW_STEP],
+      }
+      // With a selection the arrows move it (1 pt, Shift 10 pt); without one, or read-only, they scroll.
+      const nudge: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+      const n = nudge[e.key]
+      if (n && !e.isComposing && writer.nudge(n[0] * (e.shiftKey ? 10 : 1), n[1] * (e.shiftKey ? 10 : 1))) {
+        e.preventDefault()
+        return
       }
       const d = arrow[e.key]
       if (d && !e.shiftKey) {
@@ -992,6 +1008,17 @@ export function NoteEditor({
               aria-label={pageLabel}
               aria-describedby={descId}
             />
+            {box && !readOnly && !loaded.writer.pageLocked && (
+              <SelectionMenu
+                box={box}
+                origin={{ x: canvas.current?.offsetLeft ?? 0, y: canvas.current?.offsetTop ?? 0 }}
+                ratioLock={ratio}
+                onRatioLock={() => setRatio((r) => !r)}
+                onScale={(f) => loaded.writer.scaleSelection(f)}
+                onRotate={() => loaded.writer.rotateSelection(90)}
+                onLeave={() => canvas.current?.focus()}
+              />
+            )}
             <span id={descId} className="sr-only">
               {loaded.writer.pageLocked ? `${t('editor.handwriting')}. ${t('editor.conflictDescription')}` : t('editor.handwriting')}
             </span>

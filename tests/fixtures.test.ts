@@ -70,6 +70,9 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   },
   'ops.addStroke': opRunner,
   'ops.removeStroke': opRunner,
+  'ops.move': opRunner,
+  'ops.scale': opRunner,
+  'ops.rotate': opRunner,
   'ops.undoRedo': ({ input, expected }) => {
     type Step = { kind: 'do' | 'undo' | 'redo'; op?: Op; ctx: Ctx }
     const i = input as { note: Note; steps: Step[] }
@@ -174,9 +177,6 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
-  'ops.move',
-  'ops.scale',
-  'ops.rotate',
   'ops.setStrokeColor',
   'ops.setStrokeWidth',
   'ops.delete',
@@ -189,8 +189,16 @@ function mergeRunner({ input, expected }: Case) {
 }
 
 function opRunner({ input, expected }: Case) {
-  const i = input as { note: Note; op: Op; ctx: Ctx }
-  expect(applyOp(i.note, i.op, i.ctx)).toEqual(expected)
+  const i = input as { note: Note; op: Op; ctx: Ctx; undoCtx?: Ctx }
+  let r = applyOp(i.note, i.op, i.ctx)
+  // Inverse case: the inverse goes onto the result; only its note is compared.
+  if (i.undoCtx && 'note' in r && r.inverse) {
+    const u = applyOp(r.note, r.inverse, i.undoCtx)
+    r = 'note' in u ? { note: u.note, inverse: null } : u
+    expect({ note: (r as { note: Note }).note }).toEqual(expected)
+    return
+  }
+  expect(r).toEqual(expected)
 }
 
 const sharedDir = fileURLToPath(new URL('../../test/', import.meta.url))
