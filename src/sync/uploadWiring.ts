@@ -7,6 +7,7 @@ import { createAuthedDrive } from '../drive/authedDrive'
 import { type RootFolderStore, uploadsAllowed } from '../drive/rootFolderStore'
 import { renderThumbnail } from '../drive/thumbnail'
 import { newId } from '../model/ids'
+import { defaultImageHost, sharedAssetStore } from './imageWiring'
 import { openNoteDb } from '../storage/noteDb'
 import { openNoteStore } from '../storage/noteStore'
 import { createSyncDeviceStore } from '../storage/syncDevice'
@@ -41,6 +42,9 @@ export function defaultUploadCoordinator(auth: Auth, root: RootFolderStore): Upl
       sleep: (ms, noteId) => (c ? c.pause(ms, noteId) : new Promise((r) => setTimeout(r, ms))),
       jitter: Math.random,
       thumbnail: renderThumbnail,
+      // The image assets a note references go before it (Story 4.13); a confirmed one clears its "저장 대기" mark.
+      assets: sharedAssetStore(),
+      onAssetConfirmed: (hash) => defaultImageHost(auth, root).markConfirmed(hash),
     })
     c = createUploadCoordinator({
       store,

@@ -25,6 +25,8 @@ export type DriveFile = {
   /** Newest revision, when asked for. */
   headRevisionId?: string
   md5Checksum?: string
+  /** Byte count, when asked for. */
+  size?: number
   /** Canonical timestamp, when asked for. */
   modifiedTime?: string
   mimeType?: string
@@ -144,6 +146,7 @@ function toFile(json: unknown, fallbackId?: string): DriveFile {
     trashed: m.trashed === true,
     ...(typeof m.headRevisionId === 'string' && { headRevisionId: m.headRevisionId }),
     ...(typeof m.md5Checksum === 'string' && { md5Checksum: m.md5Checksum }),
+    ...(typeof m.size === 'string' && /^\d+$/.test(m.size) && { size: Number(m.size) }),
     ...(typeof m.modifiedTime === 'string' && { modifiedTime: m.modifiedTime }),
     ...(typeof m.mimeType === 'string' && { mimeType: m.mimeType }),
     ...(typeof m.thumbnailLink === 'string' && { thumbnailLink: m.thumbnailLink }),

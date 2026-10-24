@@ -6,6 +6,8 @@ import { elementClipboard } from '../../model/elementClipboard'
 import { isTextBox, selectLasso, selectRect, selectTap, selectionBounds, type Bounds, type El } from '../../model/select'
 import { cpIndex, formatAt, formatRange, retextRuns, type TextFormat } from '../../model/textEdit'
 import { COLOR_DEFAULT, SIZE_DEFAULT, WIDTH_MIN, cpLen, isBlankText, layoutText, normalizeNewlines, normalizeRuns, textHeight, type Run } from '../../model/textLayout'
+import { imageInitialSize } from '../../model/imageRules'
+import type { ImageHost } from '../../render/imageHost'
 import { ROTATE_GAP, paintSelection, selectionColors } from '../../render/selectionPainter'
 import type { Op } from '../../ops/ops'
 import type { Page, Stroke } from '../../model/note'
@@ -34,7 +36,16 @@ import {
 import type { NoteStore } from '../../storage/noteStore'
 import { SaveQueue, markUnsaved, trackSave } from '../../storage/saveQueue'
 
-export type WriterMessage = 'saveFailed' | 'strokeNotAdded' | 'historyNotApplied'
+export type WriterMessage =
+  | 'saveFailed'
+  | 'strokeNotAdded'
+  | 'historyNotApplied'
+  | 'imageTooLarge'
+  | 'imageConverted'
+  | 'imageConvertFailed'
+  | 'imageUnsupported'
+  | 'imageUnreadable'
+  | 'imageStoreFailed'
 
 /** `ox`, `oy`: where the page of the stroke starts in the continuous scroll; `points` are in that page's coordinates. */
 type Drawing = { id: number; strokeId: string; type: string; t0: number; points: number[][]; pageId: string; ox: number; oy: number }
@@ -162,6 +173,8 @@ export class Writer {
   private lastBox = ''
   /** Last pointer position over the canvas (client px), null once it left: where Ctrl+V pastes. */
   private pointer: { x: number; y: number } | null = null
+  /** The images of this note (bytes, sync state, decoded pictures); none: image elements are grey boxes and nothing can be inserted. */
+  images: ImageHost | null = null
   /** Keep the aspect ratio when resizing (Shift flips it for one drag). UI state, not saved. */
   ratioLock = true
   /** Selection is UI state (never in the note): the page and the ids of its selected elements. */
@@ -577,6 +590,7 @@ export class Writer {
     // rAF-coalesced if 2.15 measures them slow.
     const vp = this.viewport
     for (const id of [...this.caches.keys()]) if (!this.history.note.pages.some((p) => p.id === id)) this.caches.delete(id)
+    this.images?.watch(this.history.note)
     const live = this.drawing ? this.build(this.drawing.points, this.drawing.strokeId) : null
     const draft = this.edit ? { pageId: this.edit.pageId, id: this.edit.id, el: this.draftEl(this.edit) } : null
     for (const s of this.slots().list) {
@@ -585,7 +599,7 @@ export class Writer {
       const left = vp.offsetX + s.x * vp.scale
       if (top > this.cssH || top + s.page.height * vp.scale < 0 || left > this.cssW || left + s.page.width * vp.scale < 0) continue
       const at = { scale: vp.scale, offsetX: left, offsetY: top }
-      paintPage(ctx, s.page, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null, draft && draft.pageId === s.page.id ? draft : null)
+      paintPage(ctx, s.page, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null, draft && draft.pageId === s.page.id ? draft : null, this.images ?? undefined)
     }
     // Over the page clip: the box and its handles may stand outside the page.
     const sel = this.selected()
@@ -918,13 +932,44 @@ export class Writer {
     return true
   }
 
-  /** Where Ctrl+V puts things: the pointer when it is over a page, else the middle of the view. Null when nothing can be pasted there. */
-  private pasteTarget(): { slot: Slot; at: [number, number] } | null {
+  /**
+   * An image file from the file picker, a drop or a paste (Story 4.13): converted when needed, stored, then one `insertImage`
+   * (one undo step) centered on `clientAt` when that is over a page (a drop), else on the pointer or the middle of the view.
+   * Not an image: nothing happens. Resolves to whether an image went in.
+   */
+  async insertImage(file: Blob, clientAt?: { x: number; y: number } | 'center'): Promise<boolean> {
+    const host = this.images
+    if (!host || this.readOnly || this.leaving) return false
+    const p = await host.prepare(file)
+    if ('error' in p) {
+      const m = { tooLarge: 'imageTooLarge', convertFailed: 'imageConvertFailed', unsupported: 'imageUnsupported', unreadable: 'imageUnreadable', storeFailed: 'imageStoreFailed' } as const
+      if (p.error !== 'ignored') this.message(m[p.error])
+      return false
+    }
+    // Only after the bytes are stored; the page is chosen now, not when the file was picked.
+    const target = this.pasteTarget(clientAt)
+    if (!target) return false
+    const { slot, at } = target
+    const size = imageInitialSize(p.pxWidth, p.pxHeight, slot.page.width, slot.page.height)
+    const id = newId()
+    const err = this.applyEdit(
+      { op: 'insertImage', pageId: slot.page.id, asset: p.hash, ext: p.ext, pxWidth: p.pxWidth, pxHeight: p.pxHeight, width: size.width, height: size.height, x: at[0] - size.width / 2, y: at[1] - size.height / 2 },
+      { ids: [id] },
+    )
+    if (err) return false
+    this.setSelection(slot.page.id, [id])
+    if (p.converted) this.message('imageConverted')
+    return true
+  }
+
+  /** Where Ctrl+V puts things: `clientAt` or the pointer when it is over a page, else the middle of the view. Null when nothing can be pasted there. */
+  private pasteTarget(clientAt?: { x: number; y: number } | 'center'): { slot: Slot; at: [number, number] } | null {
     if (this.busy() || !this.canvas) return null
     let at: [number, number] | null = null
     let slot: Slot | undefined
-    if (this.pointer) {
-      const [lx, ly] = this.local(this.pointer.x, this.pointer.y)
+    const from = clientAt === 'center' ? null : (clientAt ?? this.pointer)
+    if (from) {
+      const [lx, ly] = this.local(from.x, from.y)
       const [dx, dy] = toPage(this.viewport, lx, ly)
       slot = this.hit(dx, dy)
       if (slot) at = [dx - slot.x, dy - slot.y]
@@ -1204,7 +1249,11 @@ export class Writer {
         if (!ids.delete(id)) ids.add(id)
         return this.setSelection(slot.page.id, ids)
       }
-      return this.setSelection(slot.page.id, id ? [id] : [])
+      this.setSelection(slot.page.id, id ? [id] : [])
+      // A placeholder that failed to download tries again when it is tapped.
+      const hit = id ? els.find((e) => e?.id === id) : undefined
+      if (hit?.type === 'image' && typeof hit.asset === 'string' && this.images?.state(hit.asset) === 'failed') this.images.retry(hit.asset)
+      return
     }
     const end = l.path[l.path.length - 1]!
     const ids = l.alt ? selectRect(els, [...loc(at), ...loc(end)]) : selectLasso(els, l.path.map(loc))

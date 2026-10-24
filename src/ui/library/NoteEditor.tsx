@@ -28,6 +28,7 @@ import { VersionHistory } from './VersionHistory'
 import { onResolveRequest, takeResolveRequest } from './resolveRequest'
 import { detectEditedBy } from './useLibrary'
 import { ZOOM_MAX, ZOOM_MIN } from '../../render/pagePainter'
+import type { ImageHost } from '../../render/imageHost'
 import { ARROW_STEP, Writer, ZOOM_STEP, type EditInfo, type SelectionBox, type ViewInfo, type WriterMessage } from './writer'
 
 /** The noteId of a `#/notes/{noteId}` hash, else null. */
@@ -73,6 +74,12 @@ const MESSAGE_KEY: Record<WriterMessage, Key> = {
   saveFailed: 'editor.saveFailed',
   strokeNotAdded: 'editor.strokeNotAdded',
   historyNotApplied: 'editor.historyNotApplied',
+  imageTooLarge: 'editor.imageTooLarge',
+  imageConverted: 'editor.imageConverted',
+  imageConvertFailed: 'editor.imageConvertFailed',
+  imageUnsupported: 'editor.imageUnsupported',
+  imageUnreadable: 'editor.imageUnreadable',
+  imageStoreFailed: 'editor.imageStoreFailed',
 }
 
 // Per note: the release of the lock a left editor still holds.
@@ -96,6 +103,7 @@ export function NoteEditor({
   penStore = sharedPenSlots(),
   uploads,
   receiver,
+  images,
   lockWaitMs = LOCK_WAIT_MS,
 }: {
   noteId: string
@@ -105,6 +113,8 @@ export function NoteEditor({
   uploads?: Pick<UploadCoordinator, 'noteClosed'> & Partial<Pick<UploadCoordinator, 'conflictResolved' | 'syncNow'>>
   /** Receives remote changes before the editor opens and checks the remote head after (Story 3.14). */
   receiver?: Pick<NoteReceiver, 'beforeOpen' | 'noteOpened'> & Partial<Pick<NoteReceiver, 'noteClosed'>>
+  /** The image bytes, their sync state and pictures (Story 4.13); without it images are grey boxes and none can be added. */
+  images?: ImageHost
   /** How long a held note lock is waited for before the note opens read-only (decision: 3 s). */
   lockWaitMs?: number
 }) {
@@ -132,6 +142,9 @@ export function NoteEditor({
   const [blocked, setBlocked] = useState(0)
   const [alert, setAlert] = useState({ text: '', n: 0 })
   const say = (text: string) => setAlert((a) => ({ text, n: a.n + 1 }))
+  const imagesRef = useRef(images)
+  imagesRef.current = images
+  const picker = useRef<HTMLInputElement>(null)
   const sayRef = useRef(say)
   sayRef.current = say
   const tRef = useRef(t)
@@ -209,6 +222,7 @@ export function NoteEditor({
                 () => live && setRevision((n) => n + 1),
               )
               w.readOnly = readOnly || newer
+              w.images = imagesRef.current ?? null
               // Pages with an unresolved conflict are read-only from the first frame (Story 3.20).
               if (sync) w.history.setLocked(unresolvedOf(sync.info).map((c) => String(c.pageId)))
               w.onBlocked = () => {
@@ -375,6 +389,49 @@ export function NoteEditor({
     if (!loaded || !canvas.current) return
     return loaded.writer.attach(canvas.current)
   }, [loaded])
+
+  // The words of the placeholders; a change of the pictures or of their sync state repaints and re-reads the image list.
+  useEffect(() => {
+    if (!loaded || !images) return
+    images.labels = { downloading: t('image.downloading'), failed: t('image.failed'), broken: t('image.broken') }
+    return images.subscribe(() => {
+      loaded.writer.redraw()
+      setRevision((n) => n + 1)
+    })
+  }, [loaded, images, t])
+
+  // Image files go in by the toolbar picker, by drop and by paste: each one is one edit, selected afterwards (Story 4.13).
+  const addImages = (files: Blob[], at?: { x: number; y: number } | 'center') => {
+    const w = loaded?.writer
+    if (!w || files.length === 0) return
+    void (async () => {
+      for (const f of files) {
+        if (await w.insertImage(f, at)) {
+          w.setTool('lasso')
+          setTool('lasso')
+        }
+      }
+    })()
+  }
+  const isImageFile = (f: File) => f.type.startsWith('image/') || /.(heic|heif)$/i.test(f.name)
+  useEffect(() => {
+    if (!loaded || !images) return
+    const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types?.includes('Files')
+    // A file dropped anywhere on the page must not make the browser open it.
+    const onOver = (e: DragEvent) => hasFiles(e) && e.preventDefault()
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      if (popoverOpen.current || document.querySelector('[role="dialog"], [aria-modal="true"]')) return
+      addImages([...(e.dataTransfer?.files ?? [])].filter(isImageFile), { x: e.clientX, y: e.clientY })
+    }
+    document.addEventListener('dragover', onOver)
+    document.addEventListener('drop', onDrop)
+    return () => {
+      document.removeEventListener('dragover', onOver)
+      document.removeEventListener('drop', onDrop)
+    }
+  })
 
   // The snackbar goes away by itself.
   useEffect(() => {
@@ -565,6 +622,13 @@ export function NoteEditor({
       if (document.activeElement !== canvas.current || popoverOpen.current) return
       if ((e.target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return
       if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return
+      // No elements copied here, an image file on the system clipboard: an image (Story 4.13). Else the text rules below.
+      const pics = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'))
+      if (!elementClipboard.fresh && pics.length > 0) {
+        e.preventDefault()
+        addImages(pics.slice(0, 1))
+        return
+      }
       const text = e.clipboardData?.getData('text/plain') ?? ''
       const done = !elementClipboard.fresh && !isBlankText(text) ? writer.pasteText(text) : elementClipboard.size > 0 ? writer.pasteClipboard() : writer.pasteText(text)
       if (done) {
@@ -962,6 +1026,9 @@ export function NoteEditor({
   // The confirmed text boxes, readable by a screen reader.
   const textBoxes = pages.flatMap((p) => (p.elements as { id?: string; type?: string; text?: unknown }[]).filter((e) => e?.type === 'text' && typeof e.text === 'string').map((e) => ({ id: e.id as string, text: e.text as string })))
 
+  // The images, readable by a screen reader with their state (placeholder, waiting to be saved).
+  const imageEls = pages.flatMap((p) => (p.elements as { id?: string; type?: string; asset?: unknown }[]).filter((e) => e?.type === 'image' && typeof e.asset === 'string').map((e) => ({ id: e.id as string, asset: e.asset as string })))
+
   return (
     <section ref={section} className="editor" aria-label={loaded?.title} aria-busy={!loaded}>
       <Banner otherTab={loaded?.readOnly === true} noteId={noteId} pulse={blocked} onClose={() => (loaded ? onBack() : goToLibrary())} />
@@ -1001,6 +1068,7 @@ export function NoteEditor({
               onRedo={() => loaded.writer.redo()}
               tool={tool}
               onToolChange={setTool}
+              {...(images && { onImage: () => picker.current?.click() })}
               readOnly={readOnly}
             />
             <div
@@ -1090,6 +1158,20 @@ export function NoteEditor({
             </div>
           </div>
           <div className="editor-page-area" role="group" aria-label={`${t('editor.canvas')}: ${pageLabel ?? ''}`}>
+            <input
+              ref={picker}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
+              multiple
+              hidden
+              data-image-picker=""
+              onChange={(e) => {
+                const files = [...(e.target.files ?? [])].filter(isImageFile)
+                e.target.value = '' // the same file can be picked again
+                addImages(files, 'center')
+                canvas.current?.focus()
+              }}
+            />
             <canvas
               ref={canvas}
               className="editor-canvas"
@@ -1116,6 +1198,24 @@ export function NoteEditor({
             )}
             {edit && !readOnly && (
               <TextEditOverlay key={edit.id} info={edit} writer={loaded.writer} origin={{ x: canvas.current?.offsetLeft ?? 0, y: canvas.current?.offsetTop ?? 0 }} onDone={() => canvas.current?.focus()} />
+            )}
+            {imageEls.length > 0 && images && (
+              <ul className="sr-only" aria-label={t('editor.images')}>
+                {imageEls.map((im) => {
+                  const state = images.state(im.asset)
+                  const key = state === 'failed' ? 'editor.imageFailed' : state === 'downloading' ? 'editor.imageDownloading' : images.pending(im.asset) ? 'editor.imagePending' : 'editor.imageItem'
+                  return (
+                    <li key={im.id}>
+                      {t(key)}
+                      {state === 'failed' && (
+                        <button type="button" onClick={() => images.retry(im.asset)}>
+                          {t('editor.imageRetry')}
+                        </button>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
             )}
             {textBoxes.length > 0 && (
               <ul className="sr-only" aria-label={t('editor.textBoxes')}>

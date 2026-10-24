@@ -2,6 +2,7 @@
 import { type Note, type Page, type Stroke, SUPPORTED_FORMAT_VERSION, isValidStroke, roundStroke } from '../model/note'
 import { normalizeTitle } from '../model/noteTitle'
 import { round2 } from '../model/number'
+import { IMAGE_SIZE_MIN, isAssetHash } from '../model/imageRules'
 import { isTextBox, selectionBounds, type El } from '../model/select'
 import { COLOR_DEFAULT, SIZE_DEFAULT, SIZE_MAX, SIZE_MIN, WIDTH_MIN, cpLen, isBlankText, normalizeNewlines, normalizeRuns, textHeight, validRuns } from '../model/textLayout'
 
@@ -76,6 +77,8 @@ export function applyOp(note: Note, op: Op, ctx: Ctx): OpResult {
       return paste(note, op, ctx)
     case 'createTextBox':
       return createTextBox(note, op, ctx)
+    case 'insertImage':
+      return insertImage(note, op, ctx)
     case 'editText':
     case 'setTextBoxWidth':
       return editText(note, op, ctx)
@@ -189,7 +192,10 @@ function transformOp(note: Note, op: Op, ctx: Ctx): OpResult {
         }
         continue
       }
-      const nw = w * sx, nh = h * sy
+      // spec/transform.md "Images": a side never goes under sizeMin (before rounding).
+      const img = e.type === 'image'
+      const nw = img ? Math.max(IMAGE_SIZE_MIN, w * sx) : w * sx
+      const nh = img ? Math.max(IMAGE_SIZE_MIN, h * sy) : h * sy
       e.x = round2(cx - nw / 2)
       e.y = round2(cy - nh / 2)
       e.width = round2(nw)
@@ -388,4 +394,23 @@ function editText(note: Note, op: Op, ctx: Ctx): OpResult {
     e.runs = normalizeRuns(op.runs as unknown[], cpLen(text))
   }
   return { note: next, inverse: { op: 'replaceElements', pageId: op.pageId, elements: [before] } }
+}
+
+// spec/ops.md ops.insertImage: the bytes are the caller's business (already stored).
+function insertImage(note: Note, op: Op, ctx: Ctx): OpResult {
+  const next = structuredClone(note)
+  const page = findPage(next, op.pageId)
+  if (!page) return { error: 'pageNotFound' }
+  const px = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 1
+  const side = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && round2(v) >= 1
+  if (!px(op.pxWidth) || !px(op.pxHeight) || !side(op.width) || !side(op.height)) return { error: 'invalidSize' }
+  if (!isAssetHash(op.asset)) return { error: 'invalidAsset' }
+  if (op.ext !== 'jpg' && op.ext !== 'png' && op.ext !== 'webp') return { error: 'unsupportedExt' }
+  const id = ctx.ids![0]!
+  page.elements.push({
+    id, type: 'image', x: round2(op.x as number), y: round2(op.y as number), width: round2(op.width as number), height: round2(op.height as number),
+    rotation: 0, asset: op.asset, ext: op.ext, pxWidth: op.pxWidth, pxHeight: op.pxHeight,
+  } as unknown as Page['elements'][number])
+  touch(page, ctx)
+  return { note: next, inverse: { op: 'delete', pageId: op.pageId, ids: [id] } }
 }

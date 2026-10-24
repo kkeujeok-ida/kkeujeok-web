@@ -47,6 +47,7 @@ export function createFakeDrive(o: { pageSize?: number; changePageSize?: number 
     ...(i.thumb && { thumbnailLink: `https://thumb.test/${i.id}` }),
     ...(i.revs.length > 0 && {
       headRevisionId: i.revs.at(-1)!.id,
+      size: i.revs.at(-1)!.bytes.length,
       md5Checksum: createHash('md5').update(i.revs.at(-1)!.bytes).digest('hex'),
       modifiedTime: i.revs.at(-1)!.modifiedTime,
     }),

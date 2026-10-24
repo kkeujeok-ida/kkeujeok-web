@@ -11,6 +11,7 @@ import { defaultRootFolder, type RootFolderStore } from '../drive/rootFolderStor
 import type { UploadCoordinator } from '../sync/uploadCoordinator'
 import type { NoteReceiver } from '../sync/noteReceiver'
 import { defaultReceiver, useReceiveTriggers } from '../sync/receiveWiring'
+import { defaultImageHost } from '../sync/imageWiring'
 import { defaultOtherTime, defaultUploadCoordinator, defaultVersions, useUploadTriggers } from '../sync/uploadWiring'
 import { requestResolve } from './library/resolveRequest'
 import { ReviveSnackbar } from './sync/ReviveSnackbar'
@@ -79,6 +80,8 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
     [receiverProp, rootProp, auth, root],
   )
   useReceiveTriggers(receiver, root)
+  // The images of the notes (Story 4.13): real Drive only with the default root, like uploads.
+  const images = useMemo(() => (rootProp ? undefined : defaultImageHost(auth, root)), [rootProp, auth, root])
   const { t } = useI18n()
   const expanded = useSidebarExpanded()
   const noteId = parseNoteRoute(useHash())
@@ -122,7 +125,7 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
         {settingsOpen ? (
           <Settings auth={auth} onClose={() => setSettingsOpen(false)} {...(unsentIds && { unsentIds })} />
         ) : noteId ? (
-          <NoteEditor key={noteId} noteId={noteId} uploads={uploads} receiver={receiver} />
+          <NoteEditor key={noteId} noteId={noteId} uploads={uploads} receiver={receiver} images={images} />
         ) : (
           <Library root={root} signOut={auth.signOut} receiver={receiver} uploads={uploads} />
         )}

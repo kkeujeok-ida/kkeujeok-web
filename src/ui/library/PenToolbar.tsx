@@ -9,7 +9,7 @@ export const COLOR_NAME: Record<Pen['colorName'], Key> = { black: 'editor.colorB
  * divider | undo, redo. Slots are one radiogroup; activating the selected one
  * opens the pen popover (onEdit). The slot buttons carry data-slot for the owner.
  */
-export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChange, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
+export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChange, onImage, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
   pens: readonly Pen[]
   selected: number
   onSelect: (i: number) => void
@@ -17,6 +17,8 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
   /** The lasso and the text tool are toggles: pressed = that tool, else the pen. The lasso works read-only too (selecting changes nothing); the text tool does not. */
   tool: 'pen' | 'lasso' | 'text'
   onToolChange: (t: 'pen' | 'lasso' | 'text') => void
+  /** [이미지]: opens the file picker (Story 4.13). Without it (no image host) the button is off. */
+  onImage?: () => void
   canUndo: boolean
   canRedo: boolean
   onUndo: () => void
@@ -119,6 +121,19 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
       >
         <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
           <path d="M3 3.5V2h10v1.5M8 2v12M6 14h4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        aria-label={t('editor.image')}
+        title={readOnly ? t('editor.readOnlyTip') : t('editor.imageTip')}
+        aria-disabled={readOnly || !onImage || undefined}
+        className="toolbar-action"
+        data-tool="image"
+        onClick={() => !readOnly && onImage?.()}
+      >
+        <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2.5 3h11v10h-11zM2.5 11l3.5-3.5 3 3 2-2 2.5 2.5M10.5 6.5h.01" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
     </div>

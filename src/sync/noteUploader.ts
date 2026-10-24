@@ -28,6 +28,8 @@ import { classifyDriveError } from './errorClass'
 import { hasUnsentRule } from './hasUnsent'
 import type { MergeIo } from './mergeIo'
 import { chained } from './noteChain'
+import type { AssetStore } from '../storage/assetStore'
+import { createAssetUploader } from './assetUploader'
 import { createSidecarUploader } from './sidecarUploader'
 import type { SyncLog } from './syncLog'
 import { backoffRule, transition, uploadKindRule, verifyPlanRule } from './syncRules'
@@ -68,6 +70,10 @@ export type UploaderDeps = {
   /** PNG of a page at the size the summary names; null when it cannot be drawn. */
   thumbnail?: (page: Page, width: number, height: number) => Promise<Uint8Array | null>
   md5?: (bytes: Uint8Array) => string
+  /** Image asset bytes of this browser; without it the image assets of a note are not checked or uploaded. */
+  assets?: AssetStore
+  /** Drive holds this image asset (checked or just uploaded). */
+  onAssetConfirmed?: (hash: string) => void
   /** Resumable chunk size (a multiple of 262,144); the spec value by default. */
   chunkSize?: number
   /** Milliseconds since the epoch, for the 30-day sidecar cleanup. */
@@ -94,6 +100,20 @@ export function createNoteUploader(d: UploaderDeps) {
     call: (noteId, fn, o) => call(noteId, fn, o),
     failure: (cls, o) => failure(cls, o),
   })
+
+  // sync.md step 0 / image.md "Upload order": the image assets a note references go before it.
+  const assetUp = d.assets
+    ? createAssetUploader({
+        drive,
+        device: d.device,
+        assets: d.assets,
+        md5,
+        call: (noteId, fn, o) => call(noteId, fn, o),
+        failure: (cls, o) => failure(cls, o),
+        ensureFolder: sidecars.ensureFolder,
+        ...(d.onAssetConfirmed && { onConfirmed: d.onAssetConfirmed }),
+      })
+    : null
 
   // ---- state -------------------------------------------------------------
   /** True when `working` has changes `head` does not (sync.hasUnsent against that head). */
@@ -410,7 +430,9 @@ export function createNoteUploader(d: UploaderDeps) {
         if (ours === null) {
           // Step 2, after the sidecars a merge may just have raised (step 0).
           await sidecars.upload(noteId)
-          const snapshot = (await workingNote(noteId)) ?? working0
+          // The note whose assets were just checked is the one that goes up: an edit after that waits for the next upload.
+          const read = async () => (await workingNote(noteId)) ?? working0
+          const snapshot = assetUp ? await assetUp.send(noteId, read) : await read()
           const fid = fileId
           const par = parent
           const up = await send(noteId, {

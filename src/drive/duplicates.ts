@@ -12,3 +12,7 @@ export function driveDuplicatesRule(input: {
   const sorted = [...input.items].sort((a, b) => cmp(a.createdTime, b.createdTime) || cmp(a.id, b.id))
   return { keep: sorted[0]!.id, merge: sorted.slice(1).map((i) => i.id) }
 }
+
+/** Spec `drive.assetsFolder`: `drive.duplicates` with `kkeujeokId` fixed to `assets` (the folder is merged, unlike the asset files). */
+export const driveAssetsFolderRule = (input: { items: { id: string; createdTime: string }[] }) =>
+  driveDuplicatesRule({ kkeujeokId: 'assets', items: input.items })

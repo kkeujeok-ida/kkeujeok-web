@@ -11,6 +11,7 @@ export const SYNC_STORE = 'sync'
 export const DEVICE_STORE = 'device'
 export const REMOTE_STORE = 'remote'
 export const SIDECAR_STORE = 'sidecars'
+export const ASSET_STORE = 'assets'
 
 /** A write did not happen. Earlier values are intact. */
 export class NoteSaveError extends Error {
@@ -34,6 +35,8 @@ const UPGRADES: ((db: IDBPDatabase) => void)[] = [
   (db) => void db.createObjectStore(REMOTE_STORE),
   // conflict sidecar records not uploaded yet (key JSON [noteId, pageId, rev], Story 3.20)
   (db) => void db.createObjectStore(SIDECAR_STORE),
+  // image asset bytes (key sha256 hex, value { ext, bytes }, Story 4.13)
+  (db) => void db.createObjectStore(ASSET_STORE),
 ]
 
 export type Db = {

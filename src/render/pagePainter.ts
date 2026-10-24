@@ -4,6 +4,7 @@
 import { isValidStroke, type Page, type Stroke } from '../model/note'
 import { pageBackground } from './pageBackground'
 import { outlinePath, strokeOutline } from './strokeOutline'
+import { drawableImage, paintImage, type ImageSource } from './imagePainter'
 import { drawableText, paintTextBox } from './textPainter'
 
 /** page point = (local - offset) / scale. Only 2.12 (zoom/pan) changes it. */
@@ -161,6 +162,8 @@ export function paintPage(
   live?: Stroke | null,
   /** A text box being edited: this draft is drawn in place of the stored element `id` (or on top when it is new). */
   draft?: { id: string; el: Record<string, unknown> } | null,
+  /** Where the pictures of image elements come from; none (a thumbnail) draws grey boxes. */
+  images?: ImageSource,
 ): void {
   const { width: w, height: h } = page
   const { scale, offsetX, offsetY } = viewport
@@ -209,6 +212,7 @@ export function paintPage(
           drafted = true
           paintTextBox(ctx, draft.el)
         } else if (drawableText(e)) paintTextBox(ctx, e)
+        else if (drawableImage(e)) paintImage(ctx, e, images)
         if (!isValidStroke(e)) continue
         ids.add(e.id)
         fill(ctx, cache.pathOf(e), e.color)

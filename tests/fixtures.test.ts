@@ -13,6 +13,8 @@ import { round2 } from '../src/model/number'
 import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
 import { selectLasso, selectRect, selectTap, type El, type P } from '../src/model/select'
+import { driveAssetsFolderRule } from '../src/drive/duplicates'
+import { assetState, imageAccept, imageInitialSize, imageUploadPlan, referencedAssets } from '../src/model/imageRules'
 import { layoutText, type LineBox } from '../src/model/textLayout'
 import { snapScale } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
@@ -82,6 +84,42 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'ops.editText': opRunner,
   'ops.setTextBoxWidth': opRunner,
   'ops.textBox': opRunner,
+  'ops.image': opRunner,
+  'ops.insertImage': opRunner,
+  'select.image': ({ input, expected }) => {
+    const i = input as { fn: 'lasso' | 'tap' | 'rect'; elements: El[]; polygon?: P[]; point?: P; tolerance?: number; rect?: [number, number, number, number] }
+    const got = i.fn === 'lasso' ? selectLasso(i.elements, i.polygon!) : i.fn === 'tap' ? selectTap(i.elements, i.point!, i.tolerance) : selectRect(i.elements, i.rect!)
+    expect(got).toEqual(expected)
+  },
+  'drive.assetsFolder': ({ input, expected }) => void expect(driveAssetsFolderRule(input as Parameters<typeof driveAssetsFolderRule>[0])).toEqual(expected),
+  'image.accept': ({ input, expected }) => {
+    const i = input as { head: string; size: number }
+    expect(imageAccept(i.head, i.size)).toEqual(expected)
+  },
+  'image.initialSize': ({ input, expected }) => {
+    const i = input as { pxWidth: number; pxHeight: number; pageWidth: number; pageHeight: number }
+    expect(imageInitialSize(i.pxWidth, i.pxHeight, i.pageWidth, i.pageHeight)).toEqual(expected)
+  },
+  'image.referencedAssets': ({ input, expected }) => void expect(referencedAssets((input as { note: Note }).note)).toEqual(expected),
+  'image.uploadPlan': ({ input, expected }) => {
+    const i = input as { referenced: string[]; confirmed: string[]; onDevice: string[] }
+    expect(imageUploadPlan(i.referenced, i.confirmed, i.onDevice)).toEqual(expected)
+  },
+  'image.assetState': ({ input, expected }) => {
+    const i = input as { asset: unknown; local: string[]; failed: string[] }
+    expect({ state: assetState(i.asset, i.local, i.failed) }).toEqual(expected)
+  },
+  'image.unknownFields': async ({ input, expected }) => {
+    const i = input as { note: Note; op?: Op; ctx?: Ctx }
+    if (!i.op) {
+      const r = await decodeKkj(await encodeKkj(i.note))
+      expect(r.result).toBe('ok')
+      expect({ note: r.note }).toEqual(expected)
+      return
+    }
+    const r = applyOp(i.note, i.op, i.ctx!)
+    expect({ note: 'note' in r ? r.note : undefined }).toEqual(expected)
+  },
   'text.unknownFields': async ({ input, expected }) => {
     const i = input as { note: Note; op?: Op; ctx?: Ctx }
     if (!i.op) {
@@ -213,19 +251,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Sync rules (Story 3.2) arrive with the web sync stories (3.4, 3.6, 3.10, ...);
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
-// Image rules (Story 4.11) arrive with Story 4.13.
-const PENDING: string[] = [
-  'drive.assetsFolder',
-  'image.accept',
-  'image.assetState',
-  'image.initialSize',
-  'image.referencedAssets',
-  'image.unknownFields',
-  'image.uploadPlan',
-  'ops.image',
-  'ops.insertImage',
-  'select.image',
-]
+const PENDING: string[] = []
 
 function mergeRunner({ input, expected }: Case) {
   const i = input as { base: Note | null; local: Note; remote: Note; ctx: MergeCtx }

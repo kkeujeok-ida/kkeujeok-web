@@ -171,5 +171,5 @@ export function createSidecarUploader(d: SidecarUploaderDeps) {
     }
   }
 
-  return { upload }
+  return { upload, ensureFolder }
 }
