@@ -159,7 +159,19 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Rules whose fixture must exist and be valid but have no runner yet.
 // Sync rules (Story 3.2) arrive with the web sync stories (3.4, 3.6, 3.10, ...);
 // each story removes its rule here when it adds the runner.
-const PENDING: string[] = []
+// Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
+const PENDING: string[] = [
+  'select.lasso',
+  'select.tap',
+  'select.rect',
+  'ops.move',
+  'ops.scale',
+  'ops.rotate',
+  'ops.setStrokeColor',
+  'ops.setStrokeWidth',
+  'ops.delete',
+  'ops.paste',
+]
 
 function mergeRunner({ input, expected }: Case) {
   const i = input as { base: Note | null; local: Note; remote: Note; ctx: MergeCtx }
