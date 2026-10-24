@@ -941,6 +941,7 @@ export class Writer {
     const host = this.images
     if (!host || this.readOnly || this.leaving) return false
     const p = await host.prepare(file)
+    if (this.readOnly || this.leaving) return false // changed while the file was read
     if ('error' in p) {
       const m = { tooLarge: 'imageTooLarge', convertFailed: 'imageConvertFailed', unsupported: 'imageUnsupported', unreadable: 'imageUnreadable', storeFailed: 'imageStoreFailed' } as const
       if (p.error !== 'ignored') this.message(m[p.error])

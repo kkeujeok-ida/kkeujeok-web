@@ -36,7 +36,12 @@ export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: Im
     decoding.add(hash)
     try {
       const rec = await d.store.get(hash)
-      if (!rec) return
+      if (!rec) {
+        // The bytes are gone or failed their check: no retry here; the sync state forgets them (a fetch may bring them back).
+        bitmaps.set(hash, 'broken')
+        d.sync.dropLocal(hash)
+        return
+      }
       const blob = new Blob([rec.bytes as BlobPart], { type: MIME[rec.ext] ?? '' })
       let bmp = await (d.decodeBitmap ?? createImageBitmap)(blob)
       const long = Math.max(bmp.width, bmp.height)

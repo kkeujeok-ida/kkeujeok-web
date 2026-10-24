@@ -421,8 +421,8 @@ export function NoteEditor({
     const onOver = (e: DragEvent) => hasFiles(e) && e.preventDefault()
     const onDrop = (e: DragEvent) => {
       if (!hasFiles(e)) return
-      e.preventDefault()
       if (popoverOpen.current || document.querySelector('[role="dialog"], [aria-modal="true"]')) return
+      e.preventDefault()
       addImages([...(e.dataTransfer?.files ?? [])].filter(isImageFile), { x: e.clientX, y: e.clientY })
     }
     document.addEventListener('dragover', onOver)

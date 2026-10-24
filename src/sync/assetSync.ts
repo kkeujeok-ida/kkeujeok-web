@@ -74,7 +74,8 @@ export function createAssetSync(d: AssetSyncDeps) {
           await d.sleep(plan.delayMs)
         }
       }
-      failed.add(hash)
+      // Offline or not signed in is not a failure of the asset: the next ensure() fetches again.
+      if (d.online() && d.allowed()) failed.add(hash)
     } finally {
       busy.delete(hash)
       changed()
@@ -102,6 +103,10 @@ export function createAssetSync(d: AssetSyncDeps) {
     markLocal(hash: string) {
       unconfirmed.delete(hash)
       if (!local.has(hash)) (local.add(hash), changed())
+    },
+    /** The bytes of `hash` turned out to be gone from the store. */
+    dropLocal(hash: string) {
+      if (local.delete(hash)) changed()
     },
     /** The uploader found `hash` on Drive. */
     markConfirmed(hash: string) {

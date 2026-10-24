@@ -403,7 +403,8 @@ function insertImage(note: Note, op: Op, ctx: Ctx): OpResult {
   if (!page) return { error: 'pageNotFound' }
   const px = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 1
   const side = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && round2(v) >= 1
-  if (!px(op.pxWidth) || !px(op.pxHeight) || !side(op.width) || !side(op.height)) return { error: 'invalidSize' }
+  const fin = (v: unknown) => typeof v === 'number' && Number.isFinite(v)
+  if (!px(op.pxWidth) || !px(op.pxHeight) || !side(op.width) || !side(op.height) || !fin(op.x) || !fin(op.y)) return { error: 'invalidSize' }
   if (!isAssetHash(op.asset)) return { error: 'invalidAsset' }
   if (op.ext !== 'jpg' && op.ext !== 'png' && op.ext !== 'webp') return { error: 'unsupportedExt' }
   const id = ctx.ids![0]!
