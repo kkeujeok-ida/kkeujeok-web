@@ -73,6 +73,10 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'ops.move': opRunner,
   'ops.scale': opRunner,
   'ops.rotate': opRunner,
+  'ops.setStrokeColor': opRunner,
+  'ops.setStrokeWidth': opRunner,
+  'ops.delete': opRunner,
+  'ops.paste': opRunner,
   'ops.undoRedo': ({ input, expected }) => {
     type Step = { kind: 'do' | 'undo' | 'redo'; op?: Op; ctx: Ctx }
     const i = input as { note: Note; steps: Step[] }
@@ -176,12 +180,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Sync rules (Story 3.2) arrive with the web sync stories (3.4, 3.6, 3.10, ...);
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
-const PENDING: string[] = [
-  'ops.setStrokeColor',
-  'ops.setStrokeWidth',
-  'ops.delete',
-  'ops.paste',
-]
+const PENDING: string[] = []
 
 function mergeRunner({ input, expected }: Case) {
   const i = input as { base: Note | null; local: Note; remote: Note; ctx: MergeCtx }

@@ -4,7 +4,7 @@ import { normalizeTitle } from '../model/noteTitle'
 import { round2 } from '../model/number'
 import { selectionBounds, type El } from '../model/select'
 
-export type Ctx = { rev: string; now: string; editedBy: string; lastSeenRemoteSeq: number }
+export type Ctx = { rev: string; now: string; editedBy: string; lastSeenRemoteSeq: number; /** New element ids for `paste`, one per pasted element. */ ids?: string[] }
 export type Op = { op: string; [k: string]: unknown }
 /** `inverse` is null only when a selection op changed nothing (no bounding box): it is not recorded in the history. */
 export type OpResult = { note: Note; inverse: Op | null } | { error: string }
@@ -64,6 +64,15 @@ export function applyOp(note: Note, op: Op, ctx: Ctx): OpResult {
       return transformOp(note, op, ctx)
     case 'replaceElements':
       return replaceElements(note, op, ctx)
+    case 'setStrokeColor':
+    case 'setStrokeWidth':
+      return strokeOp(note, op, ctx)
+    case 'delete':
+      return deleteOp(note, op, ctx)
+    case 'insertElements':
+      return insertElements(note, op, ctx)
+    case 'paste':
+      return paste(note, op, ctx)
     default:
       return { error: 'unknownOp' }
   }
@@ -181,4 +190,109 @@ function replaceElements(note: Note, op: Op, ctx: Ctx): OpResult {
   at.forEach((i, k) => (page.elements[i] = given[k]))
   touch(page, ctx)
   return { note: next, inverse: { op: 'replaceElements', pageId: op.pageId, elements: before } }
+}
+
+// Shared front of the selection ops: page, ids, own parameter check, elementNotFound (spec order).
+function select(next: Note, op: Op, own: () => string | null): { page: Page; idx: number[] } | { error: string } {
+  const page = findPage(next, op.pageId)
+  if (!page) return { error: 'pageNotFound' }
+  const ids = new Set(Array.isArray(op.ids) ? op.ids : [])
+  if (ids.size === 0) return { error: 'emptySelection' }
+  const bad = own()
+  if (bad) return { error: bad }
+  const have = new Set(page.elements.map(elId))
+  if (![...ids].every((i) => have.has(i))) return { error: 'elementNotFound' }
+  return { page, idx: page.elements.flatMap((e, i) => (ids.has(elId(e)) ? [i] : [])) }
+}
+
+// setStrokeColor / setStrokeWidth: strokes only.
+function strokeOp(note: Note, op: Op, ctx: Ctx): OpResult {
+  const next = structuredClone(note)
+  const color = op.op === 'setStrokeColor'
+  let width = 0
+  const r = select(next, op, () => {
+    if (color) return typeof op.color === 'string' && /^#[0-9a-f]{6}$/.test(op.color) ? null : 'invalidColor'
+    const w = op.width
+    if (typeof w !== 'number' || !Number.isFinite(w) || Math.abs(w) > 100) return 'invalidWidth'
+    width = Math.sign(w) * Math.round(Math.abs(w) * 10) / 10 // half away from zero
+    return width >= 0.5 && width <= 10 ? null : 'invalidWidth'
+  })
+  if ('error' in r) return r
+  const strokes = r.idx.filter((i) => (r.page.elements[i] as El).type === 'stroke')
+  if (strokes.length === 0) return { note, inverse: null }
+  const before = strokes.map((i) => structuredClone(r.page.elements[i]))
+  for (const i of strokes) (r.page.elements[i] as El)[color ? 'color' : 'width'] = color ? op.color : width
+  touch(r.page, ctx)
+  return { note: next, inverse: { op: 'replaceElements', pageId: op.pageId, elements: before } }
+}
+
+function deleteOp(note: Note, op: Op, ctx: Ctx): OpResult {
+  const next = structuredClone(note)
+  const r = select(next, op, () => null)
+  if ('error' in r) return r
+  const items = r.idx.map((index) => ({ index, element: r.page.elements[index] }))
+  for (const i of [...r.idx].reverse()) r.page.elements.splice(i, 1)
+  touch(r.page, ctx)
+  return { note: next, inverse: { op: 'insertElements', pageId: op.pageId, items } }
+}
+
+// Inverse-only: puts elements back at their indices, in the given order.
+function insertElements(note: Note, op: Op, ctx: Ctx): OpResult {
+  const next = structuredClone(note)
+  const page = findPage(next, op.pageId)
+  if (!page) return { error: 'pageNotFound' }
+  const items = structuredClone((op.items as { index: unknown; element: El }[]) ?? [])
+  const seen = new Set(page.elements.map(elId))
+  for (const it of items) if (seen.size === seen.add(it.element.id).size) return { error: 'duplicateId' }
+  for (const it of items) {
+    const i = it.index
+    if (typeof i !== 'number' || !Number.isInteger(i) || i < 0 || i > page.elements.length) return { error: 'indexOutOfRange' }
+    page.elements.splice(i, 0, it.element)
+  }
+  touch(page, ctx)
+  return { note: next, inverse: { op: 'delete', pageId: op.pageId, ids: items.map((it) => it.element.id) } }
+}
+
+// paste: copies with new ids, centered, nudged off equal boxes.
+function paste(note: Note, op: Op, ctx: Ctx): OpResult {
+  const next = structuredClone(note)
+  const page = findPage(next, op.pageId)
+  if (!page) return { error: 'pageNotFound' }
+  const src = (Array.isArray(op.elements) ? op.elements : []) as El[]
+  if (src.length === 0) return { error: 'emptySelection' }
+  const copies = src.map((e, i) => ({ ...structuredClone(e), id: ctx.ids![i] }) as El)
+  let dx = 0, dy = 0
+  const c = (op.target as { center?: [number, number] } | undefined)?.center
+  const union = selectionBounds(copies)
+  if (c && union) {
+    dx = c[0] - (union.left + union.right) / 2
+    dy = c[1] - (union.top + union.bottom) / 2
+  }
+  const key = (e: El) => {
+    const b = selectionBounds([e])
+    return b ? [b.left, b.top, b.right, b.bottom].map(round2).join() : null
+  }
+  const taken = new Set(page.elements.map((e) => key(e as El)))
+  const shifted = (sx: number, sy: number) =>
+    copies.map((s) => {
+      const e = structuredClone(s)
+      if (e.type === 'stroke') {
+        for (const p of (e.points as number[][] | undefined) ?? []) {
+          p[0] = round2(p[0]! + sx)
+          p[1] = round2(p[1]! + sy)
+        }
+      } else if (selectionBounds([e])) {
+        e.x = round2((e.x as number) + sx)
+        e.y = round2((e.y as number) + sy)
+      }
+      return e
+    })
+  let out = shifted(dx, dy)
+  for (let k = 1; k <= 20; k++) {
+    if (!out.some((e) => { const m = key(e); return m !== null && taken.has(m) })) break
+    out = shifted(dx + 12 * k, dy + 12 * k)
+  }
+  page.elements.push(...(out as unknown as Page['elements']))
+  touch(page, ctx)
+  return { note: next, inverse: { op: 'delete', pageId: op.pageId, ids: out.map((e) => e.id) } }
 }

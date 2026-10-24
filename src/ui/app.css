@@ -1341,7 +1341,25 @@ h1 {
 }
 
 /* The floating menu of a selection (Story 4.5): over the canvas, next to the selection box. */
+.selection-pop {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-1);
+}
+
+.selection-swatch {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
 .selection-menu {
+  flex-wrap: wrap;
+  max-width: 420px;
   position: absolute;
   z-index: 4;
   display: flex;

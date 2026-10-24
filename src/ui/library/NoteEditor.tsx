@@ -518,6 +518,34 @@ export function NoteEditor({
     return () => document.removeEventListener('keydown', onKey, true)
   }, [loaded])
 
+  // Ctrl+C / X / V and Delete on the canvas act on the elements (Story 4.7); the tab's own clipboard, never the system's.
+  // Focus in a field, a dialog or the selection menu keeps the browser's behavior.
+  useEffect(() => {
+    if (!loaded) return
+    const { writer } = loaded
+    const typing = (n: EventTarget | null) => !!(n as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || e.isComposing || e.altKey || e.shiftKey) return
+      if (document.activeElement !== canvas.current || typing(e.target) || popoverOpen.current) return
+      if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return
+      const mod = e.ctrlKey || e.metaKey
+      // The typed letter first (Dvorak, Colemak); the physical key only for non-Latin layouts (Hangul).
+      const k = /^[a-z]$/i.test(e.key) ? e.key.toLowerCase() : e.code === 'KeyC' ? 'c' : e.code === 'KeyX' ? 'x' : e.code === 'KeyV' ? 'v' : ''
+      let done = false
+      if (mod) {
+        if (k === 'c') done = writer.copySelection()
+        else if (k === 'x') done = writer.cutSelection()
+        else if (k === 'v' && (done = writer.pasteClipboard())) {
+          writer.setTool('lasso')
+          setTool('lasso')
+        }
+      } else if (e.key === 'Delete') done = writer.deleteSelection()
+      if (done) e.preventDefault()
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [loaded])
+
   // Canvas focus: Ctrl/Cmd+= + - 0 zoom and fit, arrows scroll. Space is the hand
   // while focus is on the canvas, and not in a text field.
   useEffect(() => {
@@ -1016,6 +1044,11 @@ export function NoteEditor({
                 onRatioLock={() => setRatio((r) => !r)}
                 onScale={(f) => loaded.writer.scaleSelection(f)}
                 onRotate={() => loaded.writer.rotateSelection(90)}
+                onColor={(c) => loaded.writer.setSelectionColor(c)}
+                onWidth={(w) => loaded.writer.setSelectionWidth(w)}
+                onCopy={() => (loaded.writer.copySelection(), canvas.current?.focus())}
+                onCut={() => (loaded.writer.cutSelection(), canvas.current?.focus())}
+                onDelete={() => (loaded.writer.deleteSelection(), canvas.current?.focus())}
                 onLeave={() => canvas.current?.focus()}
               />
             )}

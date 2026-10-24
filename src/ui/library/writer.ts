@@ -2,6 +2,7 @@
 // History -> serial saves, and the canvas that shows the page (with its zoom
 // and pan view). No React here.
 import { newId } from '../../model/ids'
+import { elementClipboard } from '../../model/elementClipboard'
 import { selectLasso, selectRect, selectTap, selectionBounds, type Bounds, type El } from '../../model/select'
 import { ROTATE_GAP, paintSelection, selectionColors } from '../../render/selectionPainter'
 import type { Op } from '../../ops/ops'
@@ -63,7 +64,7 @@ const NUDGE_MS = 500
 /** A selection drag: `start`/`cur` and `b` (the selection bounds) are in the coordinates of the selection's page. `corner`: 0 tl, 1 tr, 2 bl, 3 br. */
 type Xform = { id: number; kind: 'move' | 'scale' | 'rotate'; corner: number; slot: Slot; ids: string[]; b: Bounds; start: [number, number]; cur: [number, number]; shift: boolean; down: { x: number; y: number; doc: [number, number]; shift: boolean; alt: boolean } }
 /** The selection box in canvas CSS px, and the canvas size, for the floating menu. */
-export type SelectionBox = { left: number; top: number; right: number; bottom: number; w: number; h: number }
+export type SelectionBox = { left: number; top: number; right: number; bottom: number; w: number; h: number; /** The selection holds a stroke ([색]/[두께] apply) and the width of the first one. */ strokes?: boolean; width?: number }
 
 /** What a screen point (CSS px) grabs of the selection box `l,t,r,b`: its inside (move), the rotate handle or a corner (0 tl, 1 tr, 2 bl, 3 br). */
 export function hitSelection(l: number, t: number, r: number, b: number, x: number, y: number): 'move' | 'rotate' | number | null {
@@ -120,6 +121,8 @@ export class Writer {
   private xform: Xform | null = null
   private nudgeRun: { key: string; depth: number; timer: ReturnType<typeof setTimeout> } | null = null
   private lastBox = ''
+  /** Last pointer position over the canvas (client px), null once it left: where Ctrl+V pastes. */
+  private pointer: { x: number; y: number } | null = null
   /** Keep the aspect ratio when resizing (Shift flips it for one drag). UI state, not saved. */
   ratioLock = true
   /** Selection is UI state (never in the note): the page and the ids of its selected elements. */
@@ -240,6 +243,7 @@ export class Writer {
       on('pointerup', (e) => this.onUp(e)),
       on('pointercancel', (e) => this.onCancel(e)),
       on('lostpointercapture', (e) => this.onCancel(e)),
+      on('pointerleave', () => (this.pointer = null)),
       on('contextmenu', (e) => e.preventDefault()),
       // The middle button must not autoscroll or paste (Linux).
       on('mousedown', (e) => e.button === 1 && e.preventDefault()),
@@ -610,6 +614,8 @@ export class Writer {
       bottom: v.offsetY + (b.bottom + sel.slot.y) * v.scale,
       w: this.cssW,
       h: this.cssH,
+      strokes: sel.els.some((e) => e.type === 'stroke'),
+      width: sel.els.find((e) => e.type === 'stroke')?.width as number | undefined,
     }
     const key = JSON.stringify(box)
     if (key === this.lastBox) return
@@ -712,9 +718,9 @@ export class Writer {
   }
 
   /** Applies one edit: it is one undo step and joins the save queue. Returns the error code or null. */
-  private applyEdit(op: Op): string | null {
+  private applyEdit(op: Op, extra: { ids?: string[] } = {}): string | null {
     this.clearNudge() // nudge() reads its run before calling this and sets a new one after
-    const err = this.history.doOp(op, this.ctx())
+    const err = this.history.doOp(op, { ...this.ctx(), ...extra })
     if (err === 'pageReadOnly') this.onBlocked()
     else if (err === 'elementNotFound') this.clearSelection() // the selection is stale
     else if (err) this.message('historyNotApplied')
@@ -739,6 +745,74 @@ export class Writer {
     const sel = this.selected()
     const b = sel && selectionBounds(sel.els)
     return sel && b && !this.busy() && this.canEdit(sel.slot.page.id) ? { sel, b } : null
+  }
+
+  /** [복사] / Ctrl+C: the selected elements (page order) into the tab's clipboard. Works read-only; the note and the selection stay. */
+  copySelection(): boolean {
+    const sel = this.selected()
+    if (!sel || this.leaving) return false
+    elementClipboard.set(sel.els)
+    return true
+  }
+
+  /** [잘라내기] / Ctrl+X: copy, then delete (undo brings the elements back, the clipboard stays). */
+  cutSelection(): boolean {
+    const sel = this.editable()?.sel
+    if (!sel) return false
+    const els = structuredClone(sel.els)
+    // The clipboard is replaced only once the delete went through.
+    if (!this.deleteSelection()) return false
+    elementClipboard.set(els)
+    return true
+  }
+
+  /** [삭제] / Delete. */
+  deleteSelection(): boolean {
+    const e = this.editable()
+    return !!e && !this.applyEdit({ op: 'delete', pageId: e.sel.slot.page.id, ids: e.sel.els.map((x) => x.id) })
+  }
+
+  /** [색]: every stroke of the selection (one op). */
+  setSelectionColor(color: string): boolean {
+    const e = this.editable()
+    return !!e && !this.applyEdit({ op: 'setStrokeColor', pageId: e.sel.slot.page.id, ids: e.sel.els.map((x) => x.id), color })
+  }
+
+  /** [두께]: every stroke of the selection (one op). */
+  setSelectionWidth(width: number): boolean {
+    const e = this.editable()
+    return !!e && !this.applyEdit({ op: 'setStrokeWidth', pageId: e.sel.slot.page.id, ids: e.sel.els.map((x) => x.id), width })
+  }
+
+  /**
+   * Ctrl+V: the clipboard goes centered on the pointer when it is over a page, else on the middle of the view; the new
+   * elements become the selection. False: empty clipboard or the page cannot be edited.
+   */
+  pasteClipboard(): boolean {
+    const elements = elementClipboard.get()
+    if (elements.length === 0 || this.busy() || !this.canvas) return false
+    let at: [number, number] | null = null
+    let slot: Slot | undefined
+    if (this.pointer) {
+      const [lx, ly] = this.local(this.pointer.x, this.pointer.y)
+      const [dx, dy] = toPage(this.viewport, lx, ly)
+      slot = this.hit(dx, dy)
+      if (slot) at = [dx - slot.x, dy - slot.y]
+    }
+    if (!slot || !at) {
+      const [dx, dy] = toPage(this.viewport, this.cssW / 2, this.cssH / 2)
+      slot = this.hit(dx, dy) ?? this.current
+      if (!slot) return false
+      at = [dx - slot.x, dy - slot.y]
+      // Over a gap between pages: the current page's middle.
+      if (!this.hit(dx, dy)) at = [slot.page.width / 2, slot.page.height / 2]
+    }
+    if (!this.canEdit(slot.page.id) || at.some((v) => !Number.isFinite(v))) return false
+    const ids = elements.map(() => newId())
+    const err = this.applyEdit({ op: 'paste', pageId: slot.page.id, elements, target: { pageId: slot.page.id, center: at } }, { ids })
+    if (err) return false
+    this.setSelection(slot.page.id, ids)
+    return true
   }
 
   /** [크게]/[작게]: scales the selection by `factor` on both axes about the center of its box. */
@@ -877,6 +951,7 @@ export class Writer {
   }
 
   private onDown(e: PointerEvent): void {
+    this.pointer = { x: e.clientX, y: e.clientY }
     if (this.leaving || !this.page) return
     if (!POINTER_TYPES.includes(e.pointerType)) return
     this.snap() // a running zoom ends at its target before new input
@@ -967,6 +1042,7 @@ export class Writer {
   }
 
   private onMove(e: PointerEvent): void {
+    this.pointer = { x: e.clientX, y: e.clientY }
     if (this.leaving) return
     // The button came up where we could not see it: end the stroke or drag.
     if (e.buttons === 0 && e.pointerType !== 'touch' && this.ownedBy(e.pointerId)) return this.onCancel(e)

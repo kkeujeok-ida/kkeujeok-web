@@ -2,7 +2,7 @@ import type { Ref } from 'react'
 import type { Pen } from '../../model/pen'
 import { fmt, useI18n, type Key } from '../../i18n'
 
-const COLOR_NAME: Record<Pen['colorName'], Key> = { black: 'editor.colorBlack' }
+export const COLOR_NAME: Record<Pen['colorName'], Key> = { black: 'editor.colorBlack' }
 
 /**
  * The floating toolbar: grip (inert, hidden from the a11y tree) | pen slots |

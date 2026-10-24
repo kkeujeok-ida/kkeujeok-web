@@ -191,7 +191,7 @@ describe('SelectionMenu', () => {
     const i18n = createI18n({ navigatorLanguage: 'ko' })
     act(() =>
       root.render(
-        createElement(I18nContext.Provider, { value: i18n }, createElement(SelectionMenu, { box: b, origin: { x: 0, y: 0 }, ratioLock: true, onRatioLock: () => calls.push('lock'), onScale: (f: number) => calls.push(`s${f}`), onRotate: () => calls.push('r'), onLeave: () => calls.push('leave') })),
+        createElement(I18nContext.Provider, { value: i18n }, createElement(SelectionMenu, { box: b, origin: { x: 0, y: 0 }, ratioLock: true, onRatioLock: () => calls.push('lock'), onScale: (f: number) => calls.push(`s${f}`), onRotate: () => calls.push('r'), onColor: () => {}, onWidth: () => {}, onCopy: () => calls.push('copy'), onCut: () => calls.push('cut'), onDelete: () => calls.push('del'), onLeave: () => calls.push('leave') })),
       ),
     )
     return { host, calls, done: () => (act(() => root.unmount()), host.remove()) }
@@ -200,10 +200,10 @@ describe('SelectionMenu', () => {
   test('buttons, names and the toggle state', () => {
     const m = mount()
     const btns = [...m.host.querySelectorAll('button')]
-    expect(btns.map((b) => b.textContent)).toEqual(['비율 잠금', '크게', '작게', '90° 회전'])
-    expect(btns[0]!.getAttribute('aria-pressed')).toBe('true')
+    expect(btns.map((b) => b.textContent)).toEqual(['복사', '잘라내기', '삭제', '비율 잠금', '크게', '작게', '90° 회전'])
+    expect(btns[3]!.getAttribute('aria-pressed')).toBe('true')
     act(() => btns.forEach((b) => b.click()))
-    expect(m.calls).toEqual(['lock', 's1.25', 's0.8', 'r'])
+    expect(m.calls).toEqual(['copy', 'cut', 'del', 'lock', 's1.25', 's0.8', 'r'])
     m.done()
   })
 
