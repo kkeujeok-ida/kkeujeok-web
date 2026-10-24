@@ -293,6 +293,9 @@ export function createNoteUploader(d: UploaderDeps) {
       case 'unsupportedVersion':
         throw failure('unreadable', { reason: 'unsupportedVersion', clearVerify: true, ...(head !== undefined && { head }) })
       default:
+        // The editor could not take the merge now (a stroke, leaving the note): not final.
+        // The next trigger merges again and `pendingVerify` stays.
+        if (r.result === 'error' && r.reason === 'applyFailed') throw failure('backoff', { reason: 'mergeDeferred' })
         throw failure('fatal', { reason: 'mergeFailed', clearVerify: true })
     }
   }

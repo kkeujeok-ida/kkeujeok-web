@@ -246,6 +246,32 @@ describe('error notes', () => {
   })
 })
 
+describe('a merge the editor cannot take now (applyFailed)', () => {
+  test('is retried by the next trigger, the note does not stay in error', async () => {
+    let defer = true
+    let real: Env['deps']['merge'] | undefined
+    const { e, coordinator } = await setup({
+      merge: { merge: async (a) => (defer ? { result: 'error', reason: 'applyFailed' } : real!.merge(a)) },
+    })
+    const { createMergeIo } = await import('../src/sync/mergeIo')
+    real = createMergeIo({ store: e.store, editedBy: () => 'Chrome, Windows', now: () => '2026-10-12T04:20:00.000Z', newId: () => '01926f3a-0000-7000-8000-000000000999' })
+    await e.store.writeNote(mkNote({ pages: { [PA]: 'a1' } }))
+    await e.uploader.upload(NID)
+    const id = e.drive.byKkeujeokId(NID)[0]!.id
+    const { bytesOf, foreignEdit } = await import('./uploadHarness')
+    e.drive.foreignRevision(id, await bytesOf(foreignEdit(mkNote({ pages: { [PA]: 'a1' } }), PA, 'a3')))
+    await e.store.writeNote(withStroke(mkNote({ pages: { [PA]: 'a1' } }), PA, 'a2'))
+    const c = coordinator(undefined)
+    await c.unsent()
+    expect((await e.sync()).info.lastError).toMatchObject({ class: 'backoff', reason: 'mergeDeferred' })
+    defer = false
+    await c.unsent()
+    // the same page changed on both sides: the retried merge ran and raised the conflict
+    expect((await e.sync()).info.state).toBe('conflict')
+    expect(e.events('error')).toHaveLength(1)
+  })
+})
+
 describe('fatal reasons only a manual retry ends (Story 12.2)', () => {
   test.each(['md5Mismatch', 'noRevisionId', 'localWrite', 'rootMissing'])('%s: one retry at the first trigger, none at later ones', async (reason) => {
     const { e, coordinator } = await setup()
