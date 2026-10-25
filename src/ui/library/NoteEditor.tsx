@@ -17,7 +17,7 @@ import type { UploadCoordinator } from '../../sync/uploadCoordinator'
 import { Banner } from '../sync/Banner'
 import { unresolvedOf } from '../../sync/conflicts'
 import type { Conflict } from '../../sync/merge'
-import { useNoteConflicts, useNoteIssue, useNoteReceiving, useSyncUi } from '../sync/syncUi'
+import { issueOf, useNoteConflicts, useNoteIssue, useNoteReceiving, useOffline, useSyncUi } from '../sync/syncUi'
 import { readLocalSidecars, type RestoreFailure } from '../../sync/versionHistory'
 import type { VersionEntry } from '../../sync/versionList'
 import { SyncIndicator } from '../sync/SyncIndicator'
@@ -35,7 +35,8 @@ import { SelectionMenu } from './SelectionMenu'
 import { TextEditOverlay } from './TextEditOverlay'
 import { VersionHistory } from './VersionHistory'
 import { onResolveRequest, takeResolveRequest } from './resolveRequest'
-import { detectEditedBy } from './useLibrary'
+import { detectEditedBy, sortBy, toItem } from './useLibrary'
+import { neighbours, publishNoteOrder, readNoteOrder, setPendingJump, takeJump } from './noteOrder'
 import { ZOOM_MAX, ZOOM_MIN } from '../../render/pagePainter'
 import type { ImageHost } from '../../render/imageHost'
 import { ARROW_STEP, Writer, ZOOM_STEP, type EditInfo, type ErasedInfo, type Tool, type SelectionBox, type ViewInfo, type WriterMessage } from './writer'
@@ -954,15 +955,73 @@ export function NoteEditor({
     items[next]?.focus()
   }
 
-  const onBack = () => {
+  const leave = (then: () => void) => {
     if (!loaded || leaving.current) return
     leaving.current = true
     // Finish the stroke and the saves first; leave even when the last try fails.
     // finalize never rejects in practice; if it hangs, leave after 5 s anyway.
     const done = loaded.writer.finalize().catch(() => {})
     const giveUp = new Promise<void>((r) => setTimeout(r, LEAVE_WAIT_MS))
-    void Promise.race([done, giveUp]).then(() => mounted.current && backToLibrary())
+    void Promise.race([done, giveUp]).then(() => mounted.current && then())
   }
+  const onBack = () => leave(backToLibrary)
+
+  // The library's order (Story 5.14). A note opened by address has no published order: the notes by name stand in for it.
+  const [orderTick, setOrderTick] = useState(0)
+  useEffect(() => {
+    if (!loaded || readNoteOrder().some((i) => i.noteId === noteId)) return
+    let live = true
+    const store = openStore()
+    store
+      .listNotes()
+      .then((es) => {
+        if (live) publishNoteOrder(sortBy(es.map(toItem), 'nameAsc').map((i) => ({ noteId: i.noteId, title: i.title, remote: !!i.remote, blocked: !!i.blocked })))
+      })
+      .catch(() => {})
+      .finally(() => {
+        store.close()
+        if (live) setOrderTick((n) => n + 1)
+      })
+    return () => {
+      live = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, noteId])
+  const offline = useOffline()
+  const unreadableNote = (i: { noteId: string }) => {
+    const snap = ui?.status.getSnapshot()
+    return issueOf(snap?.notes.get(i.noteId))?.kind === 'unreadable'
+  }
+  void orderTick
+  const around = neighbours(readNoteOrder(), noteId, { offline, skip: unreadableNote })
+  const jump = (dir: -1 | 1) => {
+    const to = dir < 0 ? around.prev : around.next
+    if (!to || !loaded || leaving.current) return
+    setMenuOpen(false)
+    loaded.writer.commitEdit()
+    loaded.writer.clearSelection()
+    const from = { fromId: noteId, fromTitle: loaded.title, toId: to }
+    leave(() => {
+      setPendingJump(from)
+      globalThis.location.hash = noteHref(to)
+    })
+  }
+  // Arrival by a jump: the position chip, "back to ..." with [되돌리기] and a polite word.
+  const [chip, setChip] = useState<string | null>(null)
+  const [backText, setBackText] = useState<string | null>(null)
+  useEffect(() => {
+    if (!loaded) return
+    const j = takeJump(noteId)
+    if (!j) return
+    const p = neighbours(readNoteOrder(), noteId, { offline, skip: unreadableNote })
+    setChip(fmt(t('editor.noteChip'), { title: loaded.title, n: p.n, total: p.total }))
+    setBackText(fmt(t('editor.noteBackTo'), { title: j.fromTitle }))
+    setResultText(fmt(t('editor.noteOpened'), { title: loaded.title }))
+    // No cleanup: a reload of the same note (read-only -> writer) must not strand the chip.
+    setTimeout(() => setChip(null), SNACKBAR_MS)
+    setTimeout(() => setBackText(null), DELETE_UNDO_MS)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded])
 
   /**
    * The unresolved conflicts with both versions at hand. An entry whose sidecar record is gone, or whose page is gone
@@ -1337,6 +1396,14 @@ export function NoteEditor({
                       </button>
                     ))}
                   </div>
+                  {([-1, 1] as const).map((d) => {
+                    const off = (d < 0 ? around.prev : around.next) === null
+                    return (
+                      <button key={d} type="button" role="menuitem" className="editor-menu-item" aria-disabled={off} onClick={() => !off && jump(d)}>
+                        {t(d < 0 ? 'editor.prevNote' : 'editor.nextNote')}
+                      </button>
+                    )
+                  })}
                   {ui?.versions && (
                     <button
                       type="button"
@@ -1451,6 +1518,27 @@ export function NoteEditor({
               <span>{t('editor.slotDeleted')}</span>
               <button type="button" className="snackbar-button" onClick={undoDelete}>
                 {t('editor.undoDelete')}
+              </button>
+            </div>
+          )}
+          {chip && (
+            <div role="status" className="editor-position-chip">
+              {chip}
+            </div>
+          )}
+          {backText && (
+            <div role="status" className="snackbar snackbar-action">
+              <span>{backText}</span>
+              <button
+                type="button"
+                className="snackbar-button"
+                onClick={() => {
+                  setBackText(null)
+                  setChip(null)
+                  globalThis.history.back()
+                }}
+              >
+                {t('editor.noteUndo')}
               </button>
             </div>
           )}

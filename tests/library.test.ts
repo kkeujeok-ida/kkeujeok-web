@@ -12,6 +12,7 @@ import { NOTE_DB_NAME, deleteNoteDatabase } from '../src/storage/noteDb'
 import { type NoteStore, openNoteStore } from '../src/storage/noteStore'
 import { App } from '../src/ui/App'
 import { Library } from '../src/ui/library/Library'
+import { readNoteOrder } from '../src/ui/library/noteOrder'
 import { NoteEditor, parseNoteRoute } from '../src/ui/library/NoteEditor'
 import { detectEditedBy, latestEditedMs, sortItems, toItem } from '../src/ui/library/useLibrary'
 import { signedIn } from './helpers'
@@ -694,5 +695,22 @@ describe('review fixes', () => {
     act(() => root.render(createElement(NoteEditor, { noteId: 'nope', openStore: open })))
     await flush()
     expect(editorClosed.n).toBe(1)
+  })
+})
+
+describe('published note order (Story 5.14)', () => {
+  test('the order handed to the writing screen follows the sort on screen', async () => {
+    await seed([mk('a', 'Alpha', '2026-01-01T00:00:00.000Z'), mk('b', 'Beta', '2026-10-05T00:00:00.000Z'), mk('c', 'Gamma', '2026-05-01T00:00:00.000Z')])
+    await mountLibrary()
+    const shown = () => qa('.cover-grid > li > *').map((c) => c.querySelector('.cover-title')!.textContent)
+    expect(readNoteOrder().map((i) => i.title)).toEqual(shown())
+    const sel = host.querySelector<HTMLSelectElement>('.library-sort')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(sel, 'editedDesc')
+      sel.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await flush()
+    expect(shown()).toEqual(['Beta', 'Gamma', 'Alpha'])
+    expect(readNoteOrder().map((i) => i.title)).toEqual(['Beta', 'Gamma', 'Alpha'])
   })
 })

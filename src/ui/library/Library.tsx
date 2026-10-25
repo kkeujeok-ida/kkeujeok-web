@@ -21,6 +21,7 @@ import { LibraryFab } from './LibraryFab'
 import { NewNoteDialog } from './NewNoteDialog'
 import { noteHref } from './NoteEditor'
 import { requestResolve } from './resolveRequest'
+import { publishNoteOrder } from './noteOrder'
 import { LIBRARY_SORTS, sortBy, useLibrary, type LibraryItem, type LibrarySort } from './useLibrary'
 
 // One per page session, so what was created last wins over a failed save.
@@ -156,6 +157,10 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   const [sort, setSort] = useState<LibrarySort>('nameAsc') // by name at every start
   const items = useMemo(() => sortBy(lib.items, sort), [lib.items, sort])
   const { status } = lib
+  // The writing screen walks this order (Story 5.14).
+  useEffect(() => {
+    if (status === 'ready') publishNoteOrder(items.map((i) => ({ noteId: i.noteId, title: i.title, remote: !!i.remote, blocked: !!i.blocked })))
+  }, [status, items])
   const offline = useOffline()
   const [deleting, setDeleting] = useState<{ noteId: string; from: HTMLElement | null } | null>(null)
   async function confirmDelete() {
