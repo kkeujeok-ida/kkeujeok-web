@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
 import { MAX_PEN_SLOTS, colorNameKey, type Pen } from '../../model/pen'
 import { fmt, useI18n } from '../../i18n'
 import type { EraserMode } from '../../storage/eraserSettings'
+import type { Dock } from '../../storage/toolbarPosition'
+import type { ToolbarDock } from './useToolbarDock'
+
+const DOCK_KEYS = { top: 'editor.dockTop', left: 'editor.dockLeft', right: 'editor.dockRight', bottom: 'editor.dockBottom' } as const
+/** Without an owner the toolbar stays on top and the handle's menu does nothing. */
+const STATIC_DOCK = { pos: { dock: 'top', x: 0.5, y: 0, vertical: false }, vertical: false, style: undefined, dragging: false, floating: false, outlines: [], handleProps: {}, menuSide: 'below', clickWasDrag: () => false, dockTo: () => {} } as unknown as ToolbarDock
+const DOCK_ORDER: Dock[] = ['top', 'left', 'right', 'bottom']
 
 /** A press that moves farther than this many px starts dragging the slot. */
 const DRAG_PX = 6
@@ -11,7 +18,7 @@ const DRAG_PX = 6
  * divider | undo, redo. Slots are one radiogroup; activating the selected one
  * opens the pen popover (onEdit). The slot buttons carry data-slot for the owner.
  */
-export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, onSlotsFull, tool, onToolChange, eraserMode, onEraserEdit, onImage, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
+export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, onSlotsFull, tool, onToolChange, eraserMode, onEraserEdit, onImage, dock = STATIC_DOCK, onDocked, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
   pens: readonly Pen[]
   selected: number
   onSelect: (i: number) => void
@@ -29,6 +36,10 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
   onEraserEdit: () => void
   /** [이미지]: opens the file picker (Story 4.13). Without it (no image host) the button is off. */
   onImage?: () => void
+  /** Where the toolbar sits and how the handle drags it (the owner holds it for the snap outlines). */
+  dock?: ToolbarDock
+  /** The position menu docked the toolbar at a side. */
+  onDocked?: (d: Dock) => void
   canUndo: boolean
   canRedo: boolean
   onUndo: () => void
@@ -40,10 +51,47 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
   const { t } = useI18n()
   // Roving tab index: one toolbar item is a tab stop, the arrows move between items.
   const [stop, setStop] = useState('')
-  const keys = [...pens.map((_, i) => `slot-${i}`), 'add', 'undo', 'redo', 'eraser', 'lasso', 'text', 'image']
+  const keys = ['handle', ...pens.map((_, i) => `slot-${i}`), 'add', 'undo', 'redo', 'eraser', 'lasso', 'text', 'image']
   const tabKey = keys.includes(stop) ? stop : `slot-${selected}`
   const rv = (key: string) => ({ 'data-roving': key, tabIndex: key === tabKey ? 0 : -1 })
   const slotsEl = useRef<HTMLDivElement>(null)
+  const vertical = dock.vertical
+  const [menu, setMenu] = useState(false)
+  const handle = useRef<HTMLButtonElement>(null)
+  const menuEl = useRef<HTMLDivElement>(null)
+  const current = DOCK_ORDER.includes(dock.pos.dock as Dock) ? (dock.pos.dock as Dock) : null
+  // The menu opens on the current item (the top one when floating).
+  useLayoutEffect(() => {
+    if (menu) menuEl.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]')[Math.max(0, DOCK_ORDER.indexOf(current ?? 'top'))]?.focus()
+    // only when it opens
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menu])
+  useEffect(() => {
+    if (!menu) return
+    const down = (e: globalThis.PointerEvent) => {
+      if (!menuEl.current?.contains(e.target as Node) && !handle.current?.contains(e.target as Node)) setMenu(false)
+    }
+    document.addEventListener('pointerdown', down, true)
+    return () => document.removeEventListener('pointerdown', down, true)
+  }, [menu])
+  // Starting a drag closes the menu.
+  useEffect(() => {
+    if (dock.dragging) setMenu(false)
+  }, [dock.dragging])
+  const closeMenu = () => {
+    setMenu(false)
+    handle.current?.focus()
+  }
+  const onMenuKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const items = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
+    const at = items.indexOf(document.activeElement as HTMLElement)
+    const to = e.key === 'ArrowDown' ? Math.min(items.length - 1, at + 1) : e.key === 'ArrowUp' ? Math.max(0, at - 1) : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : -1
+    if (to >= 0) items[to]?.focus()
+    else if (e.key === 'Escape' || e.key === 'Tab') closeMenu()
+    else return
+    e.preventDefault()
+    e.stopPropagation()
+  }
   const refocus = useRef<number | null>(null)
   const drag = useRef<{ id: number; from: number; x: number; y: number; on: boolean } | null>(null)
   const justDragged = useRef(false)
@@ -62,18 +110,26 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
     const el = slotsEl.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
+      if (vertical) {
+        // Vertical: the wheel scrolls the slot area as it is, only when it overflows.
+        if (el.scrollHeight <= el.clientHeight) return
+        e.preventDefault()
+        el.scrollTop += e.deltaY
+        return
+      }
       if (e.deltaX !== 0 || e.deltaY === 0 || el.scrollWidth <= el.clientWidth) return
       e.preventDefault()
       el.scrollLeft += e.deltaY
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [])
+  }, [vertical])
   const full = pens.length >= MAX_PEN_SLOTS
   const onToolbarKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const item = (e.target as HTMLElement).closest<HTMLElement>('[data-roving]')
     if (!item || e.nativeEvent.isComposing || e.ctrlKey || e.metaKey || e.shiftKey) return
-    const dir = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0
+    const [back, fwd] = vertical ? ['ArrowUp', 'ArrowDown'] : ['ArrowLeft', 'ArrowRight']
+    const dir = e.key === back ? -1 : e.key === fwd ? 1 : 0
     const slot = item.dataset.slot
     if (e.altKey) {
       if (!dir || slot === undefined) return
@@ -107,8 +163,8 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
     pens.forEach((_, i) => {
       const r = slotEl(i)?.getBoundingClientRect()
       // The dragged slot is measured where it sits without its translateX.
-      const shift = i === d.from ? e.clientX - d.x : 0
-      const gap = r ? Math.abs(e.clientX - ((r.left + r.right) / 2 - shift)) : Infinity
+      const shift = i === d.from ? (vertical ? e.clientY - d.y : e.clientX - d.x) : 0
+      const gap = r ? Math.abs((vertical ? e.clientY : e.clientX) - (vertical ? (r.top + r.bottom) / 2 : (r.left + r.right) / 2) + shift) : Infinity
       if (gap < best) [best, to] = [gap, i]
     })
     if (to !== d.from) {
@@ -121,20 +177,57 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
       ref={ref}
       role="toolbar"
       aria-label={t('editor.toolbar')}
-      className="pen-toolbar"
+      aria-orientation={vertical ? 'vertical' : 'horizontal'}
+      className={'pen-toolbar' + (vertical ? ' is-vertical' : '') + (dock.floating ? ' is-floating' : '') + (dock.dragging ? ' is-dragging' : '')}
+      style={dock.style}
       onKeyDown={onToolbarKey}
       onFocus={(e: FocusEvent<HTMLDivElement>) => {
         const k = (e.target as HTMLElement).closest<HTMLElement>('[data-roving]')?.dataset.roving
         if (k) setStop(k)
       }}
     >
-      <span className="toolbar-grip" aria-hidden="true">
-        <svg className="icon" viewBox="0 0 16 16">
+      <button
+        ref={handle}
+        type="button"
+        className="toolbar-grip"
+        aria-label={t('editor.toolbarMove')}
+        title={t('editor.toolbarMove')}
+        aria-haspopup="menu"
+        aria-expanded={menu}
+        {...rv('handle')}
+        {...dock.handleProps}
+        onClick={() => {
+          if (dock.clickWasDrag()) return // the click that ends a drag
+          setMenu((o) => !o)
+        }}
+      >
+        <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
           <circle cx="8" cy="3.5" r="1.25" fill="currentColor" />
           <circle cx="8" cy="8" r="1.25" fill="currentColor" />
           <circle cx="8" cy="12.5" r="1.25" fill="currentColor" />
         </svg>
-      </span>
+      </button>
+      {menu && (
+        <div ref={menuEl} role="menu" aria-label={t('editor.toolbarPosition')} className={`toolbar-position-menu menu-${dock.menuSide}`} onKeyDown={onMenuKey}>
+          {DOCK_ORDER.map((d) => (
+            <button
+              key={d}
+              type="button"
+              role="menuitemradio"
+              aria-checked={current === d}
+              tabIndex={-1}
+              className="editor-menu-item"
+              onClick={() => {
+                dock.dockTo(d)
+                onDocked?.(d)
+                closeMenu()
+              }}
+            >
+              {t(DOCK_KEYS[d])}
+            </button>
+          ))}
+        </div>
+      )}
       <div ref={slotsEl} role="radiogroup" className="pen-slots">
         {pens.map((pen, i) => {
           const label = fmt(t(pen.tool === 'highlighter' ? 'editor.highlighterSlot' : 'editor.penSlot'), { color: t(colorNameKey(pen.color)), width: pen.width.toFixed(1), n: i + 1 })
@@ -150,7 +243,7 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
               title={readOnly ? t('editor.readOnlyTip') : label}
               data-slot={i}
               className={(on ? 'pen-slot pen-slot-selected' : 'pen-slot') + (dx?.from === i ? ' pen-slot-dragging' : '')}
-              style={dx?.from === i ? { transform: `translateX(${dx.dx}px)` } : undefined}
+              style={dx?.from === i ? { transform: vertical ? `translateY(${dx.dx}px)` : `translateX(${dx.dx}px)` } : undefined}
               {...rv(`slot-${i}`)}
               onFocus={(e) => e.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })}
               onPointerDown={(e) => {
@@ -164,7 +257,7 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
                   d.on = true
                   e.currentTarget.setPointerCapture?.(e.pointerId)
                 }
-                setDx({ from: d.from, dx: e.clientX - d.x })
+                setDx({ from: d.from, dx: vertical ? e.clientY - d.y : e.clientX - d.x })
               }}
               onPointerUp={(e) => endDrag(e, true)}
               onPointerCancel={(e) => endDrag(e, false)}

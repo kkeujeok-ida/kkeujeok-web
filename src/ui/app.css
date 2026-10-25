@@ -627,6 +627,7 @@ h1 {
 }
 
 .pen-toolbar {
+  position: relative;
   grid-column: 2;
   min-width: 0;
   display: flex;
@@ -638,13 +639,111 @@ h1 {
   box-shadow: var(--components-toolbar-shadow);
 }
 
+/* Off the top row: placed by its centre in window coordinates (left/top are set inline). */
+.pen-toolbar.is-floating {
+  position: fixed;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+  transition: left var(--components-pen-slot-selected-duration) var(--components-pen-slot-selected-easing), top var(--components-pen-slot-selected-duration) var(--components-pen-slot-selected-easing);
+}
+
+.pen-toolbar.is-dragging {
+  transition: none;
+}
+
+.pen-toolbar.is-vertical {
+  flex-direction: column;
+  max-height: calc(100vh - 2 * var(--spacing-3));
+  padding: var(--spacing-2) 2px;
+}
+
+.pen-toolbar.is-vertical .pen-slots {
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.pen-toolbar.is-vertical .toolbar-divider {
+  align-self: stretch;
+  width: auto;
+  height: 1px;
+  margin: 0 var(--spacing-1);
+}
+
 .toolbar-grip {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 36px;
+  box-sizing: border-box;
+  min-width: 32px;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--rounded-sm);
+  background: none;
   color: var(--components-toolbar-grip-glyph);
+  cursor: grab;
+  touch-action: none;
+}
+
+.is-dragging .toolbar-grip {
+  cursor: grabbing;
+}
+
+.toolbar-snap {
+  position: fixed;
+  z-index: 4;
+  box-sizing: border-box;
+  border: 2px dashed var(--color-border-hairline);
+  border-radius: var(--components-toolbar-rounded);
+  pointer-events: none;
+}
+
+.toolbar-snap-near {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.toolbar-position-menu {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  padding: var(--components-popover-padding);
+  border-radius: var(--components-popover-rounded);
+  background: var(--components-popover-background);
+  box-shadow: var(--components-popover-shadow);
+}
+
+.toolbar-position-menu .editor-menu-item {
+  text-transform: capitalize;
+}
+
+.toolbar-position-menu.menu-below {
+  top: calc(100% + var(--spacing-2));
+  left: 0;
+}
+
+.toolbar-position-menu.menu-above {
+  bottom: calc(100% + var(--spacing-2));
+  left: 0;
+}
+
+.toolbar-position-menu.menu-right {
+  top: 0;
+  left: calc(100% + var(--spacing-2));
+}
+
+.toolbar-position-menu.menu-left {
+  top: 0;
+  right: calc(100% + var(--spacing-2));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pen-toolbar.is-floating {
+    transition: none;
+  }
 }
 
 .toolbar-divider {

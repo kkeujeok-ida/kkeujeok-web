@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // Writing screen: input -> addStroke -> serial saves, rendering, semantics (story 2.10).
 import 'fake-indexeddb/auto'
+import { readFileSync } from 'node:fs'
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
@@ -16,6 +17,7 @@ import { deleteNoteDatabase } from '../src/storage/noteDb'
 import { acquireNoteLock } from '../src/storage/noteLock'
 import { PEN_SLOTS_KEY, createPenSlots, sharedPenSlots, type PenSlotsStore } from '../src/storage/penSlots'
 import { ERASER_KEY, createEraserSettings, type EraserSettingsStore } from '../src/storage/eraserSettings'
+import { TOOLBAR_KEY, createToolbarPosition, type ToolbarPositionStore } from '../src/storage/toolbarPosition'
 import { RECENT_COLORS_KEY, createRecentColors, type RecentColorsStore } from '../src/storage/recentColors'
 import { type NoteStore, openNoteStore } from '../src/storage/noteStore'
 import { SaveQueue, savesSettled, trackSave } from '../src/storage/saveQueue'
@@ -105,7 +107,7 @@ async function saved(id = 'n1'): Promise<Note> {
 }
 const strokesOf = (n: Note) => n.pages[0]!.elements as Stroke[]
 
-async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note | null; pens?: PenSlotsStore; recent?: RecentColorsStore; eraser?: EraserSettingsStore; lockWaitMs?: number } = {}) {
+async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note | null; pens?: PenSlotsStore; recent?: RecentColorsStore; eraser?: EraserSettingsStore; toolbar?: ToolbarPositionStore; lockWaitMs?: number } = {}) {
   const id = o.id ?? 'n1'
   if (o.note !== null) await seed(o.note ?? newNote(id))
   act(() =>
@@ -113,7 +115,7 @@ async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: 
       createElement(
         I18nContext.Provider,
         { value: i18nFor(o.lang ?? 'ko-KR') },
-        createElement(NoteEditor, { noteId: id, openStore: makeOpen(o.opts), penStore: o.pens, recentStore: o.recent, eraserStore: o.eraser ?? createEraserSettings({ getItem: () => null, setItem: () => {} }), ...(o.lockWaitMs !== undefined && { lockWaitMs: o.lockWaitMs }) }),
+        createElement(NoteEditor, { noteId: id, openStore: makeOpen(o.opts), penStore: o.pens, recentStore: o.recent, eraserStore: o.eraser ?? createEraserSettings({ getItem: () => null, setItem: () => {} }), toolbarStore: o.toolbar ?? createToolbarPosition({ getItem: () => null, setItem: () => {} }), ...(o.lockWaitMs !== undefined && { lockWaitMs: o.lockWaitMs }) }),
       ),
     ),
   )
@@ -174,7 +176,7 @@ describe('semantics', () => {
     expect(q('.editor-title')).toBeNull()
     const tb = q('[role="toolbar"]')!
     expect(tb.getAttribute('aria-label')).toBe('툴바')
-    expect(tb.querySelector('.toolbar-grip')!.getAttribute('aria-hidden')).toBe('true')
+    expect(tb.querySelector('.toolbar-grip')!.getAttribute('aria-label')).toBe('툴바 위치 바꾸기')
     const radios = qa('[role="radiogroup"] [role="radio"]')
     expect(radios).toHaveLength(3)
     expect(qa('[role="radiogroup"]')).toHaveLength(1)
@@ -2168,6 +2170,10 @@ describe('pen slots (story 5.3)', () => {
     expect(items().filter((e) => e.tabIndex === 0)).toEqual([radios()[0]])
     act(() => radios()[0]!.focus())
     key(radios()[0]!, 'ArrowLeft')
+    expect(document.activeElement).toBe(items()[0]) // the handle comes first
+    key(document.activeElement!, 'ArrowLeft')
+    expect(document.activeElement).toBe(items()[0])
+    key(document.activeElement!, 'ArrowRight')
     expect(document.activeElement).toBe(radios()[0])
     key(radios()[0]!, 'ArrowRight')
     expect(document.activeElement).toBe(radios()[1])
@@ -2177,8 +2183,8 @@ describe('pen slots (story 5.3)', () => {
     key(document.activeElement!, 'ArrowRight')
     expect(document.activeElement).toBe(items()[items().length - 1])
     key(document.activeElement!, 'Home')
-    expect(document.activeElement).toBe(radios()[0])
-    expect(items().map((e) => e.getAttribute('data-roving'))).toEqual(['slot-0', 'slot-1', 'slot-2', 'add', 'undo', 'redo', 'eraser', 'lasso', 'text', 'image'])
+    expect(document.activeElement).toBe(items()[0])
+    expect(items().map((e) => e.getAttribute('data-roving'))).toEqual(['handle', 'slot-0', 'slot-1', 'slot-2', 'add', 'undo', 'redo', 'eraser', 'lasso', 'text', 'image'])
   })
 
   test('the wheel scrolls the slot area sideways only when it overflows', async () => {
@@ -2625,5 +2631,156 @@ describe('eraser (story 5.7)', () => {
       h.remove()
       delete (navigator as { locks?: unknown }).locks
     }
+  })
+})
+
+describe('toolbar move and snap (story 5.10)', () => {
+  const mem = () => {
+    const m = new Map<string, string>()
+    return { m, storage: { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) } }
+  }
+  const bar = () => q('.pen-toolbar')!
+  const grip = () => q<HTMLButtonElement>('.toolbar-grip')!
+  const stored = (m: Map<string, string>) => JSON.parse(m.get(TOOLBAR_KEY)!) as { dock: string; x: number; y: number; vertical: boolean }
+  const real = HTMLElement.prototype.getBoundingClientRect
+  const ptr = (name: string, x: number, y: number) => act(() => void grip().dispatchEvent(new PointerEvent(name, { bubbles: true, cancelable: true, pointerId: 3, pointerType: 'mouse', clientX: x, clientY: y, button: 0 })))
+  beforeEach(() => {
+    Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true })
+    Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true })
+    // Horizontal 400x40 (centred at 500,32 in the top row), vertical 40x400; placed by left/top (its centre) once floating.
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (!this.classList.contains('pen-toolbar')) return real.call(this)
+      const v = this.classList.contains('is-vertical')
+      const [w, h] = v ? [40, 400] : [400, 40]
+      const cx = this.style.left ? parseFloat(this.style.left) : 500
+      const cy = this.style.top ? parseFloat(this.style.top) : 32
+      return { left: cx - w / 2, right: cx + w / 2, top: cy - h / 2, bottom: cy + h / 2, width: w, height: h, x: cx - w / 2, y: cy - h / 2, toJSON() {} } as DOMRect
+    }
+  })
+  afterEach(() => {
+    HTMLElement.prototype.getBoundingClientRect = real
+  })
+
+  test('the handle is a menu button first in the roving order; dragging shows 4 outlines and a drop near the left docks vertically', async () => {
+    const s = mem()
+    await mountEditor({ toolbar: createToolbarPosition(s.storage) })
+    expect(grip().getAttribute('aria-haspopup')).toBe('menu')
+    expect(grip().dataset.roving).toBe('handle')
+    ptr('pointerdown', 330, 32) // 170 left of the centre
+    ptr('pointermove', 200, 100)
+    expect(qa('.toolbar-snap')).toHaveLength(4)
+    expect(bar().classList.contains('is-dragging')).toBe(true)
+    ptr('pointermove', -138, 384) // centre (32, 384): on the left outline
+    expect(qa('.toolbar-snap-near')).toHaveLength(1)
+    ptr('pointerup', -138, 384)
+    expect(qa('.toolbar-snap')).toHaveLength(0)
+    expect(bar().classList.contains('is-vertical')).toBe(true)
+    expect(stored(s.m)).toMatchObject({ dock: 'left', vertical: true })
+    click(grip()) // the click that ends a drag opens no menu
+    expect(q('[role="menu"]')).toBeNull()
+  })
+
+  test('a drop away from every outline floats at that place and keeps the orientation', async () => {
+    const s = mem()
+    await mountEditor({ toolbar: createToolbarPosition(s.storage) })
+    ptr('pointerdown', 330, 32)
+    ptr('pointermove', 330, 400)
+    ptr('pointerup', 330, 400) // centre (500, 400)
+    expect(stored(s.m)).toEqual({ dock: 'float', x: 0.5, y: 0.5, vertical: false })
+    expect(bar().classList.contains('is-floating')).toBe(true)
+  })
+
+  test('Esc while dragging restores and saves nothing', async () => {
+    const s = mem()
+    await mountEditor({ toolbar: createToolbarPosition(s.storage) })
+    ptr('pointerdown', 330, 32)
+    ptr('pointermove', 330, 400)
+    expect(qa('.toolbar-snap')).toHaveLength(4)
+    key(document, 'Escape')
+    expect(qa('.toolbar-snap')).toHaveLength(0)
+    expect(bar().classList.contains('is-floating')).toBe(false)
+    expect(s.m.has(TOOLBAR_KEY)).toBe(false)
+    ptr('pointerup', 330, 400) // the release after Esc is not a click on the handle
+    click(grip())
+    expect(q('[role="menu"]')).toBeNull()
+  })
+
+  test('a press that stays within 6px is a click: the position menu; keys pick; announced; focus returns to the handle', async () => {
+    const s = mem()
+    await mountEditor({ toolbar: createToolbarPosition(s.storage) })
+    ptr('pointerdown', 330, 32)
+    ptr('pointerup', 333, 32)
+    click(grip())
+    expect(q('[role="menu"]')!.getAttribute('aria-label')).toBe('툴바 위치')
+    expect(grip().getAttribute('aria-expanded')).toBe('true')
+    const items = qa('[role="menuitemradio"]')
+    expect(items.map((i) => i.textContent)).toEqual(['상단', '왼쪽', '오른쪽', '하단'])
+    expect(items.map((i) => i.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false', 'false'])
+    expect(document.activeElement).toBe(items[0])
+    key(document.activeElement!, 'ArrowDown')
+    expect(document.activeElement).toBe(items[1])
+    click(items[1]!)
+    expect(q('[role="menu"]')).toBeNull()
+    expect(document.activeElement).toBe(grip())
+    expect(qa('[aria-live="polite"]').some((e) => e.textContent === '툴바를 왼쪽에 붙였어요')).toBe(true)
+    expect(stored(s.m)).toMatchObject({ dock: 'left', vertical: true })
+    click(grip())
+    key(document.activeElement!, 'Escape')
+    expect(q('[role="menu"]')).toBeNull()
+    expect(document.activeElement).toBe(grip())
+    expect(stored(s.m).dock).toBe('left')
+  })
+
+  test('vertical toolbar: up/down move between items in DOM order, left/right do nothing', async () => {
+    const s = mem()
+    s.m.set(TOOLBAR_KEY, JSON.stringify({ dock: 'right', x: 0.5, y: 0, vertical: true }))
+    await mountEditor({ toolbar: createToolbarPosition(s.storage) })
+    expect(bar().getAttribute('aria-orientation')).toBe('vertical')
+    act(() => grip().focus())
+    key(grip(), 'ArrowRight')
+    expect(document.activeElement).toBe(grip())
+    key(grip(), 'ArrowDown')
+    expect(document.activeElement).toBe(q('[data-slot="0"]'))
+    key(document.activeElement!, 'ArrowUp')
+    expect(document.activeElement).toBe(grip())
+    key(grip(), 'ArrowUp')
+    expect(document.activeElement).toBe(grip())
+  })
+
+  test('a window smaller than the toolbar pulls it in for display only; growing it again restores', async () => {
+    const s = mem()
+    s.m.set(TOOLBAR_KEY, JSON.stringify({ dock: 'float', x: 0.95, y: 0.5, vertical: false }))
+    await mountEditor({ toolbar: createToolbarPosition(s.storage) })
+    expect(bar().style.left).toBe('800px') // 950 pulled in to 1000 - 200
+    Object.defineProperty(window, 'innerWidth', { value: 600, configurable: true })
+    act(() => void window.dispatchEvent(new Event('resize')))
+    expect(bar().style.left).toBe('400px')
+    expect(stored(s.m).x).toBe(0.95)
+    Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true })
+    act(() => void window.dispatchEvent(new Event('resize')))
+    expect(bar().style.left).toBe('800px')
+  })
+
+  test('a new mount restores the position', async () => {
+    const s = mem()
+    s.m.set(TOOLBAR_KEY, JSON.stringify({ dock: 'bottom', x: 0.5, y: 0, vertical: false }))
+    await mountEditor({ toolbar: createToolbarPosition(s.storage) })
+    expect(bar().classList.contains('is-floating')).toBe(true)
+    expect(bar().style.top).toBe('768px') // 800 - 12 - 20
+  })
+
+  test('focus under the toolbar pans the view once; reduced motion removes the transition', async () => {
+    await mountEditor()
+    const area = q('.editor-page-area')!
+    const input = document.createElement('textarea')
+    area.append(input)
+    input.getBoundingClientRect = () => ({ left: 400, right: 500, top: 20, bottom: 60, width: 100, height: 40 }) as DOMRect
+    area.getBoundingClientRect = () => ({ left: 0, right: 1000, top: 0, bottom: 800, width: 1000, height: 800 }) as DOMRect
+    const pan = vi.spyOn(Writer.prototype, 'panBy')
+    act(() => input.focus())
+    expect(pan).toHaveBeenCalledTimes(1)
+    pan.mockRestore()
+    const css = readFileSync('src/ui/app.css', 'utf8')
+    expect(css).toMatch(/prefers-reduced-motion: reduce\) \{\s*\.pen-toolbar\.is-floating \{\s*transition: none/)
   })
 })

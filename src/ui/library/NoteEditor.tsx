@@ -26,6 +26,9 @@ import { PenPopover } from './PenPopover'
 import { EraserPopover } from './EraserPopover'
 import { sharedEraserSettings, type EraserSettingsStore } from '../../storage/eraserSettings'
 import { PenToolbar } from './PenToolbar'
+import { sharedToolbarPosition, type ToolbarPositionStore } from '../../storage/toolbarPosition'
+import { revealShift } from './toolbarDock'
+import { useToolbarDock } from './useToolbarDock'
 import { SelectionMenu } from './SelectionMenu'
 import { TextEditOverlay } from './TextEditOverlay'
 import { VersionHistory } from './VersionHistory'
@@ -109,6 +112,7 @@ export function NoteEditor({
   penStore = sharedPenSlots(),
   recentStore = sharedRecentColors(),
   eraserStore = sharedEraserSettings(),
+  toolbarStore = sharedToolbarPosition(),
   uploads,
   receiver,
   images,
@@ -120,6 +124,8 @@ export function NoteEditor({
   recentStore?: RecentColorsStore
   /** The eraser way and "return to the pen" (device setting). */
   eraserStore?: EraserSettingsStore
+  /** Where the toolbar sits (device setting). */
+  toolbarStore?: ToolbarPositionStore
   /** Told when the note is closed, after its last save and its lock are released (Story 3.12); records a resolved conflict (Story 3.22). */
   uploads?: Pick<UploadCoordinator, 'noteClosed'> & Partial<Pick<UploadCoordinator, 'conflictResolved' | 'syncNow'>>
   /** Receives remote changes before the editor opens and checks the remote head after (Story 3.14). */
@@ -205,6 +211,10 @@ export function NoteEditor({
   const section = useRef<HTMLElement>(null)
   const back = useRef<HTMLButtonElement>(null)
   const toolbar = useRef<HTMLDivElement>(null)
+  const dock = useToolbarDock(toolbarStore, toolbar, !!loaded)
+  const pageArea = useRef<HTMLDivElement>(null)
+  const dockRef = useRef(dock)
+  dockRef.current = dock
   const canvas = useRef<HTMLCanvasElement>(null)
   const more = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
@@ -274,7 +284,11 @@ export function NoteEditor({
                 const px = probe.getBoundingClientRect().width
                 probe.remove()
                 const g = px > 0 ? px : 12
-                return { gap: g, extraBottom: (toolbar.current?.offsetHeight ?? 0) + g }
+                // The top-docked toolbar keeps its room (existing behaviour, tests); a left/right dock or a float in the upper half takes none; the lower half covers the bottom edge.
+                const el = toolbar.current
+                const r = el?.getBoundingClientRect()
+                const low = !!r && (r.top + r.bottom) / 2 > window.innerHeight / 2
+                return { gap: g, extraBottom: !el || (!dockRef.current.floating && dockRef.current.pos.dock === 'top') || low ? el ? el.offsetHeight + g : g : 0 }
               }
               w.onView = (v) => live && setView(v)
               w.onBox = (b) => live && setBox(b)
@@ -861,6 +875,27 @@ export function NoteEditor({
     return () => ro.disconnect()
   }, [loaded])
 
+  // A dock change that keeps the toolbar's size does not resize it: lay the view out again.
+  useEffect(() => {
+    loaded?.writer.layout()
+  }, [loaded, dock.pos])
+
+  // A focused text box or button on the page that the toolbar covers is scrolled clear, once (UX-DR21).
+  useEffect(() => {
+    const area = pageArea.current
+    if (!loaded || !area) return
+    const onIn = (e: FocusEvent) => {
+      const el = e.target as HTMLElement
+      const bar = toolbar.current
+      if (!bar || el.tagName === 'CANVAS' || loaded.writer.busy()) return
+      const m = revealShift(el.getBoundingClientRect(), bar.getBoundingClientRect(), area.getBoundingClientRect())
+      // The view moves the other way from the box: panning right slides the page left.
+      if (m) loaded.writer.panBy(-m.x, -m.y)
+    }
+    area.addEventListener('focusin', onIn)
+    return () => area.removeEventListener('focusin', onIn)
+  }, [loaded])
+
   // The zoom menu closes on Esc or a press outside, and focus returns to the button.
   useEffect(() => {
     if (!menuOpen) return
@@ -1147,6 +1182,9 @@ export function NoteEditor({
       )}
       {loaded && (
         <>
+          {dock.outlines.map((o) => (
+            <div key={o.dock} aria-hidden="true" className={o.near ? 'toolbar-snap toolbar-snap-near' : 'toolbar-snap'} style={{ left: o.left, top: o.top, width: o.width, height: o.height }} />
+          ))}
           <div className="editor-top">
             <div className="editor-corner">
               <button ref={back} type="button" className="btn editor-back" aria-label={t('library.backToLibrary')} onClick={onBack}>
@@ -1186,6 +1224,8 @@ export function NoteEditor({
                 setEraser(eraserStore.read()) // another tab may have changed it
                 setEraserPop(true)
               }}
+              dock={dock}
+              onDocked={(d) => setAnnounce(fmt(t('editor.toolbarDocked'), { place: t({ top: 'editor.dockTop', left: 'editor.dockLeft', right: 'editor.dockRight', bottom: 'editor.dockBottom' }[d] as 'editor.dockTop') }))}
               {...(images && { onImage: () => picker.current?.click() })}
               readOnly={readOnly}
             />
@@ -1275,7 +1315,7 @@ export function NoteEditor({
               )}
             </div>
           </div>
-          <div className="editor-page-area" role="group" aria-label={`${t('editor.canvas')}: ${pageLabel ?? ''}`}>
+          <div ref={pageArea} className="editor-page-area" role="group" aria-label={`${t('editor.canvas')}: ${pageLabel ?? ''}`}>
             <input
               ref={picker}
               type="file"

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 /**
- * The modal shell of the toolbar popovers: a scrim that takes the pointer, a dialog placed below the toolbar of `anchor`
+ * The modal shell of the toolbar popovers: a scrim that takes the pointer, a dialog placed below the toolbar of `anchor` (above it when that sits in the lower half)
  * (pushed up when it would run off the bottom), Tab cycling the `[tabindex="0"]` stops inside, Esc and a press outside close it.
  * The owner puts focus back in onClose. `relayout` changes when the content's height may have changed.
  */
@@ -20,7 +20,15 @@ export function PopoverShell({ anchor, onClose, labelledBy, className, relayout,
     if (!r) return undefined
     const margin = 12
     const width = Math.min(320, window.innerWidth - margin * 2)
+    if (r.height > r.width) {
+      // A vertical toolbar: beside it, on the side with room, so it is not covered.
+      const right = r.right + margin
+      const left = right + width <= window.innerWidth - margin ? right : Math.max(margin, r.left - margin - width)
+      return { above: null, top: Math.max(margin, r.top), left }
+    }
     return {
+      // A toolbar in the lower half of the window: the dialog goes above it.
+      above: (r.top + r.bottom) / 2 > window.innerHeight / 2 ? r.top : null,
       top: Math.max(margin, r.bottom),
       left: Math.max(margin, Math.min(r.left, window.innerWidth - width - margin)),
     }
@@ -36,7 +44,7 @@ export function PopoverShell({ anchor, onClose, labelledBy, className, relayout,
   }, [anchor])
   useLayoutEffect(() => {
     const h = box.current?.offsetHeight
-    if (pos && h) setTop(Math.max(12, Math.min(pos.top, window.innerHeight - 12 - 8 - h)))
+    if (pos && h) setTop(Math.max(12, Math.min(pos.above !== null ? pos.above - h : pos.top, window.innerHeight - 12 - 8 - h)))
   }, [pos, relayout])
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -67,7 +75,7 @@ export function PopoverShell({ anchor, onClose, labelledBy, className, relayout,
         aria-modal="true"
         aria-labelledby={labelledBy}
         tabIndex={-1}
-        style={pos && { ...pos, top: top ?? pos.top }}
+        style={pos && { left: pos.left, top: top ?? pos.top }}
       >
         {children}
       </div>
