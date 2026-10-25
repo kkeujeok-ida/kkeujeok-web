@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyEvent } from 'react'
 import { fmt, useI18n, type Key } from '../../i18n'
-import type { Pen, PenTool } from '../../model/pen'
+import { defaultFor, type Pen, type PenTool } from '../../model/pen'
 import { addSlot, indexAfterMove, indexAfterRemove, moveSlot, pickByTool, removeSlot } from '../../model/penSlotList'
 import { elementClipboard } from '../../model/elementClipboard'
 import { isBlankText } from '../../model/textLayout'
@@ -9,6 +9,7 @@ import { auth } from '../../drive/auth'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
 import { acquireNoteLock } from '../../storage/noteLock'
 import { sharedPenSlots, type PenSlotsStore } from '../../storage/penSlots'
+import { sharedRecentColors, type RecentColorsStore } from '../../storage/recentColors'
 import { savesSettled } from '../../storage/saveQueue'
 import { registerOpenNote } from '../../sync/openNotes'
 import type { NoteReceiver } from '../../sync/noteReceiver'
@@ -104,6 +105,7 @@ export function NoteEditor({
   noteId,
   openStore = () => openNoteStore(undefined, { getAccount: () => auth.getState().account }),
   penStore = sharedPenSlots(),
+  recentStore = sharedRecentColors(),
   uploads,
   receiver,
   images,
@@ -112,6 +114,7 @@ export function NoteEditor({
   noteId: string
   openStore?: () => NoteStore
   penStore?: PenSlotsStore
+  recentStore?: RecentColorsStore
   /** Told when the note is closed, after its last save and its lock are released (Story 3.12); records a resolved conflict (Story 3.22). */
   uploads?: Pick<UploadCoordinator, 'noteClosed'> & Partial<Pick<UploadCoordinator, 'conflictResolved' | 'syncNow'>>
   /** Receives remote changes before the editor opens and checks the remote head after (Story 3.14). */
@@ -125,6 +128,7 @@ export function NoteEditor({
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [message, setMessage] = useState<{ key: WriterMessage; n: number } | null>(null)
   const [pens, setPens] = useState<Pen[]>(() => penStore.read())
+  const [recent, setRecent] = useState<string[]>(() => recentStore.read())
   const [popover, setPopover] = useState<number | null>(null)
   const popoverOpen = useRef(false)
   popoverOpen.current = popover !== null
@@ -1140,6 +1144,7 @@ export function NoteEditor({
                 if (readOnly || loaded.writer.busy()) return
                 setTool('pen')
                 setPens(penStore.read()) // another tab may have changed it
+                setRecent(recentStore.read())
                 setPopover(i)
               }}
               canUndo={loaded.writer.canUndo}
@@ -1368,9 +1373,14 @@ export function NoteEditor({
               anchor={toolbar.current}
               canDelete={pens.length > 1}
               onDelete={() => deletePenSlot(popover)}
-              onUsePressure={(usePressure) => {
-                const next = pens.map((p, i) => (i === popover ? { ...p, usePressure } : p))
-                commitSlots(next)
+              recent={recent}
+              onRecent={(hex) => setRecent(recentStore.push(hex))}
+              onChange={(patch) => {
+                const cur = pens[popover]!
+                if (patch.tool !== undefined && patch.tool === cur.tool) return
+                const next = patch.tool !== undefined ? defaultFor(patch.tool) : { ...cur, ...patch }
+                if (patch.tool !== undefined) setAnnounce(t(`editor.tool.${patch.tool}`))
+                commitSlots(pens.map((p, i) => (i === popover ? next : p)))
               }}
               onClose={() => {
                 setPopover(null)

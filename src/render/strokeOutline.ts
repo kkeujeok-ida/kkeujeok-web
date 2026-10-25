@@ -2,7 +2,7 @@
 // pen stroke, built from the stored points only when drawing; never stored.
 import { round2 } from '../model/number'
 
-const DEDUPE_DISTANCE = 0.01
+export const DEDUPE_DISTANCE = 0.01
 const SMOOTHING_PASSES = 2
 const SMOOTHING_FACTOR = 0.5
 const SPACING = 2.0

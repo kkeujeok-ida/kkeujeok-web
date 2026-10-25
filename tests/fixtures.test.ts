@@ -10,7 +10,9 @@ import { decodeKkj, encodeKkj } from '../src/model/kkjCodec'
 import { normalizeTitle } from '../src/model/noteTitle'
 import type { Note } from '../src/model/note'
 import { round2 } from '../src/model/number'
-import { defaultPenSlots } from '../src/model/pen'
+import { PEN_DEFAULTS, PEN_PALETTE, PEN_WIDTH, colorNameKey, defaultPenSlots, type PenTool } from '../src/model/pen'
+import { resources } from '../src/i18n'
+import { highlighterOutline } from '../src/render/highlighterOutline'
 import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
 import { selectLasso, selectRect, selectTap, type El, type P } from '../src/model/select'
@@ -174,6 +176,30 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
       }
     }
   },
+  'stroke.outline.highlighter': ({ input, expected, tolerance }) => {
+    const i = input as { width: number; points: number[][] }
+    const want = (expected as { polygons: number[][][] }).polygons
+    const got = highlighterOutline(i.width, i.points)
+    expect(got).toHaveLength(want.length)
+    expect(typeof tolerance, 'fixture has no tolerance').toBe('number')
+    for (const [k, rect] of got.entries()) {
+      expect(rect).toHaveLength(want[k]!.length)
+      for (const [j, p] of rect.entries()) {
+        for (const axis of [0, 1]) expect(Math.abs(p[axis]! - want[k]![j]![axis]!)).toBeLessThanOrEqual(tolerance! + 1e-9)
+      }
+    }
+  },
+  'pen.palette': ({ input, expected }) => {
+    const tool = (input as { tool: PenTool }).tool
+    const pal = PEN_PALETTE[tool]
+    expect({
+      columns: pal.columns,
+      rows: pal.rows,
+      colors: pal.colors.map((color) => ({ color, ko: resources.ko[colorNameKey(color)], en: resources.en[colorNameKey(color)] })),
+      width: { ...PEN_WIDTH[tool], default: PEN_DEFAULTS[tool].width, step: 0.1 },
+      usePressureDefault: PEN_DEFAULTS[tool].usePressure,
+    }).toEqual(expected)
+  },
   'page.background': ({ input, expected }) => {
     const i = input as { background: string; width: number; height: number }
     expect(pageBackground(i.background, i.width, i.height)).toEqual(expected)
@@ -256,8 +282,6 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
-  'pen.palette',
-  'stroke.outline.highlighter',
   'ops.eraseStrokes',
   'ops.erasePartial',
   'ops.eraseHistory',

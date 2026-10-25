@@ -4,6 +4,7 @@
 import { isValidStroke, type Page, type Stroke } from '../model/note'
 import { pageBackground } from './pageBackground'
 import { outlinePath, strokeOutline } from './strokeOutline'
+import { highlighterOutline, highlighterPath } from './highlighterOutline'
 import { drawableImage, paintImage, type ImageSource } from './imagePainter'
 import { drawableText, paintTextBox } from './textPainter'
 
@@ -121,8 +122,11 @@ function cacheKey(s: Stroke): string {
   // A cheap digest of every point, so an edit in the middle invalidates too.
   let h = 0
   for (const p of pts) h = (Math.imul(h, 31) + Math.round(p[0]! * 100) + Math.imul(Math.round(p[1]! * 100), 7) + Math.round(p[2]! * 100)) | 0
-  return [s.id, pts.length, s.width, s.usePressure ? 1 : 0, first?.[0], first?.[1], last?.[0], last?.[1], h].join('|')
+  return [s.id, s.tool, pts.length, s.width, s.usePressure ? 1 : 0, first?.[0], first?.[1], last?.[0], last?.[1], h].join('|')
 }
+
+const strokePath = (s: Pick<Stroke, 'tool' | 'width' | 'usePressure' | 'points'>): Path2D =>
+  s.tool === 'highlighter' ? highlighterPath(highlighterOutline(s.width, s.points)) : outlinePath(strokeOutline(s.width, s.usePressure, s.points))
 
 /** Outlines of finished strokes by stroke id, so a repaint rebuilds none. */
 export class StrokePathCache {
@@ -132,7 +136,7 @@ export class StrokePathCache {
     const key = cacheKey(s)
     const hit = this.byId.get(s.id)
     if (hit && hit.key === key) return hit.path
-    const path = outlinePath(strokeOutline(s.width, s.usePressure, s.points))
+    const path = strokePath(s)
     this.byId.set(s.id, { key, path })
     return path
   }
@@ -145,9 +149,16 @@ export class StrokePathCache {
 
 const MAX_BACKGROUND_ITEMS = 100000
 const COLOR = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
-const fill = (ctx: CanvasRenderingContext2D, path: Path2D, color: unknown) => {
+const HIGHLIGHTER_ALPHA = 0.4
+// A highlighter stroke is one layer (one fill) composited once: 0.4 opacity, multiply (spec stroke-geometry.md).
+const fill = (ctx: CanvasRenderingContext2D, path: Path2D, color: unknown, tool?: unknown) => {
   ctx.fillStyle = typeof color === 'string' && COLOR.test(color) ? color : '#000000'
+  if (tool !== 'highlighter') return ctx.fill(path, 'nonzero')
+  ctx.save()
+  ctx.globalAlpha = HIGHLIGHTER_ALPHA
+  ctx.globalCompositeOperation = 'multiply'
   ctx.fill(path, 'nonzero')
+  ctx.restore()
 }
 
 /**
@@ -215,7 +226,7 @@ export function paintPage(
         else if (drawableImage(e)) paintImage(ctx, e, images)
         if (!isValidStroke(e)) continue
         ids.add(e.id)
-        fill(ctx, cache.pathOf(e), e.color)
+        fill(ctx, cache.pathOf(e), e.color, e.tool)
       } catch {
         // one bad element must not hide the rest
       }
@@ -230,7 +241,7 @@ export function paintPage(
     cache.keepOnly(ids)
     if (live && isValidStroke(live)) {
       try {
-        fill(ctx, outlinePath(strokeOutline(live.width, live.usePressure, live.points)), live.color)
+        fill(ctx, strokePath(live), live.color, live.tool)
       } catch {
         // the stroke in progress is skipped for this frame
       }

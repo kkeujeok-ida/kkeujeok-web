@@ -27,6 +27,31 @@ export const PEN_WIDTH: Record<PenTool, { min: number; max: number }> = {
   highlighter: { min: 4, max: 30 },
 }
 
+/** Width default and `usePressure` default per tool (spec pen.md). */
+export const PEN_DEFAULTS: Record<PenTool, { width: number; usePressure: boolean }> = {
+  pen: { width: 2, usePressure: true },
+  highlighter: { width: 14, usePressure: false },
+}
+
+/** Palette colors in grid order (spec pen.md `pen.palette`). */
+export const PEN_PALETTE: Record<PenTool, { columns: number; rows: number; colors: string[] }> = {
+  pen: {
+    columns: 6,
+    rows: 2,
+    colors: ['#000000', '#495057', '#e03131', '#f76707', '#f59f00', '#2f9e44', '#0c8599', '#1971c2', '#3b5bdb', '#9c36b5', '#d6336c', '#7f5539'],
+  },
+  highlighter: { columns: 6, rows: 1, colors: ['#ffe066', '#8ce99a', '#74c0fc', '#faa2c1', '#ffc078', '#d0bfff'] },
+}
+
+/** A slot reset to the tool's defaults (a tool switch in the popover). */
+export const defaultFor = (tool: PenTool): Pen => ({ tool, color: PEN_PALETTE[tool].colors[0]!, ...PEN_DEFAULTS[tool] })
+
+/** `v` clamped to the tool's range and rounded to 0.1, so no 2.3000000000000003 is stored. */
+export const snapWidth = (v: number, tool: PenTool): number => {
+  const { min, max } = PEN_WIDTH[tool]
+  return Math.round(Math.min(max, Math.max(min, v)) * 10) / 10
+}
+
 /** The color of the text and selection menus: one ink, independent of the slot list. */
 export const inkColors: readonly string[] = [defaultPen.color]
 

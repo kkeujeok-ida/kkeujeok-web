@@ -15,6 +15,7 @@ import { pageBackground } from '../src/render/pageBackground'
 import { deleteNoteDatabase } from '../src/storage/noteDb'
 import { acquireNoteLock } from '../src/storage/noteLock'
 import { PEN_SLOTS_KEY, createPenSlots, sharedPenSlots, type PenSlotsStore } from '../src/storage/penSlots'
+import { RECENT_COLORS_KEY, createRecentColors, type RecentColorsStore } from '../src/storage/recentColors'
 import { type NoteStore, openNoteStore } from '../src/storage/noteStore'
 import { SaveQueue, savesSettled, trackSave } from '../src/storage/saveQueue'
 import { getOpenNote } from '../src/sync/openNotes'
@@ -103,7 +104,7 @@ async function saved(id = 'n1'): Promise<Note> {
 }
 const strokesOf = (n: Note) => n.pages[0]!.elements as Stroke[]
 
-async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note | null; pens?: PenSlotsStore } = {}) {
+async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note | null; pens?: PenSlotsStore; recent?: RecentColorsStore } = {}) {
   const id = o.id ?? 'n1'
   if (o.note !== null) await seed(o.note ?? newNote(id))
   act(() =>
@@ -111,7 +112,7 @@ async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: 
       createElement(
         I18nContext.Provider,
         { value: i18nFor(o.lang ?? 'ko-KR') },
-        createElement(NoteEditor, { noteId: id, openStore: makeOpen(o.opts), penStore: o.pens }),
+        createElement(NoteEditor, { noteId: id, openStore: makeOpen(o.opts), penStore: o.pens, recentStore: o.recent }),
       ),
     ),
   )
@@ -1729,10 +1730,11 @@ describe('pen pressure toggle', () => {
     expect(d.getAttribute('aria-labelledby')).toBeTruthy()
     expect(d.querySelector('h2')!.textContent).toBe('펜')
     expect(sw().getAttribute('aria-checked')).toBe('true')
+    expect(d.querySelectorAll('.pen-palette [role="radio"]')).toHaveLength(13) // 12 colors + custom
     const labelId = sw().getAttribute('aria-labelledby')!
     expect(document.getElementById(labelId)!.textContent).toBe('필압 반영')
     expect(d.querySelector('svg.pen-preview path')!.getAttribute('d')).toMatch(/^M/)
-    expect(document.activeElement).toBe(sw())
+    expect(document.activeElement).toBe(d.querySelector('.pen-tool-switch [aria-checked="true"]'))
   })
 
   test('off: stored at once, flat preview, next stroke false with raw pressure; old stroke unchanged', async () => {
@@ -1768,24 +1770,37 @@ describe('pen pressure toggle', () => {
     expect(sw().getAttribute('aria-checked')).toBe('true')
   })
 
-  test('Tab cycles the switch and the delete button; outside press and Esc close, keep the change, focus the slot', async () => {
+  test('Tab cycles the stops inside; outside press and Esc close, keep the change, focus the slot', async () => {
     const { m, storage } = memStore()
     await mountEditor({ pens: createPenSlots(storage) })
-    // Enter/Space on a button is a click, so the keyboard route is this handler.
     click(slot())
     click(sw())
-    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
-    act(() => void sw().dispatchEvent(tab))
-    expect(tab.defaultPrevented).toBe(true)
+    const tab = (el: Element, shiftKey = false) => {
+      const ev = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true })
+      act(() => void el.dispatchEvent(ev))
+      return ev
+    }
+    const first = document.activeElement as HTMLElement
+    expect(first.closest('.pen-tool-switch')).not.toBeNull()
+    const seen: string[] = []
+    let ev = tab(first)
+    expect(ev.defaultPrevented).toBe(true)
+    for (let i = 0; i < 6; i++) {
+      const el = document.activeElement as HTMLElement
+      seen.push(el.closest('.pen-palette') ? 'palette' : el.closest('.pen-recent') ? 'recent' : el.className || el.getAttribute('role')!)
+      ev = tab(el)
+    }
+    // tool, palette, (recent is empty), slider, down, up, switch, delete, back to the tool
+    expect(seen).toEqual(['palette', 'pen-width-slider', 'pen-step pen-step-down', 'pen-step', 'pen-popover-switch', 'pen-popover-delete'])
+    expect(document.activeElement).toBe(first)
+    tab(first, true)
     expect(document.activeElement).toBe(q('.pen-popover-delete'))
-    act(() => void q('.pen-popover-delete')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })))
-    expect(document.activeElement).toBe(sw())
     act(() => void q('.pen-popover-scrim')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
     expect(dialog()).toBeNull()
     expect(storedUp(m)).toBe(false)
     expect(document.activeElement).toBe(slot())
     click(slot())
-    key(sw(), 'Escape')
+    key(document.activeElement!, 'Escape')
     expect(dialog()).toBeNull()
     expect(document.activeElement).toBe(slot())
   })
@@ -1859,8 +1874,9 @@ describe('pen pressure toggle', () => {
     click(qa('[role="radio"]')[1]!)
     click(qa('[role="radio"]')[1]!)
     expect(dialog()).not.toBeNull()
+    const focused = document.activeElement
     key(sw(), 'F6')
-    expect(document.activeElement).toBe(sw())
+    expect(document.activeElement).toBe(focused)
     key(sw(), '1')
     key(canvas(), '1')
     expect(qa('[role="radio"]')[0]!.getAttribute('aria-checked')).toBe('false')
@@ -1933,7 +1949,7 @@ describe('pen slots (story 5.3)', () => {
     const m = new Map<string, string>(initial === undefined ? [] : [[PEN_SLOTS_KEY, initial]])
     return { m, storage: { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) } }
   }
-  const radios = () => qa('[role="radio"]')
+  const radios = () => qa('.pen-slots [role="radio"]')
   const checked = () => radios().findIndex((r) => r.getAttribute('aria-checked') === 'true')
   const storedList = (m: Map<string, string>) => JSON.parse(m.get(PEN_SLOTS_KEY)!) as { tool: string; color: string; width: number }[]
   const colors = (m: Map<string, string>) => storedList(m).map((p) => p.color)
@@ -2225,5 +2241,148 @@ describe('pen slots (story 5.3)', () => {
     expect(colors(s.m)).toEqual([BLACK, YELLOW, BLUE])
     expect(radios().map((r) => r.getAttribute('aria-label')?.slice(0, 3))).toEqual(['펜, ', '형광펜', '펜, '])
     expect(checked()).toBe(0)
+  })
+})
+
+describe('pen popover (story 5.5)', () => {
+  const mem = (key: string, initial?: string) => {
+    const m = new Map<string, string>(initial === undefined ? [] : [[key, initial]])
+    return { m, storage: { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) } }
+  }
+  const open = async (recentInit?: string, slotsInit?: string) => {
+    const slots = mem(PEN_SLOTS_KEY, slotsInit)
+    const rec = mem(RECENT_COLORS_KEY, recentInit)
+    await mountEditor({ pens: createPenSlots(slots.storage), recent: createRecentColors(rec.storage) })
+    click(q('.pen-slots [role="radio"]')!)
+    return { slots: slots.m, rec: rec.m }
+  }
+  const slotList = (m: Map<string, string>) => JSON.parse(m.get(PEN_SLOTS_KEY)!) as { tool: string; color: string; width: number; usePressure: boolean }[]
+  const cell = (i: number) => qa('.pen-palette [role="radio"]')[i]!
+  const picker = () => q<HTMLInputElement>('.pen-color-input')!
+  const caption = () => qa('.pen-caption')[1]!.textContent
+  const slider = () => q<HTMLInputElement>('.pen-width-slider')!
+  const up = () => q('.pen-step:not(.pen-step-down)')!
+
+  test('arrow keys only move focus (no wrap); Enter applies, stores and puts the color first in recent', async () => {
+    const { slots, rec } = await open()
+    act(() => cell(0).focus())
+    key(cell(0), 'ArrowLeft')
+    expect(document.activeElement).toBe(cell(0))
+    key(cell(0), 'ArrowRight')
+    expect(document.activeElement).toBe(cell(1))
+    expect(slots.get(PEN_SLOTS_KEY)).toBeUndefined()
+    key(cell(1), 'ArrowDown')
+    expect(document.activeElement).toBe(cell(7))
+    key(cell(7), 'Enter')
+    expect(slotList(slots)[0]!.color).toBe('#1971c2')
+    expect(cell(7).getAttribute('aria-checked')).toBe('true')
+    expect(cell(7).getAttribute('aria-label')).toBe('파랑')
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#1971c2'])
+    expect(qa('.pen-recent [role="radio"]')).toHaveLength(1)
+    click(qa('.pen-recent [role="radio"]')[0]!)
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#1971c2'])
+  })
+
+  test('recent keeps six: a new color goes first, the oldest drops, an old one moves up', async () => {
+    const { rec } = await open(JSON.stringify(['#000001', '#000002', '#000003', '#000004', '#000005', '#000006']))
+    expect(qa('.pen-recent [role="radio"]')).toHaveLength(6)
+    click(cell(2))
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#e03131', '#000001', '#000002', '#000003', '#000004', '#000005'])
+    click(qa('.pen-recent [role="radio"]')[3]!)
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#000003', '#e03131', '#000001', '#000002', '#000004', '#000005'])
+  })
+
+  test('[custom] opens the hidden picker; input applies, change records; the custom cell is checked', async () => {
+    const { slots, rec } = await open()
+    const spy = vi.spyOn(picker(), 'click').mockImplementation(() => {})
+    click(cell(12))
+    expect(spy).toHaveBeenCalled()
+    picker().value = '#12AB34'
+    act(() => void picker().dispatchEvent(new Event('input', { bubbles: true })))
+    expect(slotList(slots)[0]!.color).toBe('#12ab34')
+    expect(cell(12).getAttribute('aria-checked')).toBe('true')
+    expect(rec.get(RECENT_COLORS_KEY)).toBeUndefined()
+    act(() => void picker().dispatchEvent(new Event('change', { bubbles: true })))
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#12ab34'])
+    expect(qa('.pen-recent [role="radio"]')[0]!.getAttribute('aria-label')).toBe('사용자 지정')
+  })
+
+  test('width: slider arrows step 0.1 without float noise; the caption follows; the stepper disables at the end', async () => {
+    const { slots } = await open()
+    expect(caption()).toBe('두께 2.0')
+    act(() => slider().focus())
+    for (let i = 0; i < 3; i++) key(slider(), 'ArrowRight')
+    expect(slotList(slots)[0]!.width).toBe(2.3)
+    expect(caption()).toBe('두께 2.3')
+    key(slider(), 'ArrowLeft')
+    expect(slotList(slots)[0]!.width).toBe(2.2)
+    click(up())
+    expect(slotList(slots)[0]!.width).toBe(2.3)
+    expect(slider().min).toBe('0.5')
+    expect(slider().max).toBe('10')
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(slider(), '10')
+      slider().dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(slotList(slots)[0]!.width).toBe(10)
+    expect(up().getAttribute('aria-disabled')).toBe('true')
+    click(up())
+    expect(slotList(slots)[0]!.width).toBe(10)
+  })
+
+  test('tool switch: slot gets that tool defaults, the pressure switch hides, the same tool does nothing', async () => {
+    const { slots } = await open()
+    const [penBtn, hiBtn] = qa('.pen-tool-switch [role="radio"]')
+    click(penBtn!) // already a pen
+    expect(slots.get(PEN_SLOTS_KEY)).toBeUndefined()
+    click(hiBtn!)
+    expect(slotList(slots)[0]).toEqual({ tool: 'highlighter', color: '#ffe066', width: 14, usePressure: false })
+    expect(q('.pen-popover h2')!.textContent).toBe('형광펜')
+    expect(q('[role="switch"]')).toBeNull()
+    expect(qa('.pen-palette [role="radio"]')).toHaveLength(7) // 6 colors + custom
+    expect(slider().getAttribute('min')).toBe('4')
+    expect(q('.pen-preview path')!.getAttribute('fill-opacity')).toBe('0.4')
+    expect(qa('[role="status"]').some((e) => e.textContent === '형광펜')).toBe(true)
+    key(document.activeElement!, 'Escape')
+    expect(qa('.pen-slots [role="radio"]')[0]!.getAttribute('aria-checked')).toBe('true')
+    key(canvas(), 'h', { code: 'KeyH' })
+    expect(qa('.pen-slots [role="radio"]')[0]!.getAttribute('aria-checked')).toBe('true') // slot 1 is the last highlighter now
+  })
+
+  test('a highlighter stroke is saved as highlighter with the new color and width', async () => {
+    await open()
+    click(qa('.pen-tool-switch [role="radio"]')[1]!)
+    click(cell(3))
+    key(document.activeElement!, 'Escape')
+    fire('pointerdown', { x: 100, y: 100 })
+    fire('pointermove', { x: 130, y: 100 })
+    fire('pointerup', { x: 160, y: 100 })
+    await flush()
+    expect(strokesOf(await saved())[0]).toMatchObject({ tool: 'highlighter', color: '#faa2c1', width: 14, usePressure: false })
+  })
+
+  test('slot and recent colors survive a remount (device setting)', async () => {
+    const slots = mem(PEN_SLOTS_KEY)
+    const rec = mem(RECENT_COLORS_KEY)
+    await mountEditor({ pens: createPenSlots(slots.storage), recent: createRecentColors(rec.storage) })
+    click(q('.pen-slots [role="radio"]')!)
+    click(cell(2))
+    act(() => root.unmount())
+    root = createRoot(host)
+    await mountEditor({ pens: createPenSlots(slots.storage), recent: createRecentColors(rec.storage), note: null })
+    click(q('.pen-slots [role="radio"]')!)
+    expect(cell(2).getAttribute('aria-checked')).toBe('true')
+    expect(qa('.pen-recent [role="radio"]')[0]!.getAttribute('aria-label')).toBe('빨강')
+  })
+
+  test('strings exist in both languages and English names show', async () => {
+    for (const k of ['editor.tool.pen', 'editor.tool.highlighter', 'editor.recent', 'editor.widthCaption', 'editor.widthDown', 'editor.widthUp', 'editor.toolKind', 'editor.palette'] as const) {
+      expect(resources.ko[k]).toBeTruthy()
+      expect(resources.en[k]).toBeTruthy()
+    }
+    await mountEditor({ lang: 'en-US', pens: createPenSlots(mem(PEN_SLOTS_KEY).storage), recent: createRecentColors(mem(RECENT_COLORS_KEY).storage) })
+    click(q('.pen-slots [role="radio"]')!)
+    expect(caption()).toBe('Width 2.0')
+    expect(cell(7).getAttribute('aria-label')).toBe('Blue')
   })
 })
