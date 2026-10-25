@@ -262,13 +262,18 @@ function strokeOp(note: Note, op: Op, ctx: Ctx): OpResult {
     const w = op.width
     if (typeof w !== 'number' || !Number.isFinite(w) || Math.abs(w) > 100) return 'invalidWidth'
     width = Math.sign(w) * Math.round(Math.abs(w) * 10) / 10 // half away from zero
-    return width >= 0.5 && width <= 10 ? null : 'invalidWidth'
+    return width >= 0.5 && width <= 30 ? null : 'invalidWidth'
   })
   if ('error' in r) return r
   const strokes = r.idx.filter((i) => (r.page.elements[i] as El).type === 'stroke')
   if (strokes.length === 0) return { note, inverse: null }
   const before = strokes.map((i) => structuredClone(r.page.elements[i]))
-  for (const i of strokes) (r.page.elements[i] as El)[color ? 'color' : 'width'] = color ? op.color : width
+  for (const i of strokes) {
+    const el = r.page.elements[i] as El
+    // Each stroke is clamped to its own tool's range (spec/ops.md).
+    if (color) el.color = op.color
+    else el.width = el.tool === 'highlighter' ? Math.min(30, Math.max(4, width)) : Math.min(10, Math.max(0.5, width))
+  }
   touch(r.page, ctx)
   return { note: next, inverse: { op: 'replaceElements', pageId: op.pageId, elements: before } }
 }

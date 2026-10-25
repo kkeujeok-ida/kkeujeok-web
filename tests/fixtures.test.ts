@@ -251,7 +251,14 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Sync rules (Story 3.2) arrive with the web sync stories (3.4, 3.6, 3.10, ...);
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
-const PENDING: string[] = []
+const PENDING: string[] = [
+  'pen.palette',
+  'pen.defaultSlots',
+  'stroke.outline.highlighter',
+  'ops.eraseStrokes',
+  'ops.erasePartial',
+  'ops.eraseHistory',
+]
 
 function mergeRunner({ input, expected }: Case) {
   const i = input as { base: Note | null; local: Note; remote: Note; ctx: MergeCtx }

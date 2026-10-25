@@ -9,7 +9,7 @@ type Extra = { [unknown: string]: unknown }
 export type Stroke = Extra & {
   id: string
   type: 'stroke'
-  tool: 'pen'
+  tool: 'pen' | 'highlighter'
   color: string
   width: number
   usePressure: boolean
@@ -49,7 +49,7 @@ function validElement(e: unknown): boolean {
   if (!isObj(e) || !isStr(e.id) || !isStr(e.type)) return false
   if (e.type !== 'stroke') return true
   return (
-    e.tool === 'pen' &&
+    (e.tool === 'pen' || e.tool === 'highlighter') &&
     isStr(e.color) &&
     isNum(e.width) &&
     typeof e.usePressure === 'boolean' &&
