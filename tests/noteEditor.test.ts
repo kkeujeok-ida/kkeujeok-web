@@ -15,6 +15,7 @@ import { pageBackground } from '../src/render/pageBackground'
 import { deleteNoteDatabase } from '../src/storage/noteDb'
 import { acquireNoteLock } from '../src/storage/noteLock'
 import { PEN_SLOTS_KEY, createPenSlots, sharedPenSlots, type PenSlotsStore } from '../src/storage/penSlots'
+import { ERASER_KEY, createEraserSettings, type EraserSettingsStore } from '../src/storage/eraserSettings'
 import { RECENT_COLORS_KEY, createRecentColors, type RecentColorsStore } from '../src/storage/recentColors'
 import { type NoteStore, openNoteStore } from '../src/storage/noteStore'
 import { SaveQueue, savesSettled, trackSave } from '../src/storage/saveQueue'
@@ -104,7 +105,7 @@ async function saved(id = 'n1'): Promise<Note> {
 }
 const strokesOf = (n: Note) => n.pages[0]!.elements as Stroke[]
 
-async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note | null; pens?: PenSlotsStore; recent?: RecentColorsStore } = {}) {
+async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note | null; pens?: PenSlotsStore; recent?: RecentColorsStore; eraser?: EraserSettingsStore; lockWaitMs?: number } = {}) {
   const id = o.id ?? 'n1'
   if (o.note !== null) await seed(o.note ?? newNote(id))
   act(() =>
@@ -112,7 +113,7 @@ async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: 
       createElement(
         I18nContext.Provider,
         { value: i18nFor(o.lang ?? 'ko-KR') },
-        createElement(NoteEditor, { noteId: id, openStore: makeOpen(o.opts), penStore: o.pens, recentStore: o.recent }),
+        createElement(NoteEditor, { noteId: id, openStore: makeOpen(o.opts), penStore: o.pens, recentStore: o.recent, eraserStore: o.eraser ?? createEraserSettings({ getItem: () => null, setItem: () => {} }), ...(o.lockWaitMs !== undefined && { lockWaitMs: o.lockWaitMs }) }),
       ),
     ),
   )
@@ -2177,7 +2178,7 @@ describe('pen slots (story 5.3)', () => {
     expect(document.activeElement).toBe(items()[items().length - 1])
     key(document.activeElement!, 'Home')
     expect(document.activeElement).toBe(radios()[0])
-    expect(items().map((e) => e.getAttribute('data-roving'))).toEqual(['slot-0', 'slot-1', 'slot-2', 'add', 'undo', 'redo', 'lasso', 'text', 'image'])
+    expect(items().map((e) => e.getAttribute('data-roving'))).toEqual(['slot-0', 'slot-1', 'slot-2', 'add', 'undo', 'redo', 'eraser', 'lasso', 'text', 'image'])
   })
 
   test('the wheel scrolls the slot area sideways only when it overflows', async () => {
@@ -2384,5 +2385,245 @@ describe('pen popover (story 5.5)', () => {
     click(q('.pen-slots [role="radio"]')!)
     expect(caption()).toBe('Width 2.0')
     expect(cell(7).getAttribute('aria-label')).toBe('Blue')
+  })
+})
+
+describe('eraser (story 5.7)', () => {
+  const memory = (init?: object) => {
+    const m = new Map<string, string>(init ? [[ERASER_KEY, JSON.stringify(init)]] : [])
+    return { m, store: createEraserSettings({ getItem: (k) => m.get(k) ?? null, setItem: (k, v) => void m.set(k, v) }) }
+  }
+  const ink = (id: string, y: number): Stroke =>
+    ({ id, type: 'stroke', tool: 'pen', color: '#000000', width: 2, usePressure: true, points: Array.from({ length: 11 }, (_, i) => [i * 10, y, 0.5, i * 10]) }) as Stroke
+  const noteWith = (...els: unknown[]) => {
+    const n = newNote('n1')
+    n.pages[0]!.elements.push(...(els as never[]))
+    return n
+  }
+  const text = { id: 'tx', type: 'text', x: 20, y: 90, width: 60, rotation: 0, text: 'hi' }
+  const eraserBtn = () => q<HTMLButtonElement>('button[data-tool="eraser"]')!
+  const ctrl = (k: string) => act(() => void document.dispatchEvent(new KeyboardEvent('keydown', { key: k, ctrlKey: true, bubbles: true, cancelable: true })))
+  const ids = async () => ((await saved()).pages[0]!.elements as { id: string }[]).map((e) => e.id)
+  // A vertical pass through x = 50, from y 90 to 130.
+  const pass = (type = 'mouse', init: Partial<PInit> = {}) => {
+    fire('pointerdown', { type, x: 50, y: 90, ...init })
+    fire('pointermove', { type, x: 50, y: 110, ...init })
+    fire('pointermove', { type, x: 50, y: 130, ...init })
+    fire('pointerup', { type, x: 50, y: 130, ...init, buttons: 0 })
+  }
+
+  test('E and the button select it; name, tooltip, pressed; the slot stays selected', async () => {
+    await mountEditor()
+    expect(eraserBtn().getAttribute('aria-pressed')).toBe('false')
+    canvas().focus()
+    key(canvas(), 'e', { code: 'KeyE' })
+    expect(eraserBtn().getAttribute('aria-pressed')).toBe('true')
+    expect(eraserBtn().title).toBe('지우개 (E)')
+    expect(eraserBtn().getAttribute('aria-label')).toBe('지우개, 획 단위')
+    expect(q('.pen-slots [role="radio"]')!.getAttribute('aria-checked')).toBe('true')
+    expect(canvas().classList.contains('is-eraser')).toBe(true)
+    click(q('button[data-tool="lasso"]')!)
+    expect(eraserBtn().getAttribute('aria-pressed')).toBe('false')
+    expect(canvas().classList.contains('is-eraser')).toBe(false)
+    key(canvas(), 'e', { ctrlKey: true })
+    expect(eraserBtn().getAttribute('aria-pressed')).toBe('false')
+    // The roving order: undo, redo, eraser, lasso, text, image.
+    expect(qa('[data-roving]').map((b) => b.dataset.roving).slice(-6)).toEqual(['undo', 'redo', 'eraser', 'lasso', 'text', 'image'])
+  })
+
+  test('stroke mode: one pass erases both strokes, keeps the text, is one undo step', async () => {
+    await mountEditor({ note: noteWith(ink('a', 100), text, ink('b', 120)) })
+    click(eraserBtn())
+    pass()
+    await flush()
+    expect(await ids()).toEqual(['tx'])
+    ctrl('z')
+    await flush()
+    expect(await ids()).toEqual(['a', 'tx', 'b'])
+    ctrl('y')
+    await flush()
+    expect(await ids()).toEqual(['tx'])
+  })
+
+  test('the note stays whole until the release', async () => {
+    await mountEditor({ note: noteWith(ink('a', 100)) })
+    click(eraserBtn())
+    fire('pointerdown', { type: 'mouse', x: 50, y: 90 })
+    fire('pointermove', { type: 'mouse', x: 50, y: 110 })
+    await flush()
+    expect(await ids()).toEqual(['a'])
+    fire('pointerup', { type: 'mouse', x: 50, y: 110, buttons: 0 })
+    await flush()
+    expect(await ids()).toEqual([])
+  })
+
+  test('partial mode: two pieces with new ids and original points; undo and redo reuse them', async () => {
+    const { store } = memory({ mode: 'partial', returnToPen: false })
+    const a = ink('a', 100)
+    await mountEditor({ note: noteWith(a), eraser: store })
+    expect(eraserBtn().getAttribute('aria-label')).toBe('지우개, 부분')
+    click(eraserBtn())
+    pass()
+    await flush()
+    const pieces = strokesOf(await saved())
+    expect(pieces).toHaveLength(2)
+    expect(pieces.map((p) => p.id)).not.toContain('a')
+    expect(pieces[0]!.points).toEqual(a.points.slice(0, 5))
+    expect(pieces[1]!.points).toEqual(a.points.slice(6))
+    ctrl('z')
+    await flush()
+    expect(await ids()).toEqual(['a'])
+    ctrl('y')
+    await flush()
+    expect(await ids()).toEqual(pieces.map((p) => p.id))
+  })
+
+  test('a tap erases inside the disc; a miss records nothing', async () => {
+    await mountEditor({ note: noteWith(ink('a', 100)) })
+    click(eraserBtn())
+    fire('pointerdown', { type: 'mouse', x: 50, y: 150 })
+    fire('pointerup', { type: 'mouse', x: 50, y: 150, buttons: 0 })
+    await flush()
+    expect(await ids()).toEqual(['a'])
+    ctrl('z') // nothing was recorded: there is nothing to undo
+    await flush()
+    expect(await ids()).toEqual(['a'])
+    fire('pointerdown', { type: 'mouse', x: 52, y: 104 })
+    fire('pointerup', { type: 'mouse', x: 52, y: 104, buttons: 0 })
+    await flush()
+    expect(await ids()).toEqual([])
+  })
+
+  test('pen barrel button and eraser end erase under the pen tool; the tool does not change', async () => {
+    const { store } = memory({ mode: 'stroke', returnToPen: true })
+    await mountEditor({ note: noteWith(ink('a', 100), ink('b', 220)), eraser: store })
+    fire('pointerdown', { type: 'pen', x: 50, y: 95, buttons: 3, button: 2 })
+    fire('pointermove', { type: 'pen', x: 50, y: 105, buttons: 3, button: -1 })
+    fire('pointerup', { type: 'pen', x: 50, y: 105, buttons: 0, button: 2 })
+    await flush()
+    expect(await ids()).toEqual(['b'])
+    fire('pointerdown', { type: 'pen', x: 50, y: 215, buttons: 32, button: 5 })
+    fire('pointerup', { type: 'pen', x: 50, y: 225, buttons: 0, button: 5 })
+    await flush()
+    expect(await ids()).toEqual([])
+    expect(eraserBtn().getAttribute('aria-pressed')).toBe('false') // not switched, and no return-to-pen either
+    fire('pointerdown', { x: 20, y: 20 }) // an ordinary press draws again
+    fire('pointerup', { x: 60, y: 20 })
+    await flush()
+    expect(strokesOf(await saved())).toHaveLength(1)
+  })
+
+  test('a cancelled gesture drops the preview: no operation, no return to the pen', async () => {
+    const { store } = memory({ mode: 'stroke', returnToPen: true })
+    await mountEditor({ note: noteWith(ink('a', 100)), eraser: store })
+    click(eraserBtn())
+    fire('pointerdown', { type: 'pen', x: 50, y: 90 })
+    fire('pointermove', { type: 'pen', x: 50, y: 110 })
+    fire('pointercancel', { type: 'pen', x: 50, y: 110, buttons: 0 })
+    await flush()
+    expect(await ids()).toEqual(['a'])
+    expect(eraserBtn().getAttribute('aria-pressed')).toBe('true')
+    ctrl('z') // nothing was recorded
+    await flush()
+    expect(await ids()).toEqual(['a'])
+  })
+
+  test('a finger with the eraser tool does not erase or draw', async () => {
+    await mountEditor({ note: noteWith(ink('a', 100)) })
+    click(eraserBtn())
+    pass('touch')
+    await flush()
+    expect(await ids()).toEqual(['a'])
+  })
+
+  test('return to the pen: after a pen erase that touched, not for the mouse or a miss', async () => {
+    const { store } = memory({ mode: 'stroke', returnToPen: true })
+    await mountEditor({ note: noteWith(ink('a', 100), ink('b', 200), ink('c', 300)), eraser: store })
+    const pressed = () => eraserBtn().getAttribute('aria-pressed')
+    click(eraserBtn())
+    fire('pointerdown', { type: 'mouse', x: 50, y: 100 })
+    fire('pointerup', { type: 'mouse', x: 50, y: 100, buttons: 0 })
+    await flush()
+    expect(await ids()).toEqual(['b', 'c'])
+    expect(pressed()).toBe('true') // the mouse stays on the eraser
+    fire('pointerdown', { type: 'pen', x: 300, y: 500 }) // a pen that touches nothing
+    fire('pointerup', { type: 'pen', x: 300, y: 500, buttons: 0 })
+    expect(pressed()).toBe('true')
+    fire('pointerdown', { type: 'pen', x: 50, y: 200 })
+    fire('pointerup', { type: 'pen', x: 50, y: 200, buttons: 0 })
+    await flush()
+    expect(await ids()).toEqual(['c'])
+    expect(pressed()).toBe('false')
+  })
+
+  test('popover: opens on a second click, keyboard sets the way, saves, announces, Esc returns focus', async () => {
+    const { m, store } = memory()
+    await mountEditor({ eraser: store })
+    click(eraserBtn())
+    expect(q('[role="dialog"]')).toBeNull()
+    click(eraserBtn())
+    const dlg = q('[role="dialog"]')!
+    expect(dlg.getAttribute('aria-labelledby')).toBeTruthy()
+    expect(dlg.querySelector('h2')!.textContent).toBe('지우개')
+    const radios = qa('.eraser-popover [role="radio"]')
+    expect(radios.map((r) => r.textContent)).toEqual(['획 단위', '부분'])
+    expect(document.activeElement).toBe(radios[0])
+    key(radios[0]!, 'ArrowRight')
+    expect(document.activeElement).toBe(radios[1])
+    key(radios[1]!, 'Enter')
+    expect(JSON.parse(m.get(ERASER_KEY)!)).toEqual({ mode: 'partial', returnToPen: false })
+    expect(q('[aria-live="polite"]')!.textContent).toContain('부분 지우기')
+    expect(eraserBtn().getAttribute('aria-label')).toBe('지우개, 부분')
+    const sw = q('.eraser-popover [role="switch"]')!
+    expect(sw.getAttribute('aria-checked')).toBe('false')
+    click(sw)
+    expect(JSON.parse(m.get(ERASER_KEY)!).returnToPen).toBe(true)
+    key(document.activeElement!, 'Tab') // the stops are the chosen way and the switch
+    key(document.activeElement!, 'Tab')
+    expect(dlg.contains(document.activeElement)).toBe(true)
+    key(document.activeElement!, 'Escape')
+    expect(q('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(eraserBtn())
+    expect(eraserBtn().getAttribute('aria-pressed')).toBe('true') // closing keeps the tool and the settings
+  })
+
+  test('English names; strings exist in both languages', async () => {
+    const { store } = memory({ mode: 'partial', returnToPen: true })
+    await mountEditor({ eraser: store, lang: 'en-US' })
+    expect(eraserBtn().getAttribute('aria-label')).toBe('Eraser, Partial')
+    expect(eraserBtn().title).toBe('Eraser (E)')
+    for (const k of ['editor.eraser', 'editor.eraserTip', 'editor.eraserLabel', 'editor.eraserStroke', 'editor.eraserPartial', 'editor.eraserReturn', 'editor.eraserModeGroup', 'editor.eraserSayStroke', 'editor.eraserSayPartial'] as const) {
+      expect(resources.ko[k]).toBeTruthy()
+      expect(resources.en[k]).toBeTruthy()
+    }
+  })
+
+  test('read-only (another tab holds the note): no E, no popover, no erasing', async () => {
+    Object.defineProperty(navigator, 'locks', { value: fakeLocks(), configurable: true })
+    await mountEditor({ note: noteWith(ink('a', 100)) })
+    const h = document.createElement('div')
+    document.body.append(h)
+    const r = createRoot(h)
+    act(() => r.render(createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: 'n1', openStore: makeOpen(), lockWaitMs: 0 }))))
+    await flush()
+    try {
+      const c = h.querySelector<HTMLCanvasElement>('canvas')!
+      const b = h.querySelector<HTMLButtonElement>('button[data-tool="eraser"]')!
+      expect(h.querySelector('.editor-banner')).not.toBeNull()
+      expect(b.getAttribute('aria-disabled')).toBe('true')
+      c.focus()
+      act(() => void c.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', code: 'KeyE', bubbles: true, cancelable: true })))
+      act(() => b.click())
+      act(() => b.click())
+      expect(b.getAttribute('aria-pressed')).toBe('false')
+      expect(h.querySelector('[role="dialog"]')).toBeNull()
+      for (const n of ['pointerdown', 'pointermove', 'pointerup']) act(() => void c.dispatchEvent(pev(n, { type: 'pen', x: 50, y: 100, buttons: n === 'pointerup' ? 0 : 3, button: 2 })))
+      await flush()
+      expect(await ids()).toEqual(['a'])
+    } finally {
+      act(() => r.unmount())
+      h.remove()
+      delete (navigator as { locks?: unknown }).locks
+    }
   })
 })

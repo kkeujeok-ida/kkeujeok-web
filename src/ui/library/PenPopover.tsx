@@ -1,8 +1,9 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { fmt, useI18n } from '../../i18n'
 import { PEN_PALETTE, PEN_WIDTH, colorNameKey, snapWidth, type Pen, type PenTool } from '../../model/pen'
 import { highlighterOutline, windAlike } from '../../render/highlighterOutline'
 import { strokeOutline } from '../../render/strokeOutline'
+import { PopoverShell } from './PopoverShell'
 
 const W = 240
 const H = 72
@@ -54,7 +55,6 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
   onClose: () => void
 }) {
   const { t } = useI18n()
-  const box = useRef<HTMLDivElement>(null)
   const toolBtns = useRef<(HTMLButtonElement | null)[]>([])
   const cells = useRef<(HTMLButtonElement | null)[]>([])
   const recents = useRef<(HTMLButtonElement | null)[]>([])
@@ -134,43 +134,6 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
   }
   const range = PEN_WIDTH[pen.tool]
 
-  // Below the toolbar; pushed up when it would run off the bottom; recomputed on resize.
-  const place = () => {
-    const r = anchor?.closest('[role="toolbar"]')?.getBoundingClientRect()
-    if (!r) return undefined
-    const margin = 12
-    const width = Math.min(320, window.innerWidth - margin * 2)
-    return {
-      top: Math.max(margin, r.bottom),
-      left: Math.max(margin, Math.min(r.left, window.innerWidth - width - margin)),
-    }
-  }
-  const [pos, setPos] = useState(place)
-  const [top, setTop] = useState<number>()
-  useEffect(() => {
-    const on = () => setPos(place())
-    window.addEventListener('resize', on)
-    return () => window.removeEventListener('resize', on)
-    // place reads the current anchor
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor])
-  useLayoutEffect(() => {
-    const h = box.current?.offsetHeight
-    if (pos && h) setTop(Math.max(12, Math.min(pos.top, window.innerHeight - 12 - 8 - h)))
-  }, [pos, pen.tool, recent.length])
-
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      onClose()
-    } else if (e.key === 'Tab') {
-      e.preventDefault() // the stops inside: [tabindex="0"], in document order
-      const stops = Array.from(box.current?.querySelectorAll<HTMLElement>('[tabindex="0"]') ?? [])
-      if (stops.length === 0) return
-      const at = stops.indexOf(document.activeElement as HTMLElement)
-      stops[(at + (e.shiftKey ? -1 : 1) + stops.length) % stops.length]!.focus()
-    }
-  }
   const cellProps = (i: number, stop: number, hex: string | null, checked: boolean, refs: (HTMLButtonElement | null)[]) => {
     const name = t(hex ? colorNameKey(hex) : 'editor.colorCustom')
     return {
@@ -185,22 +148,7 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
   }
 
   return (
-    <div
-      className="pen-popover-scrim"
-      onKeyDown={onKeyDown}
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div
-        ref={box}
-        className="pen-popover"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        style={pos && { ...pos, top: top ?? pos.top }}
-      >
+    <PopoverShell anchor={anchor} onClose={onClose} labelledBy={titleId} className="pen-popover" relayout={`${pen.tool}${recent.length}`}>
         <div className="pen-tool-switch" role="radiogroup" aria-label={t('editor.toolKind')}>
           {TOOLS.map((k, i) => (
             <button
@@ -331,7 +279,6 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
         >
           {t('editor.deleteSlot')}
         </button>
-      </div>
-    </div>
+    </PopoverShell>
   )
 }

@@ -73,6 +73,9 @@ export function applyOp(note: Note, op: Op, ctx: Ctx): OpResult {
       return deleteOp(note, op, ctx)
     case 'insertElements':
       return insertElements(note, op, ctx)
+    case 'eraseStrokes':
+    case 'erasePartial':
+      return eraseOp(note, op, ctx)
     case 'paste':
       return paste(note, op, ctx)
     case 'createTextBox':
@@ -289,11 +292,21 @@ function deleteOp(note: Note, op: Op, ctx: Ctx): OpResult {
 }
 
 // Inverse-only: puts elements back at their indices, in the given order.
+// With `removeIds` those elements go first (elementNotFound before duplicateId); the inverse then removes the inserted ids again.
 function insertElements(note: Note, op: Op, ctx: Ctx): OpResult {
   const next = structuredClone(note)
   const page = findPage(next, op.pageId)
   if (!page) return { error: 'pageNotFound' }
   const items = structuredClone((op.items as { index: unknown; element: El }[]) ?? [])
+  const withRemoval = Array.isArray(op.removeIds)
+  const removed: { index: number; element: El }[] = []
+  if (withRemoval) {
+    const ids = new Set(op.removeIds as unknown[])
+    const have = new Set(page.elements.map(elId))
+    if (![...ids].every((i) => have.has(i))) return { error: 'elementNotFound' }
+    page.elements.forEach((e, index) => ids.has(elId(e)) && removed.push({ index, element: e as El }))
+    page.elements = page.elements.filter((e) => !ids.has(elId(e)))
+  }
   const seen = new Set(page.elements.map(elId))
   for (const it of items) if (seen.size === seen.add(it.element.id).size) return { error: 'duplicateId' }
   for (const it of items) {
@@ -302,7 +315,106 @@ function insertElements(note: Note, op: Op, ctx: Ctx): OpResult {
     page.elements.splice(i, 0, it.element)
   }
   touch(page, ctx)
-  return { note: next, inverse: { op: 'delete', pageId: op.pageId, ids: items.map((it) => it.element.id) } }
+  const ids = items.map((it) => it.element.id)
+  return {
+    note: next,
+    inverse: withRemoval ? { op: 'insertElements', pageId: op.pageId, removeIds: ids, items: removed } : { op: 'delete', pageId: op.pageId, ids },
+  }
+}
+
+// ---- eraser (spec/erase.md) ----
+export const ERASER_MIN = 2
+export const ERASER_MAX = 40
+type Pt = readonly number[]
+const EPS = 1e-9
+
+function segDist(a: Pt, b: Pt, p: Pt): number {
+  const dx = b[0]! - a[0]!, dy = b[1]! - a[1]!, l2 = dx * dx + dy * dy
+  const t = l2 ? Math.max(0, Math.min(1, ((p[0]! - a[0]!) * dx + (p[1]! - a[1]!) * dy) / l2)) : 0
+  return Math.hypot(p[0]! - (a[0]! + t * dx), p[1]! - (a[1]! + t * dy))
+}
+const cross = (o: Pt, a: Pt, b: Pt) => (a[0]! - o[0]!) * (b[1]! - o[1]!) - (a[1]! - o[1]!) * (b[0]! - o[0]!)
+function segSegDist(a: Pt, b: Pt, c: Pt, d: Pt): number {
+  const d1 = cross(a, b, c), d2 = cross(a, b, d), d3 = cross(c, d, a), d4 = cross(c, d, b)
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return 0
+  return Math.min(segDist(a, b, c), segDist(a, b, d), segDist(c, d, a), segDist(c, d, b))
+}
+
+/**
+ * What an eraser path does to a page: the touched strokes (page index) and, for each, its pieces (point lists, in point order).
+ * Pure; the width is already validated. `eraseOp` and the live preview both use it, so they cannot differ.
+ */
+export function erasePieces(page: Page, path: readonly Pt[], width: number): { index: number; pieces: number[][][] }[] {
+  const r = width / 2 + EPS
+  const pathDist = (p: Pt) => (path.length === 1 ? Math.hypot(p[0]! - path[0]![0]!, p[1]! - path[0]![1]!) : Math.min(...path.slice(1).map((q, i) => segDist(path[i]!, q, p))))
+  const pathSeg = (a: Pt, b: Pt) => (path.length === 1 ? segDist(a, b, path[0]!) : Math.min(...path.slice(1).map((q, i) => segSegDist(a, b, path[i]!, q))))
+  const out: { index: number; pieces: number[][][] }[] = []
+  // A stroke whose box is farther than r from the path's box cannot be touched (keeps the live preview cheap).
+  const xs = path.map((p) => p[0]!), ys = path.map((p) => p[1]!)
+  const [x0, x1, y0, y1] = [Math.min(...xs) - r, Math.max(...xs) + r, Math.min(...ys) - r, Math.max(...ys) + r]
+  page.elements.forEach((e, index) => {
+    const el = e as El
+    if (el.type !== 'stroke') return
+    const pts = (el.points as number[][] | undefined) ?? []
+    if (pts.length > 0 && !boxesCross(pts, x0, x1, y0, y1)) return
+    const erased = pts.map((p) => pathDist(p) <= r)
+    const cut = pts.slice(1).map((p, i) => pathSeg(pts[i]!, p) <= r)
+    if (!erased.some(Boolean) && !cut.some(Boolean)) return
+    const pieces: number[][][] = []
+    let cur: number[][] = []
+    const flush = () => {
+      if (cur.length > 1) pieces.push(cur)
+      cur = []
+    }
+    pts.forEach((p, i) => {
+      if (erased[i]) return flush()
+      if (i > 0 && cut[i - 1]) flush()
+      cur.push(p)
+    })
+    flush()
+    out.push({ index, pieces })
+  })
+  return out
+}
+
+// The stroke's box meets the path's box (grown by r): a necessary condition for any touch.
+function boxesCross(pts: number[][], x0: number, x1: number, y0: number, y1: number): boolean {
+  const bx = pts.map((p) => p[0]!), by = pts.map((p) => p[1]!)
+  return Math.min(...bx) <= x1 && Math.max(...bx) >= x0 && Math.min(...by) <= y1 && Math.max(...by) >= y0
+}
+
+/** The page's elements after the erase: a touched stroke is gone (stroke mode) or replaced in place by its pieces; `idOf` names piece `j` of `orig`. */
+export function erasedElements(page: Page, hits: ReturnType<typeof erasePieces>, partial: boolean, idOf: (orig: El, j: number) => string): Page['elements'] {
+  const byIndex = new Map(hits.map((h) => [h.index, h.pieces]))
+  return page.elements.flatMap((e, index) => {
+    const pieces = byIndex.get(index)
+    if (!pieces) return [e]
+    if (!partial) return []
+    return pieces.map((points, j) => ({ ...(structuredClone(e) as object), id: idOf(e as El, j), points }) as unknown as Page['elements'][number])
+  })
+}
+
+function eraseOp(note: Note, op: Op, ctx: Ctx): OpResult {
+  const next = structuredClone(note)
+  const page = findPage(next, op.pageId)
+  if (!page) return { error: 'pageNotFound' }
+  const path = op.path as number[][]
+  if (!Array.isArray(path) || path.length === 0) return { error: 'emptyPath' }
+  const w = op.width
+  const width = typeof w === 'number' && Number.isFinite(w) && Math.abs(w) <= 1000 ? Math.sign(w) * Math.round(Math.abs(w) * 10) / 10 : NaN
+  if (!(width >= ERASER_MIN && width <= ERASER_MAX)) return { error: 'invalidEraserWidth' }
+  const hits = erasePieces(page, path, width)
+  if (hits.length === 0) return { note, inverse: null }
+  const partial = op.op === 'erasePartial'
+  const items = hits.map((h) => ({ index: h.index, element: structuredClone(page.elements[h.index]) as El }))
+  const newIds: string[] = []
+  page.elements = erasedElements(page, hits, partial, () => {
+    const id = ctx.ids![newIds.length]!
+    newIds.push(id)
+    return id
+  })
+  touch(page, ctx)
+  return { note: next, inverse: { op: 'insertElements', pageId: op.pageId, ...(partial ? { removeIds: newIds } : {}), items } }
 }
 
 // paste: copies with new ids, centered, nudged off equal boxes.

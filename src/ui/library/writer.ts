@@ -8,6 +8,8 @@ import { cpIndex, formatAt, formatRange, retextRuns, type TextFormat } from '../
 import { COLOR_DEFAULT, SIZE_DEFAULT, WIDTH_MIN, cpLen, isBlankText, layoutText, normalizeNewlines, normalizeRuns, textHeight, type Run } from '../../model/textLayout'
 import { imageInitialSize } from '../../model/imageRules'
 import type { ImageHost } from '../../render/imageHost'
+import { ERASER_WIDTH, type EraserMode } from '../../storage/eraserSettings'
+import { erasePieces, erasedElements } from '../../ops/ops'
 import { ROTATE_GAP, paintSelection, selectionColors } from '../../render/selectionPainter'
 import type { Op } from '../../ops/ops'
 import type { Page, Stroke } from '../../model/note'
@@ -62,8 +64,12 @@ export const PAGE_GAP = 16
 export type FitMode = 'width' | 'page' | 'free'
 // Who owns the pointers: nobody, a touch stroke, a touch outside the page, a
 // two-finger gesture, fingers to ignore until all lift, a pen/mouse, a pan drag.
-type Mode = 'none' | 'stroke' | 'idle' | 'gesture' | 'ignored' | 'pen' | 'pan' | 'lasso' | 'xform'
-export type Tool = 'pen' | 'lasso' | 'text'
+type Mode = 'none' | 'stroke' | 'idle' | 'gesture' | 'ignored' | 'pen' | 'pan' | 'lasso' | 'xform' | 'erase'
+export type Tool = 'pen' | 'eraser' | 'lasso' | 'text'
+/** An eraser gesture: one press to release is one operation. `path` is in the coordinates of the page it started on; `preview` is that page's elements as the erase would leave them. */
+type Erase = { id: number; type: string; temporary: boolean; pageId: string | null; ox: number; oy: number; path: number[][]; preview: Page['elements'] | null }
+/** What an eraser gesture did: `touched` is false when it hit no stroke; `temporary` is a pen-button erase under another tool. */
+export type ErasedInfo = { pointerType: string; touched: boolean; temporary: boolean }
 /** A press and release this close together (ms) and this near (CSS px) are a double click. */
 const DOUBLE_MS = 450
 const DOUBLE_SLOP = 8
@@ -141,6 +147,9 @@ export class Writer {
   private queue: SaveQueue
   private canvas: HTMLCanvasElement | null = null
   private drawing: Drawing | null = null
+  private erase: Erase | null = null
+  /** The mouse or pen last moved over the canvas (not a finger): the eraser ring shows. */
+  private ring = false
   private mode: Mode = 'none'
   private touches = new Map<number, { x: number; y: number }>() // client positions
   private firstId = -1
@@ -183,6 +192,10 @@ export class Writer {
   insets: () => ViewInsets = () => ({ gap: 0, extraBottom: 0 })
   /** Another tab holds the note: view, zoom and pan only (spec 2.13). */
   readOnly = false
+  /** How the eraser works; set by the editor from the device setting. */
+  eraserMode: EraserMode = 'stroke'
+  /** An eraser gesture ended (after its operation, if any, is in the history). */
+  onErased: (info: ErasedInfo) => void = () => {}
   /** Called with the number of selected elements whenever the selection changed. */
   onSelection: (n: number) => void = () => {}
   /** Called when the box the floating menu hangs on changed (null: no editable selection). */
@@ -297,7 +310,10 @@ export class Writer {
       on('pointerup', (e) => this.onUp(e)),
       on('pointercancel', (e) => this.onCancel(e)),
       on('lostpointercapture', (e) => this.onCancel(e)),
-      on('pointerleave', () => (this.pointer = null)),
+      on('pointerleave', () => {
+        this.pointer = null
+        if (this.tool === 'eraser' && !this.erase) this.redraw()
+      }),
       on('contextmenu', (e) => e.preventDefault()),
       // The middle button must not autoscroll or paste (Linux).
       on('mousedown', (e) => e.button === 1 && e.preventDefault()),
@@ -309,6 +325,7 @@ export class Writer {
     // A window that lost focus may never deliver the release.
     const onBlur = () => {
       if (this.drawing) this.finishStroke()
+      this.finishErase()
       this.touches.clear()
       this.pan = null
       this.gesture = null
@@ -464,7 +481,7 @@ export class Writer {
 
   /** A stroke, a gesture or a pan is going on. */
   busy(): boolean {
-    return this.drawing !== null || this.mode === 'gesture' || this.mode === 'pan' || this.mode === 'lasso' || this.mode === 'xform'
+    return this.drawing !== null || this.mode === 'gesture' || this.mode === 'pan' || this.mode === 'lasso' || this.mode === 'xform' || this.mode === 'erase'
   }
 
   /** Moves to `to`; at once when the system asks for no motion. Not under a stroke or a drag. */
@@ -599,7 +616,19 @@ export class Writer {
       const left = vp.offsetX + s.x * vp.scale
       if (top > this.cssH || top + s.page.height * vp.scale < 0 || left > this.cssW || left + s.page.width * vp.scale < 0) continue
       const at = { scale: vp.scale, offsetX: left, offsetY: top }
-      paintPage(ctx, s.page, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null, draft && draft.pageId === s.page.id ? draft : null, this.images ?? undefined)
+      const er = this.erase
+      const shown = er && er.pageId === s.page.id && er.preview ? { ...s.page, elements: er.preview } : s.page
+      paintPage(ctx, shown, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null, draft && draft.pageId === s.page.id ? draft : null, this.images ?? undefined)
+    }
+    if (this.ring && this.pointer && (this.tool === 'eraser' || this.erase)) {
+      const [rx, ry] = this.local(this.pointer.x, this.pointer.y)
+      ctx.save()
+      ctx.beginPath()
+      ctx.arc(rx, ry, (ERASER_WIDTH * vp.scale) / 2, 0, Math.PI * 2)
+      ctx.lineWidth = 1
+      ctx.strokeStyle = selectionColors(c).outline
+      ctx.stroke()
+      ctx.restore()
     }
     // Over the page clip: the box and its handles may stand outside the page.
     const sel = this.selected()
@@ -651,8 +680,11 @@ export class Writer {
   setTool(t: Tool): void {
     if (t === this.tool) return
     this.commitEdit() // another tool confirms the box
+    const was = this.tool
     this.tool = t
+    this.canvas?.classList.toggle('is-eraser', t === 'eraser')
     if (t !== 'lasso') this.clearSelection()
+    if (was === 'eraser' || t === 'eraser') this.redraw() // the ring
   }
 
   get currentTool(): Tool {
@@ -1141,6 +1173,7 @@ export class Writer {
     const dot = this.lastDot // only the dot of the press right before this one counts
     this.lastDot = null
     this.lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY }
+    if (this.tool === 'eraser') return false
     if (e.pointerType === 'pen' && this.tool === 'pen') return false // stylus taps are ink
     if (this.tool === 'lasso' && this.onHandle(e)) return false
     if (!prev || e.button !== 0 || e.timeStamp - prev.t > DOUBLE_MS || Math.hypot(e.clientX - prev.x, e.clientY - prev.y) > DOUBLE_SLOP) return false
@@ -1437,19 +1470,23 @@ export class Writer {
       this.commitEdit()
       if (this.tool === 'text') return void e.preventDefault()
     }
-    if (this.mode === 'none' && this.doubleDown(e)) return
+    // Decided once, at the press: the pen's barrel button (2) or eraser end (32) erases whatever the tool.
+    const side = e.pointerType === 'pen' && ((e.buttons & (2 | 32)) !== 0 || e.button === 2 || e.button === 5)
+    if (e.pointerType !== 'touch') this.ring = true
+    if (this.mode === 'none' && !side && this.doubleDown(e)) return
     if (e.pointerType === 'touch') return this.touchDown(e)
-    // The pen's eraser end is Epic 4.
-    if ((e.buttons & 32) !== 0) return
     const middle = e.pointerType === 'mouse' && e.button === 1
-    if (e.button !== 0 && !middle) return
+    if (side && this.readOnly) return
+    if (e.button !== 0 && !middle && !side) return
     if (this.ownedBy(e.pointerId)) this.onCancel(e) // its release was lost
-    if (this.mode === 'pen' || this.mode === 'pan' || this.mode === 'lasso' || this.mode === 'xform') return
+    if (this.mode === 'pen' || this.mode === 'pan' || this.mode === 'lasso' || this.mode === 'xform' || this.mode === 'erase') return
     // A pen or mouse takes over: the touch stroke or gesture is dropped. Fingers
     // still down stay in `touches`, so they never turn into ink.
     this.discardStroke()
     this.gesture = null
     this.capture(e)
+    if (side && this.hand) return // the hand tool: a barrel press is neither a pan nor ink
+    if ((this.tool === 'eraser' || side) && !middle && !this.hand && !this.readOnly) return this.eraseDown(e, side && this.tool !== 'eraser')
     // The lasso selects on every page, read-only or conflicted too; before the pan branches so it never leaks into a pan.
     if (this.tool === 'lasso' && !middle && !this.hand) return this.lassoDown(e)
     if (this.tool === 'text' && !middle && !this.hand && !this.readOnly && !this.onLockedPage(e)) return this.textDown(e)
@@ -1467,6 +1504,64 @@ export class Writer {
     this.mode = 'pen'
     this.penId = e.pointerId
     this.begin(e)
+  }
+
+  private eraseDown(e: PointerEvent, temporary: boolean): void {
+    const s = this.under(e)
+    const locked = !!s && this.history.isLocked(s.page.id)
+    if (locked) this.onBlocked()
+    e.preventDefault()
+    try {
+      this.canvas?.focus({ preventScroll: true })
+    } catch {
+      // focus is a convenience
+    }
+    this.mode = 'erase'
+    this.erase = { id: e.pointerId, type: e.pointerType, temporary, pageId: s && !locked ? s.page.id : null, ox: s?.x ?? 0, oy: s?.y ?? 0, path: [], preview: null }
+    this.erasePush([e])
+  }
+
+  /** Adds the events' points to the eraser path (skipping a repeat of the last one) and refreshes the preview. */
+  private erasePush(evs: readonly PointerEvent[]): void {
+    const d = this.erase
+    if (!d) return
+    const page = d.pageId ? this.history.note.pages.find((p) => p.id === d.pageId) : undefined
+    if (page) {
+      for (const ev of evs) {
+        const p = this.point(ev, ev.timeStamp, undefined, { x: d.ox, y: d.oy })
+        const last = d.path[d.path.length - 1]
+        if (p && !(last && last[0] === p[0] && last[1] === p[1])) d.path.push([p[0]!, p[1]!])
+      }
+      // shortcut: the whole path is re-tested on every move (bounding-box prefilter only); make it incremental if long gestures lag.
+      d.preview = d.path.length > 0 ? erasedElements(page, erasePieces(page, d.path, ERASER_WIDTH), this.eraserMode === 'partial', (o, j) => `${o.id as string}~${j}`) : null
+    }
+    this.redraw()
+  }
+
+  /** Ends the eraser gesture: one operation for the whole path, one history step. */
+  private finishErase(): void {
+    const d = this.erase
+    this.erase = null
+    if (!d) return
+    const page = d.pageId ? this.history.note.pages.find((p) => p.id === d.pageId) : undefined
+    let touched = false
+    if (page && d.path.length > 0 && !this.readOnly) {
+      const partial = this.eraserMode === 'partial'
+      const hits = erasePieces(page, d.path, ERASER_WIDTH)
+      const count = partial ? hits.reduce((n, h) => n + h.pieces.length, 0) : 0
+      const err = this.history.doOp(
+        { op: partial ? 'erasePartial' : 'eraseStrokes', pageId: page.id, path: d.path, width: ERASER_WIDTH },
+        { ...this.ctx(), ids: Array.from({ length: count }, newId) },
+      )
+      if (err) this.message('strokeNotAdded')
+      else if (hits.length > 0) {
+        touched = true
+        this.queue.commit(this.history.note)
+        this.onChange()
+      }
+    }
+    this.redraw()
+    this.onErased({ pointerType: d.type, touched, temporary: d.temporary })
   }
 
   /** `e` lands on a page that is locked by a conflict. */
@@ -1522,12 +1617,13 @@ export class Writer {
   }
 
   private ownedBy(id: number): boolean {
-    return (this.mode === 'pen' && this.penId === id) || (this.mode === 'pan' && this.pan?.id === id) || (this.mode === 'lasso' && this.lasso?.id === id) || (this.mode === 'xform' && this.xform?.id === id)
+    return (this.mode === 'pen' && this.penId === id) || (this.mode === 'pan' && this.pan?.id === id) || (this.mode === 'lasso' && this.lasso?.id === id) || (this.mode === 'xform' && this.xform?.id === id) || (this.mode === 'erase' && this.erase?.id === id)
   }
 
   private onMove(e: PointerEvent): void {
     this.pointer = { x: e.clientX, y: e.clientY }
     if (this.leaving) return
+    if (e.pointerType !== 'touch') this.ring = true
     // The button came up where we could not see it: end the stroke or drag.
     if (e.buttons === 0 && e.pointerType !== 'touch' && this.ownedBy(e.pointerId)) return this.onCancel(e)
     const t = this.touches.get(e.pointerId)
@@ -1561,6 +1657,11 @@ export class Writer {
       if (l.moved) this.redraw()
       return
     }
+    if (this.mode === 'erase' && this.erase && e.pointerId === this.erase.id) {
+      const co = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : []
+      return this.erasePush(co.length > 0 ? co : [e])
+    }
+    if (this.tool === 'eraser' && this.ring && !this.drawing && e.pointerType !== 'touch') return this.redraw() // the ring follows the pointer
     const d = this.drawing
     if (!d || e.pointerId !== d.id) return
     const coalesced = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : []
@@ -1600,6 +1701,11 @@ export class Writer {
       }
       this.mode = 'none'
     }
+    if (this.mode === 'erase' && this.erase?.id === e.pointerId) {
+      this.erasePush([e]) // the release point counts too
+      this.finishErase()
+      this.mode = 'none'
+    }
     const d = this.drawing
     if (!this.leaving && d && e.pointerId === d.id) {
       // A pen reports pressure 0 on release: the last point's pressure stays.
@@ -1619,6 +1725,12 @@ export class Writer {
     }
     if (this.mode === 'lasso' && this.lasso?.id === e.pointerId) {
       this.lasso = null
+      this.mode = 'none'
+      this.redraw()
+    }
+    if (this.mode === 'erase' && this.erase?.id === e.pointerId) {
+      // A cancelled gesture is dropped: no operation, no onErased.
+      this.erase = null
       this.mode = 'none'
       this.redraw()
     }
@@ -1826,6 +1938,7 @@ export class Writer {
     try {
       this.commitEdit()
       this.finishStroke()
+      this.finishErase()
       // A read-only writer has nothing of its own to save.
       if (!this.readOnly && !(await this.queue.flush())) {
         markUnsaved() // the library tells the user

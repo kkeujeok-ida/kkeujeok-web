@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
 import { MAX_PEN_SLOTS, colorNameKey, type Pen } from '../../model/pen'
 import { fmt, useI18n } from '../../i18n'
+import type { EraserMode } from '../../storage/eraserSettings'
 
 /** A press that moves farther than this many px starts dragging the slot. */
 const DRAG_PX = 6
@@ -10,7 +11,7 @@ const DRAG_PX = 6
  * divider | undo, redo. Slots are one radiogroup; activating the selected one
  * opens the pen popover (onEdit). The slot buttons carry data-slot for the owner.
  */
-export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, onSlotsFull, tool, onToolChange, onImage, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
+export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, onSlotsFull, tool, onToolChange, eraserMode, onEraserEdit, onImage, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
   pens: readonly Pen[]
   selected: number
   onSelect: (i: number) => void
@@ -21,8 +22,11 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
   onMove: (from: number, to: number) => void
   onSlotsFull: () => void
   /** The lasso and the text tool are toggles: pressed = that tool, else the pen. The lasso works read-only too (selecting changes nothing); the text tool does not. */
-  tool: 'pen' | 'lasso' | 'text'
-  onToolChange: (t: 'pen' | 'lasso' | 'text') => void
+  tool: 'pen' | 'eraser' | 'lasso' | 'text'
+  onToolChange: (t: 'pen' | 'eraser' | 'lasso' | 'text') => void
+  /** The eraser works per stroke or partly: shown in its name and icon. Clicking the selected eraser calls onEraserEdit (its popover). */
+  eraserMode: EraserMode
+  onEraserEdit: () => void
   /** [이미지]: opens the file picker (Story 4.13). Without it (no image host) the button is off. */
   onImage?: () => void
   canUndo: boolean
@@ -36,7 +40,7 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
   const { t } = useI18n()
   // Roving tab index: one toolbar item is a tab stop, the arrows move between items.
   const [stop, setStop] = useState('')
-  const keys = [...pens.map((_, i) => `slot-${i}`), 'add', 'undo', 'redo', 'lasso', 'text', 'image']
+  const keys = [...pens.map((_, i) => `slot-${i}`), 'add', 'undo', 'redo', 'eraser', 'lasso', 'text', 'image']
   const tabKey = keys.includes(stop) ? stop : `slot-${selected}`
   const rv = (key: string) => ({ 'data-roving': key, tabIndex: key === tabKey ? 0 : -1 })
   const slotsEl = useRef<HTMLDivElement>(null)
@@ -227,6 +231,22 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
           </svg>
         </button>
       ))}
+      <button
+        type="button"
+        aria-pressed={tool === 'eraser'}
+        aria-label={fmt(t('editor.eraserLabel'), { mode: t(eraserMode === 'partial' ? 'editor.eraserPartial' : 'editor.eraserStroke') })}
+        title={readOnly ? t('editor.readOnlyTip') : t('editor.eraserTip')}
+        aria-disabled={readOnly || undefined}
+        className="toolbar-action"
+        data-tool="eraser"
+        {...rv('eraser')}
+        onClick={() => !readOnly && (tool === 'eraser' ? onEraserEdit() : onToolChange('eraser'))}
+      >
+        <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M16.24 3.56l4.95 4.94c.78.79.78 2.05 0 2.84L12 20.53a4.008 4.008 0 0 1-5.66 0L2.81 17c-.78-.79-.78-2.05 0-2.84l10.6-10.6c.79-.78 2.05-.78 2.83 0zM4.22 15.58l3.54 3.53c.78.79 2.04.79 2.83 0l3.53-3.53-4.95-4.95-4.95 4.95z" fill="currentColor" />
+          {eraserMode === 'partial' && <path d="M3 22h4v-1.5H3zm7 0h4v-1.5h-4zm7 0h4v-1.5h-4z" fill="currentColor" />}
+        </svg>
+      </button>
       <button
         type="button"
         aria-pressed={tool === 'lasso'}

@@ -23,6 +23,8 @@ import type { VersionEntry } from '../../sync/versionList'
 import { SyncIndicator } from '../sync/SyncIndicator'
 import { ConflictDialog, type ConflictItem, type ResolveOutcome, pageNo, resultKey } from './ConflictDialog'
 import { PenPopover } from './PenPopover'
+import { EraserPopover } from './EraserPopover'
+import { sharedEraserSettings, type EraserSettingsStore } from '../../storage/eraserSettings'
 import { PenToolbar } from './PenToolbar'
 import { SelectionMenu } from './SelectionMenu'
 import { TextEditOverlay } from './TextEditOverlay'
@@ -31,7 +33,7 @@ import { onResolveRequest, takeResolveRequest } from './resolveRequest'
 import { detectEditedBy } from './useLibrary'
 import { ZOOM_MAX, ZOOM_MIN } from '../../render/pagePainter'
 import type { ImageHost } from '../../render/imageHost'
-import { ARROW_STEP, Writer, ZOOM_STEP, type EditInfo, type SelectionBox, type ViewInfo, type WriterMessage } from './writer'
+import { ARROW_STEP, Writer, ZOOM_STEP, type EditInfo, type ErasedInfo, type Tool, type SelectionBox, type ViewInfo, type WriterMessage } from './writer'
 
 /** The noteId of a `#/notes/{noteId}` hash, else null. */
 export function parseNoteRoute(hash: string): string | null {
@@ -106,6 +108,7 @@ export function NoteEditor({
   openStore = () => openNoteStore(undefined, { getAccount: () => auth.getState().account }),
   penStore = sharedPenSlots(),
   recentStore = sharedRecentColors(),
+  eraserStore = sharedEraserSettings(),
   uploads,
   receiver,
   images,
@@ -115,6 +118,8 @@ export function NoteEditor({
   openStore?: () => NoteStore
   penStore?: PenSlotsStore
   recentStore?: RecentColorsStore
+  /** The eraser way and "return to the pen" (device setting). */
+  eraserStore?: EraserSettingsStore
   /** Told when the note is closed, after its last save and its lock are released (Story 3.12); records a resolved conflict (Story 3.22). */
   uploads?: Pick<UploadCoordinator, 'noteClosed'> & Partial<Pick<UploadCoordinator, 'conflictResolved' | 'syncNow'>>
   /** Receives remote changes before the editor opens and checks the remote head after (Story 3.14). */
@@ -131,9 +136,19 @@ export function NoteEditor({
   const [recent, setRecent] = useState<string[]>(() => recentStore.read())
   const [popover, setPopover] = useState<number | null>(null)
   const popoverOpen = useRef(false)
-  popoverOpen.current = popover !== null
+  const [eraserPop, setEraserPop] = useState(false)
+  popoverOpen.current = popover !== null || eraserPop
   const [selected, setSelected] = useState(0)
-  const [tool, setTool] = useState<'pen' | 'lasso' | 'text'>('pen')
+  const [tool, setTool] = useState<Tool>('pen')
+  const [eraser, setEraser] = useState(() => eraserStore.read())
+  // Read by the writer's callbacks, which outlive a render.
+  const eraserRef = useRef(eraser)
+  eraserRef.current = eraser
+  const erasedRef = useRef<(i: ErasedInfo) => void>(() => {})
+  erasedRef.current = (i) => {
+    // Back to the pen: a pen touched a stroke with the eraser tool (not a button erase, not the mouse).
+    if (i.pointerType === 'pen' && i.touched && !i.temporary && eraserRef.current.returnToPen) setTool('pen')
+  }
   const [edit, setEdit] = useState<EditInfo | null>(null)
   const [box, setBox] = useState<SelectionBox | null>(null)
   const [ratio, setRatio] = useState(true)
@@ -263,6 +278,8 @@ export function NoteEditor({
               }
               w.onView = (v) => live && setView(v)
               w.onBox = (b) => live && setBox(b)
+              w.onErased = (i) => live && erasedRef.current(i)
+              w.eraserMode = eraserRef.current.mode
               w.onEdit = (i) => live && setEdit(i)
               // Nothing is announced for an empty selection.
               w.onSelection = (n) => live && n > 0 && setResultText(fmt(tRef.current('editor.selected'), { n }))
@@ -497,12 +514,18 @@ export function NoteEditor({
   }, [resultText])
   // Read-only began while the popover was open: close it.
   useEffect(() => {
-    if (readOnly) setPopover(null)
+    if (readOnly) {
+      setPopover(null)
+      setEraserPop(false)
+    }
   }, [readOnly])
   // The writer follows the tool (a reloaded writer starts as the pen); the pen drops the selection.
   useEffect(() => {
     loaded?.writer.setTool(tool)
   }, [loaded, tool])
+  useEffect(() => {
+    if (loaded) loaded.writer.eraserMode = eraser.mode
+  }, [loaded, eraser.mode])
   useEffect(() => {
     if (loaded) loaded.writer.ratioLock = ratio
   }, [loaded, ratio])
@@ -542,6 +565,10 @@ export function NoteEditor({
         const target = e.target as Element | null
         const inside = [toolbar.current, canvas.current].some((r) => r && (r.contains(target) || r.contains(active)))
         if (inside && !target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) setTool('lasso')
+      } else if ((e.code === 'KeyE' || e.key.toLowerCase() === 'e') && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat && !e.isComposing) {
+        const target = e.target as Element | null
+        const inside = [toolbar.current, canvas.current].some((r) => r && (r.contains(target) || r.contains(active)))
+        if (inside && !readOnly && !target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])') && !document.querySelector('[role="dialog"], [aria-modal="true"]')) setTool('eraser')
       } else if ((e.code === 'KeyT' || e.key.toLowerCase() === 't') && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat && !e.isComposing) {
         const target = e.target as Element | null
         const inside = [toolbar.current, canvas.current].some((r) => r && (r.contains(target) || r.contains(active)))
@@ -1153,6 +1180,12 @@ export function NoteEditor({
               onRedo={() => loaded.writer.redo()}
               tool={tool}
               onToolChange={setTool}
+              eraserMode={eraser.mode}
+              onEraserEdit={() => {
+                if (readOnly || loaded.writer.busy()) return
+                setEraser(eraserStore.read()) // another tab may have changed it
+                setEraserPop(true)
+              }}
               {...(images && { onImage: () => picker.current?.click() })}
               readOnly={readOnly}
             />
@@ -1367,6 +1400,21 @@ export function NoteEditor({
             />
           )}
           {dialog && <ConflictDialog items={dialog} skipped={skipped.current} onResolve={resolveChoices} onClose={closeDialog} />}
+          {eraserPop && !readOnly && (
+            <EraserPopover
+              mode={eraser.mode}
+              returnToPen={eraser.returnToPen}
+              anchor={toolbar.current}
+              onChange={(patch) => {
+                if (patch.mode && patch.mode !== eraser.mode) setAnnounce(t(patch.mode === 'partial' ? 'editor.eraserSayPartial' : 'editor.eraserSayStroke'))
+                setEraser(eraserStore.write(patch))
+              }}
+              onClose={() => {
+                setEraserPop(false)
+                toolbar.current?.querySelector<HTMLElement>('[data-tool="eraser"]')?.focus()
+              }}
+            />
+          )}
           {popover !== null && !readOnly && pens[popover] && (
             <PenPopover
               pen={pens[popover]}

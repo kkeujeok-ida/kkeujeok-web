@@ -1694,3 +1694,7 @@ h1 {
 .pen-step-down {
   order: -1;
 }
+
+.editor-canvas.is-eraser {
+  cursor: crosshair;
+}

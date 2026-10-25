@@ -154,15 +154,10 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     const got = i.fn === 'lasso' ? selectLasso(i.elements, i.polygon!) : i.fn === 'tap' ? selectTap(i.elements, i.point!, i.tolerance) : selectRect(i.elements, i.rect!)
     expect(got).toEqual(expected)
   },
-  'ops.undoRedo': ({ input, expected }) => {
-    type Step = { kind: 'do' | 'undo' | 'redo'; op?: Op; ctx: Ctx }
-    const i = input as { note: Note; steps: Step[] }
-    const h = new History(i.note)
-    const errors = i.steps.map((s) =>
-      s.kind === 'do' ? h.doOp(s.op!, s.ctx) : s.kind === 'undo' ? h.undo(s.ctx) : h.redo(s.ctx),
-    )
-    expect({ note: h.note, undoDepth: h.undoDepth, redoDepth: h.redoDepth, errors }).toEqual(expected)
-  },
+  'ops.undoRedo': historyRunner,
+  'ops.eraseHistory': historyRunner,
+  'ops.eraseStrokes': opRunner,
+  'ops.erasePartial': opRunner,
   'stroke.outline.pen': ({ input, expected, tolerance }) => {
     const i = input as { width: number; usePressure: boolean; points: number[][] }
     const want = (expected as { polygon: number[][] }).polygon
@@ -281,15 +276,21 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Sync rules (Story 3.2) arrive with the web sync stories (3.4, 3.6, 3.10, ...);
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
-const PENDING: string[] = [
-  'ops.eraseStrokes',
-  'ops.erasePartial',
-  'ops.eraseHistory',
-]
+const PENDING: string[] = []
 
 function mergeRunner({ input, expected }: Case) {
   const i = input as { base: Note | null; local: Note; remote: Note; ctx: MergeCtx }
   expect(merge(i.base, i.local, i.remote, i.ctx)).toEqual(expected)
+}
+
+function historyRunner({ input, expected }: Case) {
+  type Step = { kind: 'do' | 'undo' | 'redo'; op?: Op; ctx: Ctx }
+  const i = input as { note: Note; steps: Step[] }
+  const h = new History(i.note)
+  const errors = i.steps.map((s) =>
+    s.kind === 'do' ? h.doOp(s.op!, s.ctx) : s.kind === 'undo' ? h.undo(s.ctx) : h.redo(s.ctx),
+  )
+  expect({ note: h.note, undoDepth: h.undoDepth, redoDepth: h.redoDepth, errors }).toEqual(expected)
 }
 
 function opRunner({ input, expected }: Case) {
