@@ -27,6 +27,8 @@ import { EraserPopover } from './EraserPopover'
 import { sharedEraserSettings, type EraserSettingsStore } from '../../storage/eraserSettings'
 import { PenToolbar } from './PenToolbar'
 import { sharedToolbarPosition, type ToolbarPositionStore } from '../../storage/toolbarPosition'
+import { sharedViewMode, VIEW_MODES, type ViewMode, type ViewModeStore } from '../../storage/viewMode'
+import { sharedPenDetected, type PenDetectedStore } from '../../storage/penDetected'
 import { revealShift } from './toolbarDock'
 import { useToolbarDock } from './useToolbarDock'
 import { SelectionMenu } from './SelectionMenu'
@@ -113,6 +115,8 @@ export function NoteEditor({
   recentStore = sharedRecentColors(),
   eraserStore = sharedEraserSettings(),
   toolbarStore = sharedToolbarPosition(),
+  viewModeStore = sharedViewMode(),
+  penDetectedStore = sharedPenDetected(),
   uploads,
   receiver,
   images,
@@ -126,6 +130,10 @@ export function NoteEditor({
   eraserStore?: EraserSettingsStore
   /** Where the toolbar sits (device setting). */
   toolbarStore?: ToolbarPositionStore
+  /** How the pages are laid out (device setting). */
+  viewModeStore?: ViewModeStore
+  /** Whether a pen was ever seen on this device (device setting). */
+  penDetectedStore?: PenDetectedStore
   /** Told when the note is closed, after its last save and its lock are released (Story 3.12); records a resolved conflict (Story 3.22). */
   uploads?: Pick<UploadCoordinator, 'noteClosed'> & Partial<Pick<UploadCoordinator, 'conflictResolved' | 'syncNow'>>
   /** Receives remote changes before the editor opens and checks the remote head after (Story 3.14). */
@@ -174,6 +182,8 @@ export function NoteEditor({
   const [, setRevision] = useState(0)
   const [view, setView] = useState<ViewInfo | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>(() => viewModeStore.read())
+  const [modeSay, setModeSay] = useState('')
   // The note is being received before it opens, for over a second.
   const [slow, setSlow] = useState(false)
   // Writes refused on a conflict page (Story 3.20): the banner is emphasized, "읽기 전용 페이지예요" is announced.
@@ -852,7 +862,7 @@ export function NoteEditor({
       const d = arrow[e.key]
       if (d && !e.shiftKey) {
         e.preventDefault()
-        writer.panBy(d[0], d[1])
+        writer.scroll(d[0], d[1])
       }
     }
     const onUp = (e: KeyboardEvent) => {
@@ -866,6 +876,20 @@ export function NoteEditor({
       document.removeEventListener('keyup', onUp, true)
     }
   }, [loaded])
+
+  // The page layout and the pen record are device settings the writer follows.
+  useEffect(() => {
+    loaded?.writer.setViewMode(viewMode)
+  }, [loaded, viewMode])
+  useEffect(() => {
+    if (!loaded) return
+    const { writer } = loaded
+    writer.penOnly = penDetectedStore.read()
+    writer.onPenSeen = () => {
+      penDetectedStore.mark()
+      writer.penOnly = true
+    }
+  }, [loaded, penDetectedStore])
 
   // A toolbar that changes height changes the room under the page.
   useEffect(() => {
@@ -923,7 +947,7 @@ export function NoteEditor({
   const onMenuKeyDown = (e: ReactKeyEvent<HTMLElement>) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
     e.preventDefault()
-    const items = [...menu.current!.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    const items = [...menu.current!.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
     const i = items.indexOf(document.activeElement as HTMLElement)
     const next =
       e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : e.key === 'ArrowDown' ? (i + 1) % items.length : (i <= 0 ? items.length : i) - 1
@@ -1145,6 +1169,13 @@ export function NoteEditor({
     const id = setTimeout(() => setBadge(false), ZOOM_BADGE_MS)
     return () => clearTimeout(id)
   }, [percent, menuOpen, levelText])
+  const modeName = (m: ViewMode) => t({ vertical: 'editor.viewVertical', horizontal: 'editor.viewHorizontal', twoPage: 'editor.viewTwoPage' }[m] as 'editor.viewVertical')
+  const pickMode = (m: ViewMode) => {
+    setViewMode(viewModeStore.write(m))
+    setModeSay(fmt(t('editor.viewModeChanged'), { mode: modeName(m) }))
+    setMenuOpen(false)
+    more.current?.focus()
+  }
   const choose = (fit: 'width' | 'page') => {
     loaded?.writer.fit(fit)
     setMenuOpen(false)
@@ -1293,12 +1324,19 @@ export function NoteEditor({
                       </svg>
                     </button>
                   </div>
-                  <button type="button" role="menuitem" className="editor-menu-item" title={t('editor.fitWidthTip')} onClick={() => choose('width')}>
-                    {t('editor.fitWidth')}
+                  <button type="button" role="menuitem" className="editor-menu-item" title={viewMode === 'vertical' ? t('editor.fitWidthTip') : `${t('editor.fitHeight')} (Ctrl+0)`} onClick={() => choose('width')}>
+                    {t(viewMode === 'vertical' ? 'editor.fitWidth' : 'editor.fitHeight')}
                   </button>
                   <button type="button" role="menuitem" className="editor-menu-item" onClick={() => choose('page')}>
                     {t('editor.fitPage')}
                   </button>
+                  <div role="group" aria-label={t('editor.viewMode')} className="editor-menu-group">
+                    {VIEW_MODES.map((m) => (
+                      <button key={m} type="button" role="menuitemradio" aria-checked={viewMode === m} className="editor-menu-item" onClick={() => pickMode(m)}>
+                        {modeName(m)}
+                      </button>
+                    ))}
+                  </div>
                   {ui?.versions && (
                     <button
                       type="button"
@@ -1418,6 +1456,9 @@ export function NoteEditor({
           )}
           <div role="status" aria-live="polite" className="sr-only">
             {announce}
+          </div>
+          <div role="status" aria-live="polite" className="sr-only" data-view-mode="">
+            {modeSay}
           </div>
           <div role="status" aria-live="polite" className="sr-only" data-result="">
             {resultText}

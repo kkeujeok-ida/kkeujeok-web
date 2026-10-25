@@ -23,6 +23,7 @@ import { type Conflict, type MergeCtx, type RequeueResult, type Sidecar, mergeRe
 import {
   clampScale,
   clampViewport,
+  fitHeightViewport,
   fitPageViewport,
   fitWidthViewport,
   paintPage,
@@ -35,6 +36,8 @@ import {
   type Thumb,
   type ViewInsets,
 } from '../../render/pagePainter'
+import { PAGE_GAP, layoutSlots, type Unit } from '../../render/viewLayout'
+import type { ViewMode } from '../../storage/viewMode'
 import type { NoteStore } from '../../storage/noteStore'
 import { SaveQueue, markUnsaved, trackSave } from '../../storage/saveQueue'
 
@@ -58,8 +61,7 @@ const ANIMATION_MS = 150
 const WHEEL_ZOOM = 0.002
 export const ZOOM_STEP = 1.25
 export const ARROW_STEP = 40
-/** Space between two pages of the continuous scroll, in page points. */
-export const PAGE_GAP = 16
+export { PAGE_GAP }
 
 export type FitMode = 'width' | 'page' | 'free'
 // Who owns the pointers: nobody, a touch stroke, a touch outside the page, a
@@ -136,8 +138,8 @@ export function hitSelection(l: number, t: number, r: number, b: number, x: numb
 }
 /** `page`: index of the current page (the one in view, or the one a page key moved to); `pages`: how many there are. */
 export type ViewInfo = { scale: number; x: Thumb | null; y: Thumb | null; page: number; pages: number }
-/** A page and where it starts in the document: all pages stacked vertically, centered, `PAGE_GAP` apart. */
-type Slot = { page: Page; x: number; y: number }
+/** A page and where it starts in the document (see `layoutSlots`); `unit` is the group it is shown with. */
+type Slot = { page: Page; x: number; y: number; unit: number }
 export type ResolveApplied = Extract<ResolveResult, { result: 'resolved' }> & { used: string }
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n))
@@ -184,6 +186,13 @@ export class Writer {
   private pointer: { x: number; y: number } | null = null
   /** The images of this note (bytes, sync state, decoded pictures); none: image elements are grey boxes and nothing can be inserted. */
   images: ImageHost | null = null
+  /** The way the pages are laid out; set by the editor from the device setting. */
+  private viewMode: ViewMode = 'vertical'
+  /** A pen is known on this device: one finger moves the view instead of writing. */
+  penOnly = false
+  /** The first pen pointer was seen (hover included). Called once. */
+  onPenSeen: () => void = () => {}
+  private penSeen = false
   /** Keep the aspect ratio when resizing (Shift flips it for one drag). UI state, not saved. */
   ratioLock = true
   /** Selection is UI state (never in the note): the page and the ids of its selected elements. */
@@ -230,38 +239,35 @@ export class Writer {
     return this.finalizing !== null
   }
 
-  /** Every page in the continuous scroll (the held version stands in for its page), with its place. */
-  private slots(): { list: Slot[]; w: number; h: number } {
-    const list: Slot[] = []
-    const pages = this.history.note.pages
-    let w = 0
-    let h = 0
-    for (const [i, p0] of pages.entries()) {
-      const p = this.held && this.held.id === p0.id ? this.held : p0
-      list.push({ page: p, x: 0, y: h + i * PAGE_GAP })
-      w = i === 0 ? p.width : Math.max(w, p.width)
-      h += p.height
-    }
-    const total = h + Math.max(0, pages.length - 1) * PAGE_GAP
-    for (const s of list) s.x = (w - s.page.width) / 2
-    return { list, w, h: total }
+  /** Every page of the document (the held version stands in for its page), with its place. */
+  private slots(): { list: Slot[]; units: Unit[]; w: number; h: number } {
+    const pages = this.history.note.pages.map((p0) => (this.held && this.held.id === p0.id ? this.held : p0))
+    const d = layoutSlots(pages, this.viewMode)
+    return { list: d.list.map((l) => ({ page: pages[l.index]!, x: l.x, y: l.y, unit: l.unit })), units: d.units, w: d.w, h: d.h }
   }
 
-  /** Index in `list` of the current page: the one a page key moved to, else the one at the middle of the view. */
-  private currentIndex(list: Slot[]): number {
+  /** Index in `list` of the current page: the one a page key moved to, else the one at the middle of the view (the left page of a two-page unit). */
+  private currentIndex(list: Slot[], units?: Unit[], raw = false): number {
     if (list.length < 2) return 0
-    if (this.forced !== null) {
-      const f = list.findIndex((s) => s.page.id === this.forced)
-      if (f >= 0) return f
+    let i = list.findIndex((s) => s.page.id === this.forced)
+    if (i < 0) {
+      const side = this.viewMode !== 'vertical'
+      const [mx, my] = toPage(this.viewport, this.cssW / 2, this.cssH / 2)
+      i = list.findIndex((s) => (side ? mx < s.x + s.page.width + PAGE_GAP / 2 : my < s.y + s.page.height + PAGE_GAP / 2))
+      if (i < 0) i = list.length - 1
     }
-    const mid = toPage(this.viewport, 0, this.cssH / 2)[1]
-    const i = list.findIndex((s) => mid < s.y + s.page.height + PAGE_GAP / 2)
-    return i < 0 ? list.length - 1 : i
+    return this.viewMode === 'twoPage' && !raw ? (units ?? this.slots().units)[list[i]!.unit]!.first : i
+  }
+
+  /** The id of the page actually in view (the right page of a two-page unit stays itself). */
+  private inView(): string | undefined {
+    const { list, units } = this.slots()
+    return list[this.currentIndex(list, units, true)]?.page.id
   }
 
   private get current(): Slot | undefined {
-    const { list } = this.slots()
-    return list[this.currentIndex(list)]
+    const { list, units } = this.slots()
+    return list[this.currentIndex(list, units)]
   }
 
   private get page(): Page | undefined {
@@ -378,6 +384,8 @@ export class Writer {
     const key = [r.width, r.height, ins.gap, ins.extraBottom].join()
     // A canvas that measures nothing (hidden) keeps the last good size and view.
     if (r.width > 0 && r.height > 0) {
+      // The page in view before the size changes stays the current one.
+      const keep = this.laidOut && key !== this.layoutKey ? this.inView() : undefined
       this.cssW = r.width
       this.cssH = r.height
       this.ins = ins
@@ -389,7 +397,9 @@ export class Writer {
           this.stopAnim()
         }
         if (!this.laidOut || this.fitMode !== 'free') {
-          this.viewport = this.fitFor(this.fitMode === 'page' ? 'page' : 'width')
+          if (keep) this.forced = keep
+          const v = this.fitFor(this.fitMode === 'page' ? 'page' : 'width')
+          this.viewport = keep && this.fitMode === 'width' ? this.atStart(v) : v
         } else {
           const [px, py] = toPage(this.viewport, oldW / 2, oldH / 2)
           const s = this.viewport.scale
@@ -404,11 +414,36 @@ export class Writer {
 
   private fitFor(mode: 'width' | 'page'): PageViewport {
     const d = this.slots()
-    if (mode === 'width') return fitWidthViewport(this.cssW, this.cssH, d.w, d.h, this.ins)
-    // A whole page, the current one; with one page that is the whole document.
-    const cur = this.current!
-    const v = fitPageViewport(this.cssW, this.cssH, cur.page.width, cur.page.height, this.ins)
-    return this.clamp({ scale: v.scale, offsetX: v.offsetX, offsetY: v.offsetY - cur.y * v.scale })
+    if (this.viewMode === 'vertical') {
+      if (mode === 'width') return fitWidthViewport(this.cssW, this.cssH, d.w, d.h, this.ins)
+      // A whole page, the current one; with one page that is the whole document.
+      const cur = d.list[this.currentIndex(d.list, d.units)]!
+      const v = fitPageViewport(this.cssW, this.cssH, cur.page.width, cur.page.height, this.ins)
+      return this.clamp({ scale: v.scale, offsetX: v.offsetX, offsetY: v.offsetY - cur.y * v.scale })
+    }
+    // Side by side: the current unit as tall as the area ('width') or whole in it ('page').
+    const u = d.units[d.list[this.currentIndex(d.list, d.units)]!.unit]!
+    // 'width' fits the tallest page of the layout, so a mix of heights never leaves a vertical range.
+    const v = mode === 'width' ? fitHeightViewport(this.cssW, this.cssH, u.w, d.h, this.ins) : fitPageViewport(this.cssW, this.cssH, u.w, u.h, this.ins)
+    return this.clamp({ scale: v.scale, offsetX: (mode === 'width' ? this.ins.gap : v.offsetX) - u.x * v.scale, offsetY: mode === 'width' ? v.offsetY : v.offsetY - u.y * v.scale })
+  }
+
+  /** `v` moved so that the current page (unit) starts the view along the page axis. */
+  private atStart(v: PageViewport): PageViewport {
+    const d = this.slots()
+    const u = d.units[d.list[this.currentIndex(d.list, d.units)]!.unit]!
+    return this.clamp(this.viewMode === 'vertical' ? { ...v, offsetY: this.ins.gap - u.y * v.scale } : { ...v, offsetX: this.ins.gap - u.x * v.scale })
+  }
+
+  /** The way pages are laid out. The page in view stays in view; the view starts at the mode's width fit. */
+  setViewMode(m: ViewMode): void {
+    if (m === this.viewMode) return
+    const id = this.canvas && this.page ? this.inView() : undefined
+    this.snap()
+    this.viewMode = m
+    if (!this.canvas || !this.page) return
+    if (id) this.forced = id
+    this.setView(this.atStart(this.fitFor('width')), 'width')
   }
 
   private clamp(v: PageViewport): PageViewport {
@@ -421,7 +456,7 @@ export class Writer {
     const d = this.slots()
     const v = this.anim?.to ?? this.viewport
     const m = d.list.length > 0 ? scrollMetrics(v, this.cssW, this.cssH, d.w, d.h, this.ins) : { x: null, y: null }
-    return { scale: v.scale, ...m, page: this.currentIndex(d.list), pages: d.list.length }
+    return { scale: v.scale, ...m, page: this.currentIndex(d.list, d.units), pages: d.list.length }
   }
 
   /** The size of the document changed (a page came or went): the view is fitted or clamped again. */
@@ -440,18 +475,23 @@ export class Writer {
 
   /** Moves so that page `i` (0-based) starts the view. */
   goToPage(i: number): void {
-    const { list } = this.slots()
+    const { list, units } = this.slots()
     if (list.length === 0 || this.busy()) return
     const k = Math.min(list.length - 1, Math.max(0, i))
     const v = this.anim?.to ?? this.viewport
+    const u = units[list[k]!.unit]!
     this.forced = list[k]!.page.id
-    this.goTo(this.clamp({ scale: v.scale, offsetX: v.offsetX, offsetY: this.ins.gap - list[k]!.y * v.scale }), 'free')
+    const at = this.viewMode === 'vertical' ? { offsetX: v.offsetX, offsetY: this.ins.gap - u.y * v.scale } : { offsetX: this.ins.gap - u.x * v.scale, offsetY: v.offsetY }
+    this.goTo(this.clamp({ scale: v.scale, ...at }), 'free')
   }
 
-  /** PgUp / PgDn: the page before / after the current one. */
+  /** PgUp / PgDn: the page before / after the current one (the unit, in the two-page view). */
   pageStep(d: -1 | 1): void {
-    const { list } = this.slots()
-    if (list.length > 0) this.goToPage(this.currentIndex(list) + d)
+    const { list, units } = this.slots()
+    if (list.length === 0) return
+    const cur = this.currentIndex(list, units)
+    if (this.viewMode !== 'twoPage') return this.goToPage(cur + d)
+    this.goToPage(units[Math.min(units.length - 1, Math.max(0, list[cur]!.unit + d))]!.first)
   }
 
   private setView(v: PageViewport, fit: FitMode): void {
@@ -519,6 +559,7 @@ export class Writer {
   /** Scale x `factor` about the center of the canvas; steps build on a running animation's target. */
   zoomBy(factor: number): void {
     if (!this.page || this.busy()) return
+    this.forced = null
     const base = this.anim?.to ?? this.viewport
     const z = zoomAbout(base, this.cssW / 2, this.cssH / 2, snapScale(base.scale * factor, this.fitFor('width').scale))
     this.goTo(this.clamp(z), 'free')
@@ -534,6 +575,13 @@ export class Writer {
   panBy(dx: number, dy: number): void {
     if (this.busy()) return
     this.movePan(dx, dy)
+  }
+
+  /** Wheel and arrow scrolling: side by side with nothing to scroll up or down, a vertical move goes sideways. */
+  scroll(dx: number, dy: number): void {
+    if (this.busy()) return
+    const sideways = this.viewMode !== 'vertical' && this.info().y === null
+    this.movePan(sideways ? dx + dy : dx, sideways ? 0 : dy)
   }
 
   private movePan(dx: number, dy: number): void {
@@ -571,6 +619,7 @@ export class Writer {
     this.snap()
     if (e.ctrlKey) {
       if (this.busy()) return
+      this.forced = null
       const [fx, fy] = this.local(e.clientX, e.clientY)
       // The wheel keeps counting from the scale it asked for, so it leaves the snap (spec zoom.snap).
       const cur = this.viewport.scale
@@ -585,7 +634,7 @@ export class Writer {
       dx = dx || dy
       dy = 0
     }
-    this.panBy(dx, dy)
+    this.scroll(dx, dy)
   }
 
   redraw(): void {
@@ -1459,7 +1508,14 @@ export class Writer {
     this.releaseStrokeWaiters(null)
   }
 
+  private notePen(e: PointerEvent): void {
+    if (e.pointerType !== 'pen' || this.penSeen) return
+    this.penSeen = true
+    this.onPenSeen()
+  }
+
   private onDown(e: PointerEvent): void {
+    this.notePen(e)
     this.pointer = { x: e.clientX, y: e.clientY }
     if (this.leaving || !this.page) return
     if (!POINTER_TYPES.includes(e.pointerType)) return
@@ -1583,7 +1639,7 @@ export class Writer {
       this.firstDown = e.timeStamp
       this.mode = 'idle'
       if (this.tool === 'text' && !this.readOnly && !this.onLockedPage(e)) this.textDown(e)
-      this.begin(e)
+      if (!this.penOnly) this.begin(e)
       if (this.drawing) this.mode = 'stroke'
     } else if ((this.mode === 'stroke' || this.mode === 'idle') && this.touches.size === 2) {
       // Over a stroke a later finger is ignored; where nothing was drawn it always starts a gesture.
@@ -1611,6 +1667,7 @@ export class Writer {
     const pa = g && this.touches.get(g.a)
     const pb = g && this.touches.get(g.b)
     if (!g || !pa || !pb) return
+    this.forced = null
     const [fx, fy] = this.local((pa.x + pb.x) / 2, (pa.y + pb.y) / 2)
     const s = snapScale((g.s0 * Math.hypot(pa.x - pb.x, pa.y - pb.y)) / g.d0, this.fitFor('width').scale)
     this.changeView(this.clamp({ scale: s, offsetX: fx - g.p0[0] * s, offsetY: fy - g.p0[1] * s }))
@@ -1621,6 +1678,7 @@ export class Writer {
   }
 
   private onMove(e: PointerEvent): void {
+    this.notePen(e)
     this.pointer = { x: e.clientX, y: e.clientY }
     if (this.leaving) return
     if (e.pointerType !== 'touch') this.ring = true
@@ -1628,8 +1686,14 @@ export class Writer {
     if (e.buttons === 0 && e.pointerType !== 'touch' && this.ownedBy(e.pointerId)) return this.onCancel(e)
     const t = this.touches.get(e.pointerId)
     if (t) {
+      const [px, py] = [t.x, t.y]
       t.x = e.clientX
       t.y = e.clientY
+      // A pen is known: one finger drags the view.
+      if (this.penOnly && this.mode === 'idle' && this.touches.size === 1 && e.pointerId === this.firstId) {
+        this.movePan(px - e.clientX, py - e.clientY)
+        return
+      }
       if (this.mode === 'gesture' && (e.pointerId === this.gesture?.a || e.pointerId === this.gesture?.b)) {
         this.pinch()
         return

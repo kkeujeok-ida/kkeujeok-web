@@ -13,6 +13,8 @@ import { type NoteStore, openNoteStore } from '../src/storage/noteStore'
 import { savesSettled } from '../src/storage/saveQueue'
 import { PAGE_GAP } from '../src/ui/library/writer'
 import { NoteEditor } from '../src/ui/library/NoteEditor'
+import { PEN_DETECTED_KEY, createPenDetected } from '../src/storage/penDetected'
+import { VIEW_MODE_KEY, createViewMode } from '../src/storage/viewMode'
 import { type Mounted, mountUi } from './syncUiHarness'
 import { NID, PA, PB, mkNote, stroke } from './uploadHarness'
 
@@ -58,7 +60,11 @@ const three = () => {
   const n = mkNote({ title: '여럿', pages: { [PA]: 'a1', [PB]: 'b1', [PC]: 'c1' } })
   return n
 }
-async function mount(note: Note, lang: 'ko' | 'en' = 'ko', lock?: string) {
+const memory = (initial: Record<string, string> = {}) => {
+  const data = new Map(Object.entries(initial))
+  return { data, storage: { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => void data.set(k, v) } }
+}
+async function mount(note: Note, lang: 'ko' | 'en' = 'ko', lock?: string, device: ReturnType<typeof memory> = memory()) {
   const s = openNoteStore()
   await s.writeNote(note)
   if (lock) {
@@ -68,7 +74,7 @@ async function mount(note: Note, lang: 'ko' | 'en' = 'ko', lock?: string) {
     })
   }
   s.close()
-  m = mountUi(createElement(NoteEditor, { noteId: NID, openStore }), lang)
+  m = mountUi(createElement(NoteEditor, { noteId: NID, openStore, viewModeStore: createViewMode(device.storage), penDetectedStore: createPenDetected(device.storage) }), lang)
   await settle()
   await settle()
 }
@@ -297,5 +303,212 @@ describe('pages off screen are not painted', () => {
     calls.length = 0
     act(() => void window.dispatchEvent(new Event('resize')))
     expect(papers()).toBe(3)
+  })
+})
+
+describe('page view modes (Story 5.12)', () => {
+  const PD = '01926f3a-0000-7000-8000-0000000000b4'
+  const four = () => mkNote({ title: '넷', pages: { [PA]: 'a1', [PB]: 'b1', [PC]: 'c1', [PD]: 'd1' } })
+  const menu = () => act(() => void m!.q<HTMLButtonElement>('button[aria-label="더 보기"]')!.click())
+  const radio = (name: string) => m!.qa<HTMLButtonElement>('[role="menuitemradio"]').find((b) => b.textContent === name)!
+  const pick = (name: string) => {
+    menu()
+    act(() => void radio(name).click())
+  }
+  const wheel = (deltaY: number, deltaX = 0) => act(() => void canvas().dispatchEvent(new WheelEvent('wheel', { deltaY, deltaX, bubbles: true, cancelable: true })))
+  const G = 12 // jsdom: the gap token measures 0, so the editor uses 12 for the gap and for the toolbar room
+  const S = (600 - 2 * G - G) / H // the height fit
+  const lastPoint = async (id: string) => strokesOf(await stored(), id).at(-1)!.points[0]!
+
+  test('the menu has three radios, vertical is checked, the choice is announced, saved and gives the focus back', async () => {
+    const dev = memory()
+    await mount(three(), 'ko', undefined, dev)
+    menu()
+    expect(m!.qa('[role="group"][aria-label="보기 방식"] [role="menuitemradio"]').map((b) => [b.textContent, b.getAttribute('aria-checked')])).toEqual([
+      ['세로 연속', 'true'],
+      ['가로 스크롤', 'false'],
+      ['두 페이지', 'false'],
+    ])
+    act(() => void radio('가로 스크롤').click())
+    expect(m!.q('[role="menu"]')).toBeNull()
+    expect(document.activeElement).toBe(m!.q('button[aria-label="더 보기"]'))
+    expect(m!.q('[data-view-mode]')!.textContent).toBe('보기 방식: 가로 스크롤')
+    expect(JSON.parse(dev.data.get(VIEW_MODE_KEY)!)).toEqual({ mode: 'horizontal' })
+    menu()
+    expect(radio('가로 스크롤').getAttribute('aria-checked')).toBe('true')
+    expect(m!.qa('[role="menuitem"]').some((b) => b.textContent === '높이 맞춤')).toBe(true)
+  })
+
+  test('End and Home in the menu reach the radios', async () => {
+    await mount(three())
+    menu()
+    const items = m!.qa<HTMLElement>('[role^="menuitem"]')
+    act(() => void items[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true })))
+    expect(document.activeElement).toBe(items.at(-1))
+  })
+
+  test('a new mount restores the saved mode; a broken value is vertical', async () => {
+    rect = { width: 800, height: 600 }
+    await mount(three(), 'ko', undefined, memory({ [VIEW_MODE_KEY]: '{"mode":"horizontal"}' }))
+    menu()
+    expect(radio('가로 스크롤').getAttribute('aria-checked')).toBe('true')
+    m!.unmount()
+    await mount(three(), 'ko', undefined, memory({ [VIEW_MODE_KEY]: 'nope' }))
+    menu()
+    expect(radio('세로 연속').getAttribute('aria-checked')).toBe('true')
+  })
+
+  test('horizontal: fitted to the height, the wheel moves sideways and stops at the end', async () => {
+    rect = { width: 800, height: 600 }
+    await mount(three())
+    pick('가로 스크롤')
+    draw(G + 100 * S, G + 100 * S)
+    expect((await lastPoint(PA)).slice(0, 2)).toEqual([expect.closeTo(100, 0), expect.closeTo(100, 0)])
+    wheel(100) // 100 px to the right
+    draw(G + 50, G + 40 * S)
+    expect((await lastPoint(PA))[0]).toBeCloseTo((50 + 100) / S, 0)
+    wheel(100000)
+    expect(current()).toBe(2)
+  })
+
+  test('the page in view stays when the mode changes; PgDn, Home, End in horizontal', async () => {
+    rect = { width: 800, height: 600 }
+    await mount(three())
+    focusCanvas()
+    key('PageDown')
+    pick('가로 스크롤')
+    expect(current()).toBe(1)
+    draw(G + 100 * S, G + 100 * S)
+    expect(strokesOf(await stored(), PB)).toHaveLength(1)
+    focusCanvas()
+    key('End')
+    expect(current()).toBe(2)
+    key('Home')
+    expect(current()).toBe(0)
+    key('PageDown')
+    expect(current()).toBe(1)
+  })
+
+  test('arrows go sideways when there is nothing to scroll up or down; zoomed, the wheel goes up and down', async () => {
+    rect = { width: 800, height: 600 }
+    await mount(three())
+    pick('가로 스크롤')
+    focusCanvas()
+    key('ArrowDown')
+    draw(G + 50, G + 40 * S)
+    expect((await lastPoint(PA))[0]).toBeCloseTo((50 + 40) / S, 0)
+    key('=', { ctrlKey: true }) // zoomed: a vertical range appears
+    draw(300, 300)
+    const [x0, y0] = (await lastPoint(PA)).slice(0, 2) as [number, number]
+    wheel(60)
+    draw(300, 300)
+    const [x1, y1] = (await lastPoint(PA)).slice(0, 2) as [number, number]
+    expect(x1).toBeCloseTo(x0, 5)
+    expect(y1).toBeGreaterThan(y0)
+  })
+
+  test('pages of different heights: the fit is the tallest page, so the wheel still moves sideways', async () => {
+    rect = { width: 800, height: 600 }
+    const n = three()
+    n.pages[1] = { ...n.pages[1]!, height: 500 }
+    await mount(n)
+    pick('가로 스크롤')
+    draw(G + 50, G + 40 * S)
+    const [x0, y0] = (await lastPoint(PA)).slice(0, 2) as [number, number]
+    wheel(100)
+    draw(G + 50, G + 40 * S)
+    const [x1, y1] = (await lastPoint(PA)).slice(0, 2) as [number, number]
+    expect(x1).toBeGreaterThan(x0 + 50)
+    expect(y1).toBeCloseTo(y0, 5)
+  })
+
+  test('leaving two pages keeps the right page of the pair when that is the one in view', async () => {
+    rect = { width: 700, height: 600 }
+    const n = four()
+    n.pages[0] = { ...n.pages[0]!, width: 300 } // the pair's middle falls on page 2
+    await mount(n)
+    pick('두 페이지')
+    wheel(1) // scrolling by hand: the page in view is the one under the middle
+    expect(current()).toBe(0)
+    pick('가로 스크롤')
+    expect(current()).toBe(1)
+  })
+
+  test('zooming lets go of a page key: the current page follows the view again', async () => {
+    rect = { width: 800, height: 600 }
+    await mount(three())
+    focusCanvas()
+    key('PageDown')
+    expect(current()).toBe(1)
+    key('=', { ctrlKey: true })
+    key('Home', {}) // back to the first page, then a zoom must not pin it
+    key('=', { ctrlKey: true })
+    wheel(5000)
+    expect(current()).toBeGreaterThan(0)
+  })
+
+  test('two pages: pairs, PgDn / PgUp / End move by unit and the left page is current', async () => {
+    rect = { width: 1400, height: 600 }
+    await mount(four())
+    pick('두 페이지')
+    expect(current()).toBe(0)
+    // page 2 of the pair starts one page and a gap to the right of page 1
+    draw(G + (595 + 16 + 100) * S, G + 100 * S)
+    expect(strokesOf(await stored(), PB)).toHaveLength(1)
+    focusCanvas()
+    key('PageDown')
+    expect(current()).toBe(2)
+    key('PageDown')
+    expect(current()).toBe(2)
+    key('PageUp')
+    expect(current()).toBe(0)
+    key('End')
+    expect(current()).toBe(2)
+  })
+
+  test('a window resize keeps the page in view', async () => {
+    rect = { width: 800, height: 600 }
+    await mount(three())
+    focusCanvas()
+    key('PageDown')
+    rect = { width: 700, height: 600 }
+    act(() => void window.dispatchEvent(new Event('resize')))
+    expect(current()).toBe(1)
+    const s = (700 - 2 * G) / 595
+    draw(G + 100 * s, G + 40 * s)
+    const n = await stored()
+    expect(strokesOf(n, PA)).toHaveLength(0)
+    expect(strokesOf(n, PB)).toHaveLength(1)
+  })
+
+  test('the first pen pointer is remembered quietly; after it one finger moves the view and writes nothing', async () => {
+    rect = { width: 800, height: 600 }
+    const dev = memory()
+    await mount(three(), 'ko', undefined, dev)
+    expect(dev.data.has(PEN_DETECTED_KEY)).toBe(false)
+    fire('pointermove', 50, 50, 'pen')
+    expect(JSON.parse(dev.data.get(PEN_DETECTED_KEY)!)).toEqual({ detected: true })
+    fire('pointerdown', 300, 300, 'touch')
+    fire('pointermove', 300, 200, 'touch')
+    fire('pointerup', 300, 200, 'touch')
+    expect(strokesOf(await stored(), PA)).toHaveLength(0)
+    draw(G + 10, G + 10) // the pen still writes, on a view moved 100 px up the document
+    expect((await lastPoint(PA))[1]).toBeGreaterThan(50)
+  })
+
+  test('a saved detection makes the very first finger a mover; without it a finger writes', async () => {
+    rect = { width: 800, height: 600 }
+    await mount(three(), 'ko', undefined, memory({ [PEN_DETECTED_KEY]: '{"detected":true}' }))
+    const swipe = () => {
+      fire('pointerdown', 100, 100, 'touch')
+      fire('pointermove', 120, 100, 'touch')
+      fire('pointerup', 120, 100, 'touch')
+    }
+    swipe()
+    expect(strokesOf(await stored(), PA)).toHaveLength(0)
+    m!.unmount()
+    await mount(three())
+    swipe()
+    expect(strokesOf(await stored(), PA)).toHaveLength(1)
   })
 })

@@ -21,6 +21,7 @@ import { deleteNoteDatabase, openNoteDb } from '../src/storage/noteDb'
 import { openNoteStore, type NoteStore } from '../src/storage/noteStore'
 import { savesSettled } from '../src/storage/saveQueue'
 import { createAssetSync } from '../src/sync/assetSync'
+import { createPenDetected } from '../src/storage/penDetected'
 import { NoteEditor } from '../src/ui/library/NoteEditor'
 import { Writer } from '../src/ui/library/writer'
 import { createFakeDrive } from './fakeDrive'
@@ -319,7 +320,7 @@ describe('editor paste priority', () => {
           I18nContext.Provider,
           { value: createI18n({ navigatorLanguage: 'ko-KR', storage: { getItem: () => null, setItem: () => {} } }) },
           createElement(NoteEditor, {
-            noteId: 'n',
+            noteId: 'n', penDetectedStore: createPenDetected({ getItem: () => null, setItem: () => {} }),
             images: createImageHost({ store, sync, io: io() }),
             openStore: () => {
               const st = openNoteStore()

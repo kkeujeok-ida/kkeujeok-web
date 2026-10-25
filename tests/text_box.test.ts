@@ -15,6 +15,7 @@ import { clearSessionHistories } from '../src/ops/sessionHistories'
 import { deleteNoteDatabase } from '../src/storage/noteDb'
 import { openNoteStore, type NoteStore } from '../src/storage/noteStore'
 import { savesSettled } from '../src/storage/saveQueue'
+import { createPenDetected } from '../src/storage/penDetected'
 import { NoteEditor } from '../src/ui/library/NoteEditor'
 import { Writer } from '../src/ui/library/writer'
 
@@ -294,7 +295,7 @@ describe('editor', () => {
           I18nContext.Provider,
           { value: createI18n({ navigatorLanguage: lang, storage: { getItem: () => null, setItem: () => {} } }) },
           createElement(NoteEditor, {
-            noteId: 'n',
+            noteId: 'n', penDetectedStore: createPenDetected({ getItem: () => null, setItem: () => {} }),
             openStore: () => {
               const st = openNoteStore()
               stores.push(st)

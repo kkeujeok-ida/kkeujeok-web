@@ -18,6 +18,8 @@ import { acquireNoteLock } from '../src/storage/noteLock'
 import { PEN_SLOTS_KEY, createPenSlots, sharedPenSlots, type PenSlotsStore } from '../src/storage/penSlots'
 import { ERASER_KEY, createEraserSettings, type EraserSettingsStore } from '../src/storage/eraserSettings'
 import { TOOLBAR_KEY, createToolbarPosition, type ToolbarPositionStore } from '../src/storage/toolbarPosition'
+import { createViewMode, type ViewModeStore } from '../src/storage/viewMode'
+import { createPenDetected, type PenDetectedStore } from '../src/storage/penDetected'
 import { RECENT_COLORS_KEY, createRecentColors, type RecentColorsStore } from '../src/storage/recentColors'
 import { type NoteStore, openNoteStore } from '../src/storage/noteStore'
 import { SaveQueue, savesSettled, trackSave } from '../src/storage/saveQueue'
@@ -107,7 +109,7 @@ async function saved(id = 'n1'): Promise<Note> {
 }
 const strokesOf = (n: Note) => n.pages[0]!.elements as Stroke[]
 
-async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note | null; pens?: PenSlotsStore; recent?: RecentColorsStore; eraser?: EraserSettingsStore; toolbar?: ToolbarPositionStore; lockWaitMs?: number } = {}) {
+async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: Note | null; pens?: PenSlotsStore; recent?: RecentColorsStore; eraser?: EraserSettingsStore; toolbar?: ToolbarPositionStore; viewMode?: ViewModeStore; penDetected?: PenDetectedStore; lockWaitMs?: number } = {}) {
   const id = o.id ?? 'n1'
   if (o.note !== null) await seed(o.note ?? newNote(id))
   act(() =>
@@ -115,7 +117,7 @@ async function mountEditor(o: { id?: string; lang?: string; opts?: Opts; note?: 
       createElement(
         I18nContext.Provider,
         { value: i18nFor(o.lang ?? 'ko-KR') },
-        createElement(NoteEditor, { noteId: id, openStore: makeOpen(o.opts), penStore: o.pens, recentStore: o.recent, eraserStore: o.eraser ?? createEraserSettings({ getItem: () => null, setItem: () => {} }), toolbarStore: o.toolbar ?? createToolbarPosition({ getItem: () => null, setItem: () => {} }), ...(o.lockWaitMs !== undefined && { lockWaitMs: o.lockWaitMs }) }),
+        createElement(NoteEditor, { noteId: id, openStore: makeOpen(o.opts), penStore: o.pens, recentStore: o.recent, eraserStore: o.eraser ?? createEraserSettings({ getItem: () => null, setItem: () => {} }), toolbarStore: o.toolbar ?? createToolbarPosition({ getItem: () => null, setItem: () => {} }), viewModeStore: o.viewMode ?? createViewMode({ getItem: () => null, setItem: () => {} }), penDetectedStore: o.penDetected ?? createPenDetected({ getItem: () => null, setItem: () => {} }), ...(o.lockWaitMs !== undefined && { lockWaitMs: o.lockWaitMs }) }),
       ),
     ),
   )
@@ -469,7 +471,7 @@ describe('failures', () => {
       stores.push(s)
       return { ...s, close: () => { closed++; s.close() } } as NoteStore
     }
-    act(() => root.render(createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: 'n1', openStore: open }))))
+    act(() => root.render(createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { penDetectedStore: createPenDetected({ getItem: () => null, setItem: () => {} }), noteId: 'n1', openStore: open }))))
     await flush()
     location.hash = '#/notes/n1'
     fire('pointerdown', { x: 10, y: 10 })
@@ -1185,22 +1187,25 @@ describe('zoom and pan', () => {
     expect(more.getAttribute('aria-expanded')).toBe('false')
     await openMenu()
     expect(more.getAttribute('aria-expanded')).toBe('true')
-    const items = [...q('[role="menu"]')!.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    const items = [...q('[role="menu"]')!.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
     expect(items.map((i) => i.getAttribute('aria-label') ?? i.textContent)).toEqual([
       'Zoom out',
       'Zoom in',
       'Fit width',
       'Fit page',
+      'Vertical scroll',
+      'Horizontal scroll',
+      'Two pages',
     ])
     expect(q('[role="status"][aria-live="polite"]')!.textContent).toBe(`Zoom ${Math.round(fit() * 100)}%`)
     expect(document.activeElement).toBe(items[0])
     key(items[0]!, 'ArrowUp')
-    expect(document.activeElement).toBe(items[3])
-    key(items[3]!, 'ArrowDown')
+    expect(document.activeElement).toBe(items[6])
+    key(items[6]!, 'ArrowDown')
     expect(document.activeElement).toBe(items[0])
     key(items[0]!, 'End')
-    expect(document.activeElement).toBe(items[3])
-    key(items[3]!, 'Home')
+    expect(document.activeElement).toBe(items[6])
+    key(items[6]!, 'Home')
     expect(document.activeElement).toBe(items[0])
 
     const plus = items[1]!
@@ -1453,7 +1458,7 @@ describe('same note in two tabs (story 2.13)', () => {
     const r = createRoot(h)
     act(() =>
       r.render(
-        createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: id, openStore: makeOpen(opts), lockWaitMs: 0 })),
+        createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { penDetectedStore: createPenDetected({ getItem: () => null, setItem: () => {} }), noteId: id, openStore: makeOpen(opts), lockWaitMs: 0 })),
       ),
     )
     await flush()
@@ -1638,7 +1643,7 @@ describe('same note in two tabs (story 2.13)', () => {
       return { ...s, loadNote: async (id: string) => (await gate, s.loadNote(id)) } as NoteStore
     }
     act(() =>
-      root.render(createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: 'n1', openStore }))),
+      root.render(createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { penDetectedStore: createPenDetected({ getItem: () => null, setItem: () => {} }), noteId: 'n1', openStore }))),
     )
     await flush() // waiting for the lock, first load held at the gate
     await holder.release()
@@ -1665,7 +1670,7 @@ describe('same note in two tabs (story 2.13)', () => {
     }
     act(() =>
       root.render(
-        createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: 'n1', openStore, lockWaitMs: 150 })),
+        createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { penDetectedStore: createPenDetected({ getItem: () => null, setItem: () => {} }), noteId: 'n1', openStore, lockWaitMs: 150 })),
       ),
     )
     await flush()
@@ -1689,7 +1694,7 @@ describe('same note in two tabs (story 2.13)', () => {
     const holder = await acquireNoteLock('n1')
     act(() =>
       root.render(
-        createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: 'n1', openStore: makeOpen(), lockWaitMs: 5000 })),
+        createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { penDetectedStore: createPenDetected({ getItem: () => null, setItem: () => {} }), noteId: 'n1', openStore: makeOpen(), lockWaitMs: 5000 })),
       ),
     )
     await flush()
@@ -1847,7 +1852,7 @@ describe('pen pressure toggle', () => {
         createElement(
           I18nContext.Provider,
           { value: i18nFor('ko-KR') },
-          createElement(NoteEditor, { noteId: 'n1', openStore: makeOpen(), penStore: createPenSlots(storage), lockWaitMs: 0 }),
+          createElement(NoteEditor, { penDetectedStore: createPenDetected({ getItem: () => null, setItem: () => {} }), noteId: 'n1', openStore: makeOpen(), penStore: createPenSlots(storage), lockWaitMs: 0 }),
         ),
       ),
     )
@@ -1924,7 +1929,7 @@ describe('pen pressure toggle', () => {
           },
         } as NoteStore
       }
-      act(() => root.render(createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: 'n1', openStore: open }))))
+      act(() => root.render(createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { penDetectedStore: createPenDetected({ getItem: () => null, setItem: () => {} }), noteId: 'n1', openStore: open }))))
       await flush()
     }
 
@@ -2212,7 +2217,7 @@ describe('pen slots (story 5.3)', () => {
       const { m, storage } = memStore()
       act(() =>
         r.render(
-          createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: 'n1', openStore: makeOpen(), penStore: createPenSlots(storage), lockWaitMs: 0 })),
+          createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { penDetectedStore: createPenDetected({ getItem: () => null, setItem: () => {} }), noteId: 'n1', openStore: makeOpen(), penStore: createPenSlots(storage), lockWaitMs: 0 })),
         ),
       )
       await flush()
@@ -2610,7 +2615,7 @@ describe('eraser (story 5.7)', () => {
     const h = document.createElement('div')
     document.body.append(h)
     const r = createRoot(h)
-    act(() => r.render(createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: 'n1', openStore: makeOpen(), lockWaitMs: 0 }))))
+    act(() => r.render(createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { penDetectedStore: createPenDetected({ getItem: () => null, setItem: () => {} }), noteId: 'n1', openStore: makeOpen(), lockWaitMs: 0 }))))
     await flush()
     try {
       const c = h.querySelector<HTMLCanvasElement>('canvas')!

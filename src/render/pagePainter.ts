@@ -250,3 +250,11 @@ export function paintPage(
     ctx.restore()
   }
 }
+
+/** A `pageW` x `pageH` box (a page, or two side by side) as tall as the padded area, starting at its left edge. */
+export function fitHeightViewport(w: number, h: number, pageW: number, pageH: number, ins: ViewInsets): PageViewport {
+  const a = area(w, h, pageW, pageH, ins)
+  if (!a) return IDENTITY
+  const scale = clampScale(a.ah / pageH)
+  return clampViewport({ scale, offsetX: a.gap, offsetY: a.gap }, w, h, pageW, pageH, ins)
+}

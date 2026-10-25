@@ -16,6 +16,7 @@ import { savesSettled } from '../src/storage/saveQueue'
 import { createMergeIo } from '../src/sync/mergeIo'
 import type { Conflict, Sidecar } from '../src/sync/merge'
 import { getOpenNote } from '../src/sync/openNotes'
+import { createPenDetected } from '../src/storage/penDetected'
 import { NoteEditor } from '../src/ui/library/NoteEditor'
 import { Writer } from '../src/ui/library/writer'
 import { NID, PA, PB, foreignEdit, mkNote, stroke } from './uploadHarness'
@@ -99,7 +100,7 @@ async function mountEditor() {
       createElement(
         I18nContext.Provider,
         { value: createI18n({ navigatorLanguage: 'ko-KR', storage: { getItem: () => null, setItem: () => {} } }) },
-        createElement(NoteEditor, { noteId: NID, openStore }),
+        createElement(NoteEditor, { noteId: NID, openStore, penDetectedStore: createPenDetected({ getItem: () => null, setItem: () => {} }) }),
       ),
     ),
   )
