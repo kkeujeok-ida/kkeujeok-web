@@ -1363,7 +1363,7 @@ export class Writer {
 
   private build(points: number[][], id: string): Stroke {
     const pen = this.pen()
-    return { id, type: 'stroke', tool: 'pen', color: pen.color, width: pen.width, usePressure: pen.usePressure, points }
+    return { id, type: 'stroke', tool: pen.tool, color: pen.color, width: pen.width, usePressure: pen.usePressure, points }
   }
 
   private local(x: number, y: number): [number, number] {

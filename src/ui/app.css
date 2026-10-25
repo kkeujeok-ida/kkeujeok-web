@@ -620,7 +620,7 @@ h1 {
 
 .editor-top {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
   align-items: start;
   gap: var(--spacing-3);
   padding: var(--spacing-3);
@@ -628,6 +628,7 @@ h1 {
 
 .pen-toolbar {
   grid-column: 2;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -651,6 +652,13 @@ h1 {
   width: 1px;
   margin: var(--spacing-1) 0;
   background: var(--color-border-hairline);
+}
+
+.toolbar-action,
+.pen-add,
+.toolbar-grip,
+.toolbar-divider {
+  flex-shrink: 0;
 }
 
 .toolbar-action {
@@ -680,6 +688,56 @@ h1 {
 .pen-slots {
   display: flex;
   gap: var(--components-toolbar-item-gap);
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.pen-slots::-webkit-scrollbar {
+  display: none;
+}
+
+.pen-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: var(--components-pen-slot-add-size);
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--rounded-sm);
+  background: none;
+  color: var(--components-pen-slot-add-icon);
+  cursor: pointer;
+}
+
+.pen-add[aria-disabled='true'] {
+  color: var(--color-ink-disabled);
+  cursor: default;
+}
+
+.pen-add .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.pen-popover-delete {
+  align-self: flex-start;
+  min-height: var(--spacing-hit-min-web);
+  padding: 0 var(--spacing-3);
+  border: 0;
+  border-radius: var(--rounded-sm);
+  background: none;
+  color: var(--color-ink-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.pen-popover-delete[aria-disabled='true'] {
+  color: var(--color-ink-disabled);
+  cursor: default;
 }
 
 /* The nib hangs from the toolbar's top edge: its top is cut off. */
@@ -690,10 +748,17 @@ h1 {
   height: 36px;
   padding: 0;
   border: 0;
+  flex-shrink: 0;
   overflow: hidden;
   background: none;
   color: var(--components-pen-slot-caret);
   cursor: pointer;
+  touch-action: none; /* a touch drag reorders; the wheel scrolls the slot area */
+}
+
+.pen-slot-dragging {
+  z-index: 1;
+  opacity: 0.8;
 }
 
 .pen-nib {
@@ -888,6 +953,25 @@ h1 {
 
 .snackbar:empty {
   display: none;
+}
+
+/* The delete snackbar has a button, so it takes the pointer. */
+.snackbar-action {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  pointer-events: auto;
+}
+
+.snackbar-button {
+  padding: 0 var(--spacing-2);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .cover-thumb {

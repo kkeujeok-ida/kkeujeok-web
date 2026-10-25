@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyEvent } from 'react'
 import { fmt, useI18n, type Key } from '../../i18n'
-import type { Pen } from '../../model/pen'
+import type { Pen, PenTool } from '../../model/pen'
+import { addSlot, indexAfterMove, indexAfterRemove, moveSlot, pickByTool, removeSlot } from '../../model/penSlotList'
 import { elementClipboard } from '../../model/elementClipboard'
 import { isBlankText } from '../../model/textLayout'
 import { sessionHistory } from '../../ops/sessionHistories'
@@ -61,6 +62,8 @@ function backToLibrary() {
 }
 
 const SNACKBAR_MS = 4000
+/** The "slot deleted" snackbar with [되돌리기] stays this long. */
+const DELETE_UNDO_MS = 6000
 /** The scale badge stays this long after the last zoom. */
 const ZOOM_BADGE_MS = 1500
 /** An assertive announcement stays in its live region this long. */
@@ -132,6 +135,16 @@ export function NoteEditor({
   const [ratio, setRatio] = useState(true)
   const selectedRef = useRef(0)
   selectedRef.current = selected
+  const pensRef = useRef(pens)
+  pensRef.current = pens
+  // The slot last used per tool (P / H pick it); carried through moves and deletes with the slot.
+  const lastUsed = useRef<Record<PenTool, number | null>>({ pen: null, highlighter: null })
+  useEffect(() => {
+    const p = pens[selected]
+    if (p) lastUsed.current[p.tool] = selected
+  }, [pens, selected])
+  // The state before the last delete, for [되돌리기]; any other slot change drops it.
+  const [deleted, setDeleted] = useState<{ pens: Pen[]; selected: number; last: Record<PenTool, number | null> } | null>(null)
   // Bumped when the history changes so the undo/redo buttons re-read their state.
   const [, setRevision] = useState(0)
   const [view, setView] = useState<ViewInfo | null>(null)
@@ -506,13 +519,21 @@ export function NoteEditor({
         else if (to === canvas.current) canvas.current?.focus()
         else if (to?.hasAttribute('data-banner')) (to.querySelector<HTMLElement>('button, a') ?? to).focus()
         else back.current?.focus()
-      } else if (e.key === '1' && !e.shiftKey) {
-        const target = e.target as Node | null
+      } else if (/^Digit[1-9]$/.test(e.code) || /^[1-9]$/.test(e.key) || e.code === 'KeyP' || e.code === 'KeyH' || /^[ph]$/i.test(e.key)) {
+        // 1-9 pick that slot; P / H the last used pen / highlighter slot.
+        const target = e.target as Element | null
         const inside = [toolbar.current, canvas.current].some((r) => r && (r.contains(target) || r.contains(active)))
-        if (inside && !readOnly) {
-          setSelected(0)
-          setTool('pen')
-        }
+        if (!inside || readOnly || e.shiftKey || e.repeat || e.isComposing) return
+        if (target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])') || document.querySelector('[role="dialog"], [aria-modal="true"]')) return
+        const digit = /^Digit([1-9])$/.exec(e.code)?.[1] ?? (/^[1-9]$/.test(e.key) ? e.key : '')
+        const list = pensRef.current
+        const i = digit
+          ? Number(digit) - 1
+          : (['pen', 'highlighter'] as const).map((k) => pickByTool(list, k, lastUsed.current[k]))[e.code === 'KeyH' || e.key.toLowerCase() === 'h' ? 1 : 0]!
+        if (i < 0 || i >= list.length) return
+        e.preventDefault()
+        setSelected(i)
+        setTool('pen')
       } else if ((e.code === 'KeyL' || e.key.toLowerCase() === 'l') && !e.shiftKey && !e.repeat && !e.isComposing) {
         const target = e.target as Element | null
         const inside = [toolbar.current, canvas.current].some((r) => r && (r.contains(target) || r.contains(active)))
@@ -527,6 +548,62 @@ export function NoteEditor({
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
   }, [ready, readOnly])
+
+  // Slot list changes. Each one writes the device setting and drops a pending delete undo.
+  const commitSlots = (next: Pen[]) => {
+    penStore.write(next)
+    setPens(next)
+    setDeleted(null)
+  }
+  const focusSlot = (i: number) => setTimeout(() => toolbar.current?.querySelector<HTMLElement>(`[data-slot="${i}"]`)?.focus(), 0)
+  const addPenSlot = () => {
+    if (readOnly) return
+    const next = addSlot(pens, selected)
+    if (next.length === pens.length) return say(t('editor.slotsFull'))
+    commitSlots(next)
+    setSelected(next.length - 1)
+    setTool('pen')
+    if (!loaded?.writer.busy()) setPopover(next.length - 1)
+  }
+  const movePenSlot = (from: number, to: number) => {
+    if (readOnly || from === to || !pens[from] || to < 0 || to >= pens.length) return
+    commitSlots(moveSlot(pens, from, to))
+    setSelected(indexAfterMove(selected, from, to))
+    for (const k of ['pen', 'highlighter'] as const) {
+      const l = lastUsed.current[k]
+      if (l !== null) lastUsed.current[k] = indexAfterMove(l, from, to)
+    }
+    setAnnounce(fmt(t('editor.slotMoved'), { n: to + 1 }))
+  }
+  const deletePenSlot = (i: number) => {
+    if (readOnly || pens.length <= 1 || !pens[i]) return
+    const snapshot = { pens, selected, last: { ...lastUsed.current } }
+    const next = removeSlot(pens, i)
+    commitSlots(next)
+    const kept = indexAfterRemove(selected, i)
+    if (kept === null) setTool('pen')
+    const to = kept ?? Math.min(i, next.length - 1)
+    setSelected(to)
+    for (const k of ['pen', 'highlighter'] as const) {
+      const l = lastUsed.current[k]
+      if (l !== null) lastUsed.current[k] = indexAfterRemove(l, i)
+    }
+    setPopover(null)
+    setDeleted(snapshot)
+    focusSlot(to)
+  }
+  const undoDelete = () => {
+    if (!deleted || readOnly) return
+    commitSlots(deleted.pens)
+    setSelected(deleted.selected)
+    lastUsed.current = deleted.last
+    focusSlot(deleted.selected)
+  }
+  useEffect(() => {
+    if (!deleted) return
+    const id = setTimeout(() => setDeleted(null), DELETE_UNDO_MS)
+    return () => clearTimeout(id)
+  }, [deleted])
 
   // Ctrl/Cmd+Z undoes, Ctrl+Y and Ctrl/Cmd+Shift+Z redo, wherever focus is
   // except in a text field (which keeps its own undo).
@@ -1056,6 +1133,9 @@ export function NoteEditor({
                 setSelected(i)
                 setTool('pen')
               }}
+              onAdd={addPenSlot}
+              onMove={movePenSlot}
+              onSlotsFull={() => say(t('editor.slotsFull'))}
               onEdit={(i) => {
                 if (readOnly || loaded.writer.busy()) return
                 setTool('pen')
@@ -1250,6 +1330,14 @@ export function NoteEditor({
           <div role="status" className="snackbar">
             {message ? t(MESSAGE_KEY[message.key]) : ''}
           </div>
+          {deleted && (
+            <div role="status" className="snackbar snackbar-action">
+              <span>{t('editor.slotDeleted')}</span>
+              <button type="button" className="snackbar-button" onClick={undoDelete}>
+                {t('editor.undoDelete')}
+              </button>
+            </div>
+          )}
           <div role="status" aria-live="polite" className="sr-only">
             {announce}
           </div>
@@ -1277,11 +1365,12 @@ export function NoteEditor({
           {popover !== null && !readOnly && pens[popover] && (
             <PenPopover
               pen={pens[popover]}
-              anchor={toolbar.current?.querySelector<HTMLElement>(`[data-slot="${popover}"]`) ?? null}
+              anchor={toolbar.current}
+              canDelete={pens.length > 1}
+              onDelete={() => deletePenSlot(popover)}
               onUsePressure={(usePressure) => {
                 const next = pens.map((p, i) => (i === popover ? { ...p, usePressure } : p))
-                penStore.write(next)
-                setPens(next)
+                commitSlots(next)
               }}
               onClose={() => {
                 setPopover(null)

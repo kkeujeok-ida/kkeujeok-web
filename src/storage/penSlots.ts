@@ -1,6 +1,6 @@
 // The pen slot list: a device setting (localStorage), kept apart from note data
 // so logout and disconnect leave it.
-import { defaultPenSlots, type Pen } from '../model/pen'
+import { MAX_PEN_SLOTS, PEN_WIDTH, defaultPenSlots, type Pen } from '../model/pen'
 
 export const PEN_SLOTS_KEY = 'kkeujeok.pen.slots'
 type Store = Pick<Storage, 'getItem' | 'setItem'>
@@ -13,18 +13,19 @@ function browserStorage(): Store | undefined {
   }
 }
 
-// Throws nothing; null when any slot is not a valid pen.
+// Throws nothing; null when the list or any slot is not valid. A slot without `tool` is a pen (older value).
 function parse(raw: string | null | undefined): Pen[] | null {
   if (raw == null) return null
   const list: unknown = JSON.parse(raw)
-  if (!Array.isArray(list) || list.length === 0) return null
+  if (!Array.isArray(list) || list.length === 0 || list.length > MAX_PEN_SLOTS) return null
   const pens: Pen[] = []
   for (const e of list as Record<string, unknown>[]) {
-    const { color, width, usePressure } = e ?? {}
+    const { color, width, usePressure, tool = 'pen' } = e ?? {}
+    if (tool !== 'pen' && tool !== 'highlighter') return null
     if (typeof color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(color)) return null
-    if (typeof width !== 'number' || !(width >= 0.5 && width <= 10)) return null
+    if (typeof width !== 'number' || !(width >= PEN_WIDTH[tool].min && width <= PEN_WIDTH[tool].max)) return null
     if (typeof usePressure !== 'boolean') return null
-    pens.push({ color, width, usePressure, colorName: 'black' })
+    pens.push({ tool, color, width, usePressure })
   }
   return pens
 }
@@ -48,7 +49,7 @@ export function createPenSlots(storage: Store | undefined = browserStorage()) {
     write(slots: readonly Pen[]): void {
       session = copy(slots)
       try {
-        storage?.setItem(PEN_SLOTS_KEY, JSON.stringify(slots.map(({ color, width, usePressure }) => ({ color, width, usePressure }))))
+        storage?.setItem(PEN_SLOTS_KEY, JSON.stringify(slots.map(({ tool, color, width, usePressure }) => ({ tool, color, width, usePressure }))))
       } catch {
         // kept for this session only
       }

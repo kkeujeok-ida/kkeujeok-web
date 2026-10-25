@@ -6,7 +6,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { I18nContext, createI18n, resources } from '../src/i18n'
 import type { Note, Page, Stroke } from '../src/model/note'
-import { defaultPen } from '../src/model/pen'
+import { defaultPen, defaultPenSlots } from '../src/model/pen'
 import { History } from '../src/ops/history'
 import { createNote } from '../src/ops/ops'
 import { clearSessionHistories, sessionHistory } from '../src/ops/sessionHistories'
@@ -174,7 +174,8 @@ describe('semantics', () => {
     expect(tb.getAttribute('aria-label')).toBe('툴바')
     expect(tb.querySelector('.toolbar-grip')!.getAttribute('aria-hidden')).toBe('true')
     const radios = qa('[role="radiogroup"] [role="radio"]')
-    expect(radios).toHaveLength(1)
+    expect(radios).toHaveLength(3)
+    expect(qa('[role="radiogroup"]')).toHaveLength(1)
     expect(radios[0]!.getAttribute('aria-checked')).toBe('true')
     expect(radios[0]!.getAttribute('aria-label')).toBe('펜, 검정, 두께 2.0 (1)')
     expect(canvas().getAttribute('aria-label')).toBe('1페이지 / 1, 세로')
@@ -194,7 +195,7 @@ describe('semantics', () => {
   test('editor strings exist in ko and en', () => {
     const keys = Object.keys(resources.ko).filter((k) => k.startsWith('editor.'))
     expect(keys).toEqual(
-      expect.arrayContaining(['editor.undo', 'editor.redo', 'editor.undoTip', 'editor.redoTip', 'editor.historyNotApplied', 'editor.penSlot', 'editor.colorBlack', 'editor.page', 'editor.handwriting', 'editor.saveFailed', 'editor.strokeNotAdded', 'editor.toolbar', 'editor.canvas', 'editor.more', 'editor.zoomOut', 'editor.zoomIn', 'editor.zoomLevel', 'editor.fitWidth', 'editor.fitPage', 'editor.zoomOutTip', 'editor.zoomInTip', 'editor.fitWidthTip']),
+      expect.arrayContaining(['editor.undo', 'editor.redo', 'editor.undoTip', 'editor.redoTip', 'editor.historyNotApplied', 'editor.penSlot', 'editor.color.black', 'editor.color.lavender', 'editor.colorCustom', 'editor.highlighterSlot', 'editor.addSlot', 'editor.addSlotTip', 'editor.slotsFull', 'editor.slotMoved', 'editor.deleteSlot', 'editor.slotDeleted', 'editor.undoDelete', 'editor.page', 'editor.handwriting', 'editor.saveFailed', 'editor.strokeNotAdded', 'editor.toolbar', 'editor.canvas', 'editor.more', 'editor.zoomOut', 'editor.zoomIn', 'editor.zoomLevel', 'editor.fitWidth', 'editor.fitPage', 'editor.zoomOutTip', 'editor.zoomInTip', 'editor.fitWidthTip']),
     )
     expect(Object.keys(resources.en).filter((k) => k.startsWith('editor.'))).toEqual(keys)
   })
@@ -708,10 +709,11 @@ describe('undo and redo (story 2.11)', () => {
     await mountEditor()
     const tb = q('[role="toolbar"]')!
     const kids = [...tb.children]
-    expect(kids[2]!.className).toBe('toolbar-divider')
-    expect(kids[2]!.getAttribute('aria-hidden')).toBe('true')
-    expect(kids[3]).toBe(undoBtn())
-    expect(kids[4]).toBe(redoBtn())
+    expect(kids[2]!.className).toBe('pen-add')
+    expect(kids[3]!.className).toBe('toolbar-divider')
+    expect(kids[3]!.getAttribute('aria-hidden')).toBe('true')
+    expect(kids[4]).toBe(undoBtn())
+    expect(kids[5]).toBe(redoBtn())
     expect(undoBtn().title).toBe('실행 취소 (Ctrl+Z)')
     expect(redoBtn().title).toBe('다시 실행 (Ctrl+Y)')
     expect(off(undoBtn()) && off(redoBtn())).toBe(true)
@@ -1613,7 +1615,7 @@ describe('same note in two tabs (story 2.13)', () => {
       expect(writes).toBe(0)
       expect(strokesOf(await saved())).toHaveLength(0)
     } finally {
-      sharedPenSlots().write([defaultPen])
+      sharedPenSlots().write(defaultPenSlots)
       proto.getBoundingClientRect = orig
     }
   })
@@ -1766,7 +1768,7 @@ describe('pen pressure toggle', () => {
     expect(sw().getAttribute('aria-checked')).toBe('true')
   })
 
-  test('Tab stays on the switch; outside press and Esc close, keep the change, focus the slot', async () => {
+  test('Tab cycles the switch and the delete button; outside press and Esc close, keep the change, focus the slot', async () => {
     const { m, storage } = memStore()
     await mountEditor({ pens: createPenSlots(storage) })
     // Enter/Space on a button is a click, so the keyboard route is this handler.
@@ -1775,6 +1777,8 @@ describe('pen pressure toggle', () => {
     const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
     act(() => void sw().dispatchEvent(tab))
     expect(tab.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(q('.pen-popover-delete'))
+    act(() => void q('.pen-popover-delete')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })))
     expect(document.activeElement).toBe(sw())
     act(() => void q('.pen-popover-scrim')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
     expect(dialog()).toBeNull()
@@ -1921,5 +1925,305 @@ describe('pen pressure toggle', () => {
       spy.mockRestore()
       expect(getOpenNote('n1')?.current().meta.title).toBe('필기 노트')
     })
+  })
+})
+
+describe('pen slots (story 5.3)', () => {
+  const memStore = (initial?: string) => {
+    const m = new Map<string, string>(initial === undefined ? [] : [[PEN_SLOTS_KEY, initial]])
+    return { m, storage: { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) } }
+  }
+  const radios = () => qa('[role="radio"]')
+  const checked = () => radios().findIndex((r) => r.getAttribute('aria-checked') === 'true')
+  const storedList = (m: Map<string, string>) => JSON.parse(m.get(PEN_SLOTS_KEY)!) as { tool: string; color: string; width: number }[]
+  const colors = (m: Map<string, string>) => storedList(m).map((p) => p.color)
+  const addBtn = () => q('.pen-add')!
+  const dialog = () => q('[role="dialog"].pen-popover')
+  const draw = (y: number) => {
+    fire('pointerdown', { x: 20, y })
+    fire('pointermove', { x: 60, y })
+    fire('pointerup', { x: 100, y })
+  }
+  const open = async (initial?: string) => {
+    const s = memStore(initial)
+    await mountEditor({ pens: createPenSlots(s.storage) })
+    return s
+  }
+  const many = (n: number) => JSON.stringify(Array.from({ length: n }, (_, i) => ({ tool: 'pen', color: '#000000', width: 1 + i / 10, usePressure: true })))
+  const BLACK = '#000000'
+  const BLUE = '#1971c2'
+  const YELLOW = '#ffe066'
+
+  test('three default slots with spec names; the first is selected', async () => {
+    await open()
+    expect(radios().map((r) => r.getAttribute('aria-label'))).toEqual(['펜, 검정, 두께 2.0 (1)', '펜, 파랑, 두께 2.0 (2)', '형광펜, 노랑, 두께 14.0 (3)'])
+    expect(checked()).toBe(0)
+    expect(radios()[0]!.querySelector('.pen-underline')).not.toBeNull()
+    act(() => root.unmount())
+    root = createRoot(host)
+    await mountEditor({ pens: createPenSlots(memStore().storage), lang: 'en-US', note: null })
+    expect(radios().map((r) => r.getAttribute('aria-label'))).toEqual(['Pen, Black, width 2.0 (1)', 'Pen, Blue, width 2.0 (2)', 'Highlighter, Yellow, width 14.0 (3)'])
+  })
+
+  test('number keys pick that slot as the pen; a missing slot is ignored; a highlighter slot writes highlighter strokes', async () => {
+    await open()
+    key(canvas(), '2')
+    expect(checked()).toBe(1)
+    key(canvas(), '5')
+    expect(checked()).toBe(1)
+    key(canvas(), '1', { shiftKey: true })
+    expect(checked()).toBe(1)
+    key(canvas(), 'End', { code: 'Numpad1' }) // NumLock off
+    expect(checked()).toBe(1)
+    key(canvas(), '3', { code: 'Digit3' })
+    expect(checked()).toBe(2)
+    draw(100)
+    await flush()
+    expect(strokesOf(await saved())[0]).toMatchObject({ tool: 'highlighter', color: YELLOW, width: 14, usePressure: false })
+  })
+
+  test('number keys are ignored in a text field, with Ctrl and while a dialog is open', async () => {
+    await open()
+    const input = document.createElement('input')
+    q('[role="toolbar"]')!.append(input)
+    key(input, '2')
+    key(canvas(), '2', { ctrlKey: true })
+    expect(checked()).toBe(0)
+    click(radios()[0]!) // opens the popover
+    key(document.activeElement!, '2')
+    expect(checked()).toBe(0)
+  })
+
+  test('P and H pick the last used slot of that tool; none of that tool does nothing', async () => {
+    await open()
+    key(canvas(), '2')
+    key(canvas(), 'h', { code: 'KeyH' })
+    expect(checked()).toBe(2)
+    key(canvas(), 'p', { code: 'KeyP' })
+    expect(checked()).toBe(1) // the pen used last
+    key(canvas(), '1')
+    key(canvas(), 'H')
+    expect(checked()).toBe(2)
+    act(() => root.unmount())
+    root = createRoot(host)
+    await mountEditor({ pens: createPenSlots(memStore(many(2)).storage), note: null })
+    key(canvas(), '2')
+    key(canvas(), 'h', { code: 'KeyH' })
+    expect(checked()).toBe(1)
+  })
+
+  test('[+] copies the selected slot to the end, selects it, opens the popover and stores the list', async () => {
+    const { m } = await open()
+    click(radios()[1]!)
+    click(addBtn())
+    expect(radios()).toHaveLength(4)
+    expect(checked()).toBe(3)
+    expect(radios()[3]!.getAttribute('aria-label')).toBe('펜, 파랑, 두께 2.0 (4)')
+    expect(dialog()).not.toBeNull()
+    expect(colors(m)).toEqual([BLACK, BLUE, YELLOW, BLUE])
+  })
+
+  test('at 12 slots [+] is aria-disabled and announces; nothing is added', async () => {
+    const { m } = await open(many(12))
+    expect(addBtn().getAttribute('aria-disabled')).toBe('true')
+    click(addBtn())
+    expect(radios()).toHaveLength(12)
+    expect(dialog()).toBeNull()
+    expect(q('[role="alert"]')!.textContent).toBe('펜 슬롯은 12개까지예요')
+    expect(m.get(PEN_SLOTS_KEY)).toBe(many(12))
+  })
+
+  test('Alt+Right moves the slot and keeps it selected; the end does nothing', async () => {
+    const { m } = await open()
+    const first = radios()[0]!
+    act(() => first.focus())
+    key(first, 'ArrowRight', { altKey: true })
+    expect(colors(m)).toEqual([BLUE, BLACK, YELLOW])
+    expect(checked()).toBe(1)
+    expect(document.activeElement).toBe(radios()[1])
+    expect(q('[aria-live="polite"].sr-only')!.textContent).toBe('2번째로 옮겼어요')
+    key(radios()[1]!, 'ArrowRight', { altKey: true })
+    expect(colors(m)).toEqual([BLUE, YELLOW, BLACK])
+    expect(checked()).toBe(2)
+    key(radios()[2]!, 'ArrowRight', { altKey: true })
+    expect(colors(m)).toEqual([BLUE, YELLOW, BLACK])
+  })
+
+  test('the last used index follows a move', async () => {
+    await open()
+    key(canvas(), '2')
+    key(canvas(), 'h', { code: 'KeyH' }) // highlighter now selected, last pen = 2nd
+    key(radios()[2]!, 'ArrowLeft', { altKey: true }) // highlighter to the 2nd place; the pen is the 3rd
+    expect(checked()).toBe(1)
+    key(canvas(), 'p', { code: 'KeyP' })
+    expect(checked()).toBe(2)
+  })
+
+  test('dragging a slot over another reorders; dropping outside the toolbar keeps the order', async () => {
+    const { m } = await open()
+    const rect = (l: number, r: number, t = 0, b = 40) => ({ left: l, right: r, top: t, bottom: b, width: r - l, height: b - t, x: l, y: t, toJSON() {} }) as DOMRect
+    q('.pen-toolbar')!.getBoundingClientRect = () => rect(0, 300)
+    let shift = 0 // the dragged slot's rect includes its translateX, like a real browser
+    radios().forEach((r, i) => (r.getBoundingClientRect = () => rect(40 * i + 40 + (i === 0 ? shift : 0), 40 * i + 76 + (i === 0 ? shift : 0))))
+    const ptr = (el: Element, name: string, x: number, y = 20) =>
+      act(() => void el.dispatchEvent(new PointerEvent(name, { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'mouse', clientX: x, clientY: y, button: 0 })))
+    const first = radios()[0]!
+    ptr(first, 'pointerdown', 58)
+    ptr(first, 'pointermove', 60) // under 6 px: still a press
+    expect(first.classList.contains('pen-slot-dragging')).toBe(false)
+    ptr(first, 'pointermove', 120)
+    shift = 62
+    expect(first.classList.contains('pen-slot-dragging')).toBe(true)
+    ptr(first, 'pointerup', 138) // over the 3rd slot
+    first.click() // the click that ends a drag is ignored
+    expect(dialog()).toBeNull()
+    expect(colors(m)).toEqual([BLUE, YELLOW, BLACK])
+    expect(checked()).toBe(2)
+    const again = radios()[2]!
+    ptr(again, 'pointerdown', 138)
+    ptr(again, 'pointermove', 138, 200)
+    ptr(again, 'pointerup', 138, 200) // below the toolbar
+    expect(colors(m)).toEqual([BLUE, YELLOW, BLACK])
+  })
+
+  test('delete from the popover: closes it, the snackbar undo restores the same place and selection', async () => {
+    const { m } = await open()
+    key(canvas(), '2')
+    click(radios()[1]!)
+    click(q('.pen-popover-delete')!)
+    expect(dialog()).toBeNull()
+    expect(radios()).toHaveLength(2)
+    expect(checked()).toBe(1) // the slot that moved up
+    expect(colors(m)).toEqual([BLACK, YELLOW])
+    expect(q('.snackbar-action')!.textContent).toContain('슬롯을 지웠어요')
+    click(q('.snackbar-button')!)
+    expect(colors(m)).toEqual([BLACK, BLUE, YELLOW])
+    expect(checked()).toBe(1)
+    expect(q('.snackbar-action')).toBeNull()
+  })
+
+  test('deleting the last slot selects the new last one; the undo goes away after 6 s or another change', async () => {
+    await open()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      key(canvas(), '3')
+      click(radios()[2]!)
+      click(q('.pen-popover-delete')!)
+      expect(checked()).toBe(1)
+      act(() => void vi.advanceTimersByTime(5900))
+      expect(q('.snackbar-action')).not.toBeNull()
+      act(() => void vi.advanceTimersByTime(200))
+      expect(q('.snackbar-action')).toBeNull()
+      click(radios()[1]!)
+      click(q('.pen-popover-delete')!)
+      expect(q('.snackbar-action')).not.toBeNull()
+      click(addBtn()) // another change drops the undo
+      expect(q('.snackbar-action')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('a pressure edit after a delete drops the undo, so it cannot restore stale slots', async () => {
+    const { m } = await open()
+    click(radios()[0]!)
+    click(q('.pen-popover-delete')!)
+    expect(q('.snackbar-action')).not.toBeNull()
+    click(radios()[0]!)
+    click(q('[role="switch"]')!)
+    expect(q('.snackbar-action')).toBeNull()
+    expect(colors(m)).toEqual([BLUE, YELLOW])
+  })
+
+  test('with one slot left [슬롯 삭제] is aria-disabled', async () => {
+    const { m } = await open(many(1))
+    click(radios()[0]!)
+    const del = q('.pen-popover-delete')!
+    expect(del.getAttribute('aria-disabled')).toBe('true')
+    click(del)
+    expect(dialog()).not.toBeNull()
+    expect(m.get(PEN_SLOTS_KEY)).toBe(many(1))
+  })
+
+  test('roving tab index: one stop, arrows move without wrapping, Home and End', async () => {
+    await open()
+    const items = () => qa('[role="toolbar"] [data-roving]')
+    expect(items().filter((e) => e.tabIndex === 0)).toEqual([radios()[0]])
+    act(() => radios()[0]!.focus())
+    key(radios()[0]!, 'ArrowLeft')
+    expect(document.activeElement).toBe(radios()[0])
+    key(radios()[0]!, 'ArrowRight')
+    expect(document.activeElement).toBe(radios()[1])
+    expect(items().filter((e) => e.tabIndex === 0)).toEqual([radios()[1]])
+    key(document.activeElement!, 'End')
+    expect(document.activeElement).toBe(items()[items().length - 1])
+    key(document.activeElement!, 'ArrowRight')
+    expect(document.activeElement).toBe(items()[items().length - 1])
+    key(document.activeElement!, 'Home')
+    expect(document.activeElement).toBe(radios()[0])
+    expect(items().map((e) => e.getAttribute('data-roving'))).toEqual(['slot-0', 'slot-1', 'slot-2', 'add', 'undo', 'redo', 'lasso', 'text', 'image'])
+  })
+
+  test('the wheel scrolls the slot area sideways only when it overflows', async () => {
+    await open()
+    const area = q('.pen-slots')!
+    const wheel = () => {
+      const e = new WheelEvent('wheel', { deltaY: 40, bubbles: true, cancelable: true })
+      act(() => void area.dispatchEvent(e))
+      return e
+    }
+    expect(wheel().defaultPrevented).toBe(false)
+    Object.defineProperty(area, 'scrollWidth', { value: 600, configurable: true })
+    Object.defineProperty(area, 'clientWidth', { value: 200, configurable: true })
+    expect(wheel().defaultPrevented).toBe(true)
+    expect(area.scrollLeft).toBe(40)
+  })
+
+  test('read-only: no select, add, move or key pick, and the tip says so', async () => {
+    Object.defineProperty(navigator, 'locks', { value: fakeLocks(), configurable: true })
+    try {
+      await mountEditor()
+      const h = document.createElement('div')
+      document.body.append(h)
+      const r = createRoot(h)
+      const { m, storage } = memStore()
+      act(() =>
+        r.render(
+          createElement(I18nContext.Provider, { value: i18nFor('ko-KR') }, createElement(NoteEditor, { noteId: 'n1', openStore: makeOpen(), penStore: createPenSlots(storage), lockWaitMs: 0 })),
+        ),
+      )
+      await flush()
+      try {
+        const rs = [...h.querySelectorAll<HTMLElement>('[role="radio"]')]
+        const add = h.querySelector<HTMLElement>('.pen-add')!
+        expect(add.getAttribute('aria-disabled')).toBe('true')
+        expect(add.title).toBe('읽기 전용이에요')
+        act(() => rs[1]!.click())
+        act(() => add.click())
+        key(rs[0]!, 'ArrowRight', { altKey: true })
+        key(rs[0]!, '2')
+        expect(h.querySelectorAll('[role="radio"]')).toHaveLength(3)
+        expect(h.querySelectorAll('[role="radio"]')[0]!.getAttribute('aria-checked')).toBe('true')
+        expect(m.has(PEN_SLOTS_KEY)).toBe(false)
+      } finally {
+        act(() => r.unmount())
+        h.remove()
+      }
+    } finally {
+      delete (navigator as { locks?: unknown }).locks
+    }
+  })
+
+  test('a remount keeps the list and its order; the selection starts at the first', async () => {
+    const s = await open()
+    click(radios()[2]!)
+    key(canvas(), '3')
+    key(radios()[2]!, 'ArrowLeft', { altKey: true })
+    act(() => root.unmount())
+    root = createRoot(host)
+    await mountEditor({ pens: createPenSlots(s.storage), note: null })
+    expect(colors(s.m)).toEqual([BLACK, YELLOW, BLUE])
+    expect(radios().map((r) => r.getAttribute('aria-label')?.slice(0, 3))).toEqual(['펜, ', '형광펜', '펜, '])
+    expect(checked()).toBe(0)
   })
 })

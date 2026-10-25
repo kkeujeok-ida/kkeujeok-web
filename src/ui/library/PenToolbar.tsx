@@ -1,19 +1,25 @@
-import type { Ref } from 'react'
-import type { Pen } from '../../model/pen'
-import { fmt, useI18n, type Key } from '../../i18n'
+import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
+import { MAX_PEN_SLOTS, colorNameKey, type Pen } from '../../model/pen'
+import { fmt, useI18n } from '../../i18n'
 
-export const COLOR_NAME: Record<Pen['colorName'], Key> = { black: 'editor.colorBlack' }
+/** A press that moves farther than this many px starts dragging the slot. */
+const DRAG_PX = 6
 
 /**
  * The floating toolbar: grip (inert, hidden from the a11y tree) | pen slots |
  * divider | undo, redo. Slots are one radiogroup; activating the selected one
  * opens the pen popover (onEdit). The slot buttons carry data-slot for the owner.
  */
-export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChange, onImage, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
+export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, onSlotsFull, tool, onToolChange, onImage, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
   pens: readonly Pen[]
   selected: number
   onSelect: (i: number) => void
   onEdit: (i: number) => void
+  /** [+]: the owner copies the selected slot to the end. Not called at 12 slots (onSlotsFull is). */
+  onAdd: () => void
+  /** A slot dragged or moved with Alt+arrows from one place to another. */
+  onMove: (from: number, to: number) => void
+  onSlotsFull: () => void
   /** The lasso and the text tool are toggles: pressed = that tool, else the pen. The lasso works read-only too (selecting changes nothing); the text tool does not. */
   tool: 'pen' | 'lasso' | 'text'
   onToolChange: (t: 'pen' | 'lasso' | 'text') => void
@@ -28,8 +34,96 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
   ref?: Ref<HTMLDivElement>
 }) {
   const { t } = useI18n()
+  // Roving tab index: one toolbar item is a tab stop, the arrows move between items.
+  const [stop, setStop] = useState('')
+  const keys = [...pens.map((_, i) => `slot-${i}`), 'add', 'undo', 'redo', 'lasso', 'text', 'image']
+  const tabKey = keys.includes(stop) ? stop : `slot-${selected}`
+  const rv = (key: string) => ({ 'data-roving': key, tabIndex: key === tabKey ? 0 : -1 })
+  const slotsEl = useRef<HTMLDivElement>(null)
+  const refocus = useRef<number | null>(null)
+  const drag = useRef<{ id: number; from: number; x: number; y: number; on: boolean } | null>(null)
+  const justDragged = useRef(false)
+  const [dx, setDx] = useState<{ from: number; dx: number } | null>(null)
+  const slotEl = (i: number) => slotsEl.current?.querySelector<HTMLElement>(`[data-slot="${i}"]`)
+  useEffect(() => {
+    if (refocus.current !== null) slotEl(refocus.current)?.focus()
+    refocus.current = null
+  })
+  // The selected slot (a new one, a key) is kept in view of the scrolling slot area.
+  useEffect(() => {
+    slotEl(selected)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }, [selected, pens.length])
+  // The wheel scrolls the slot area sideways, only when it overflows.
+  useEffect(() => {
+    const el = slotsEl.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaX !== 0 || e.deltaY === 0 || el.scrollWidth <= el.clientWidth) return
+      e.preventDefault()
+      el.scrollLeft += e.deltaY
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+  const full = pens.length >= MAX_PEN_SLOTS
+  const onToolbarKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const item = (e.target as HTMLElement).closest<HTMLElement>('[data-roving]')
+    if (!item || e.nativeEvent.isComposing || e.ctrlKey || e.metaKey || e.shiftKey) return
+    const dir = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0
+    const slot = item.dataset.slot
+    if (e.altKey) {
+      if (!dir || slot === undefined) return
+      e.preventDefault()
+      const from = Number(slot)
+      const to = from + dir
+      if (readOnly || to < 0 || to >= pens.length) return
+      refocus.current = to
+      onMove(from, to)
+      return
+    }
+    if (!dir && e.key !== 'Home' && e.key !== 'End') return
+    const items = [...e.currentTarget.querySelectorAll<HTMLElement>('[data-roving]')]
+    const at = items.indexOf(item)
+    const to = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : Math.max(0, Math.min(items.length - 1, at + dir))
+    e.preventDefault()
+    items[to]?.focus()
+  }
+  const endDrag = (e: PointerEvent<HTMLButtonElement>, drop: boolean) => {
+    const d = drag.current
+    drag.current = null
+    setDx(null)
+    if (!d?.on) return
+    justDragged.current = true
+    setTimeout(() => (justDragged.current = false), 0)
+    const bar = e.currentTarget.closest('.pen-toolbar')?.getBoundingClientRect()
+    if (!drop || !bar || e.clientX < bar.left || e.clientX > bar.right || e.clientY < bar.top || e.clientY > bar.bottom) return
+    // The slot place nearest to where it was dropped.
+    let to = d.from
+    let best = Infinity
+    pens.forEach((_, i) => {
+      const r = slotEl(i)?.getBoundingClientRect()
+      // The dragged slot is measured where it sits without its translateX.
+      const shift = i === d.from ? e.clientX - d.x : 0
+      const gap = r ? Math.abs(e.clientX - ((r.left + r.right) / 2 - shift)) : Infinity
+      if (gap < best) [best, to] = [gap, i]
+    })
+    if (to !== d.from) {
+      refocus.current = to
+      onMove(d.from, to)
+    }
+  }
   return (
-    <div ref={ref} role="toolbar" aria-label={t('editor.toolbar')} className="pen-toolbar">
+    <div
+      ref={ref}
+      role="toolbar"
+      aria-label={t('editor.toolbar')}
+      className="pen-toolbar"
+      onKeyDown={onToolbarKey}
+      onFocus={(e: FocusEvent<HTMLDivElement>) => {
+        const k = (e.target as HTMLElement).closest<HTMLElement>('[data-roving]')?.dataset.roving
+        if (k) setStop(k)
+      }}
+    >
       <span className="toolbar-grip" aria-hidden="true">
         <svg className="icon" viewBox="0 0 16 16">
           <circle cx="8" cy="3.5" r="1.25" fill="currentColor" />
@@ -37,9 +131,9 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
           <circle cx="8" cy="12.5" r="1.25" fill="currentColor" />
         </svg>
       </span>
-      <div role="radiogroup" className="pen-slots">
+      <div ref={slotsEl} role="radiogroup" className="pen-slots">
         {pens.map((pen, i) => {
-          const label = fmt(t('editor.penSlot'), { color: t(COLOR_NAME[pen.colorName]), width: pen.width.toFixed(1), n: i + 1 })
+          const label = fmt(t(pen.tool === 'highlighter' ? 'editor.highlighterSlot' : 'editor.penSlot'), { color: t(colorNameKey(pen.color)), width: pen.width.toFixed(1), n: i + 1 })
           const on = i === selected
           return (
             <button
@@ -51,8 +145,31 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
               aria-disabled={readOnly || undefined}
               title={readOnly ? t('editor.readOnlyTip') : label}
               data-slot={i}
-              className={on ? 'pen-slot pen-slot-selected' : 'pen-slot'}
-              onClick={() => !readOnly && (on ? onEdit(i) : onSelect(i))}
+              className={(on ? 'pen-slot pen-slot-selected' : 'pen-slot') + (dx?.from === i ? ' pen-slot-dragging' : '')}
+              style={dx?.from === i ? { transform: `translateX(${dx.dx}px)` } : undefined}
+              {...rv(`slot-${i}`)}
+              onFocus={(e) => e.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })}
+              onPointerDown={(e) => {
+                if (!readOnly && e.button === 0) drag.current = { id: e.pointerId, from: i, x: e.clientX, y: e.clientY, on: false }
+              }}
+              onPointerMove={(e) => {
+                const d = drag.current
+                if (!d || d.id !== e.pointerId) return
+                if (!d.on) {
+                  if (Math.hypot(e.clientX - d.x, e.clientY - d.y) <= DRAG_PX) return
+                  d.on = true
+                  e.currentTarget.setPointerCapture?.(e.pointerId)
+                }
+                setDx({ from: d.from, dx: e.clientX - d.x })
+              }}
+              onPointerUp={(e) => endDrag(e, true)}
+              onPointerCancel={(e) => endDrag(e, false)}
+              onClick={() => {
+                if (justDragged.current) return // the click that ends a drag
+                if (readOnly) return
+                if (on) onEdit(i)
+                else onSelect(i)
+              }}
             >
               <svg className="pen-nib" viewBox="0 0 20 36" aria-hidden="true">
                 <path
@@ -74,6 +191,19 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
           )
         })}
       </div>
+      <button
+        type="button"
+        aria-label={t('editor.addSlot')}
+        title={readOnly ? t('editor.readOnlyTip') : t('editor.addSlotTip')}
+        aria-disabled={readOnly || full || undefined}
+        className="pen-add"
+        {...rv('add')}
+        onClick={() => !readOnly && (full ? onSlotsFull() : onAdd())}
+      >
+        <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" fill="currentColor" />
+        </svg>
+      </button>
       <span className="toolbar-divider" aria-hidden="true" />
       {(
         [
@@ -89,6 +219,7 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
           aria-label={t(`editor.${name}`)}
           title={readOnly ? t('editor.readOnlyTip') : t(`editor.${name}Tip`)}
           className={enabled ? 'toolbar-action' : 'toolbar-action toolbar-action-disabled'}
+          {...rv(name)}
           onClick={() => enabled && run()}
         >
           <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -103,6 +234,7 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
         title={t('editor.lassoTip')}
         className="toolbar-action"
         data-tool="lasso"
+        {...rv('lasso')}
         onClick={() => onToolChange(tool === 'lasso' ? 'pen' : 'lasso')}
       >
         <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -117,6 +249,7 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
         aria-disabled={readOnly || undefined}
         className="toolbar-action"
         data-tool="text"
+        {...rv('text')}
         onClick={() => !readOnly && onToolChange(tool === 'text' ? 'pen' : 'text')}
       >
         <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -130,6 +263,7 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, tool, onToolChang
         aria-disabled={readOnly || !onImage || undefined}
         className="toolbar-action"
         data-tool="image"
+        {...rv('image')}
         onClick={() => !readOnly && onImage?.()}
       >
         <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">

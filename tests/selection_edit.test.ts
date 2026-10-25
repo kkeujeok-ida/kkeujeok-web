@@ -72,7 +72,7 @@ describe('Writer selection edit', () => {
     expect(els(w)[0]!.width).toBe(2)
     w.undo()
     expect(els(w)[0]!.color).toBe('#000000')
-    expect(w.setSelectionWidth(11)).toBe(false) // invalidWidth
+    expect(w.setSelectionWidth(31)).toBe(false) // invalidWidth (30 is the highlighter maximum)
   })
 
   test('copy then paste (also in another note) uses new ids, centered on the view, and selects the copy', () => {

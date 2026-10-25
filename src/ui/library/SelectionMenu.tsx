@@ -1,8 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { fmt, useI18n } from '../../i18n'
-import { defaultPenSlots } from '../../model/pen'
+import { colorNameKey, inkColors } from '../../model/pen'
 import { ROTATE_GAP } from '../../render/selectionPainter'
-import { COLOR_NAME } from './PenToolbar'
 import type { SelectionBox } from './writer'
 
 /** The menu opens above the selection box (below when there is no room). The left-handed setting (Epic 10) flips this one value. */
@@ -116,16 +115,16 @@ export function SelectionMenu({ box, origin, ratioLock, onRatioLock, onScale, on
       {btn(t('editor.rotate90'), ICON.rotate, onRotate)}
       {pop === 'color' && (
         <div className="selection-pop" role="group" aria-label={t('editor.strokeColor')}>
-          {defaultPenSlots.map((pen) => (
+          {inkColors.map((color) => (
             <button
-              key={pen.color}
+              key={color}
               type="button"
               className="selection-swatch"
-              aria-label={t(COLOR_NAME[pen.colorName])}
-              title={t(COLOR_NAME[pen.colorName])}
-              style={{ background: pen.color }}
+              aria-label={t(colorNameKey(color))}
+              title={t(colorNameKey(color))}
+              style={{ background: color }}
               onClick={() => {
-                onColor(pen.color)
+                onColor(color)
                 setPop(null)
               }}
             />

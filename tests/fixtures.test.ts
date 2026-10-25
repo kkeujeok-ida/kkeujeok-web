@@ -10,6 +10,7 @@ import { decodeKkj, encodeKkj } from '../src/model/kkjCodec'
 import { normalizeTitle } from '../src/model/noteTitle'
 import type { Note } from '../src/model/note'
 import { round2 } from '../src/model/number'
+import { defaultPenSlots } from '../src/model/pen'
 import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
 import { selectLasso, selectRect, selectTap, type El, type P } from '../src/model/select'
@@ -44,6 +45,9 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     const out = round2(input)
     expect(Object.is(out, -0), 'output is negative zero').toBe(false)
     expect(out).toBe(expected)
+  },
+  'pen.defaultSlots': ({ expected }) => {
+    expect({ slots: defaultPenSlots }).toEqual(expected)
   },
   'note.roundTrip': async ({ input, expected }) => {
     const r = await decodeKkj(await encodeKkj((input as { note: Note }).note))
@@ -253,7 +257,6 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
   'pen.palette',
-  'pen.defaultSlots',
   'stroke.outline.highlighter',
   'ops.eraseStrokes',
   'ops.erasePartial',

@@ -26,17 +26,21 @@ function previewPath(pen: Pen): string {
 
 /**
  * The pen edit popover: tool name, "use pressure" switch, preview stroke.
- * Modal: the scrim takes the pointer, Tab stays on the switch, Esc and a press
+ * Modal: the scrim takes the pointer, Tab cycles the switch and the delete button, Esc and a press
  * outside close it. The owner puts focus back on the slot in onClose.
  */
-export function PenPopover({ pen, anchor, onUsePressure, onClose }: {
+export function PenPopover({ pen, anchor, onUsePressure, canDelete, onDelete, onClose }: {
   pen: Pen
   anchor: HTMLElement | null
   onUsePressure: (v: boolean) => void
+  /** False with one slot left: [슬롯 삭제] is off. */
+  canDelete: boolean
+  onDelete: () => void
   onClose: () => void
 }) {
   const { t } = useI18n()
   const sw = useRef<HTMLButtonElement>(null)
+  const del = useRef<HTMLButtonElement>(null)
   const titleId = useId()
   const labelId = useId()
   useEffect(() => sw.current?.focus(), [])
@@ -64,8 +68,8 @@ export function PenPopover({ pen, anchor, onUsePressure, onClose }: {
       e.preventDefault()
       onClose()
     } else if (e.key === 'Tab') {
-      e.preventDefault() // the switch is the only stop
-      sw.current?.focus()
+      e.preventDefault() // two stops: the switch and [슬롯 삭제]
+      ;(document.activeElement === del.current ? sw : del).current?.focus()
     }
   }
   return (
@@ -104,6 +108,15 @@ export function PenPopover({ pen, anchor, onUsePressure, onClose }: {
         <svg className="pen-preview" viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
           <path d={previewPath(pen)} fill={pen.color} />
         </svg>
+        <button
+          ref={del}
+          type="button"
+          aria-disabled={!canDelete}
+          className="pen-popover-delete"
+          onClick={() => canDelete && onDelete()}
+        >
+          {t('editor.deleteSlot')}
+        </button>
       </div>
     </div>
   )

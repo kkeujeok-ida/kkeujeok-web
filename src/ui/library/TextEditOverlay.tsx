@@ -1,8 +1,7 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { fmt, useI18n } from '../../i18n'
-import { defaultPenSlots } from '../../model/pen'
+import { colorNameKey, inkColors } from '../../model/pen'
 import { SIZE_STEPS } from '../../model/textLayout'
-import { COLOR_NAME } from './PenToolbar'
 import type { EditInfo, Writer } from './writer'
 
 const BAR_GAP = 8
@@ -79,8 +78,7 @@ export function TextEditOverlay({ info, writer, origin, onDone }: { info: EditIn
   const sizes: number[] = [...SIZE_STEPS]
   if (f.size !== null && !sizes.includes(f.size)) sizes.push(f.size)
   sizes.sort((a, b) => a - b)
-  const color = f.color ?? defaultPenSlots[0]!.color
-  const colorName = defaultPenSlots.find((p) => p.color === color)
+  const color = f.color ?? inkColors[0]!
   const toggle = (name: 'bold' | 'italic', label: string, glyph: string) => (
     <button
       type="button"
@@ -174,7 +172,7 @@ export function TextEditOverlay({ info, writer, origin, onDone }: { info: EditIn
         <button
           type="button"
           className="toolbar-action text-format-btn"
-          aria-label={fmt(t('editor.textColorValue'), { color: colorName ? t(COLOR_NAME[colorName.colorName]) : color })}
+          aria-label={fmt(t('editor.textColorValue'), { color: t(colorNameKey(color)) })}
           title={t('editor.textColor')}
           onMouseDown={keep}
           onClick={() => writer.editFormat({ color })}
