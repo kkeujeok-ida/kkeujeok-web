@@ -185,6 +185,8 @@ describe('semantics', () => {
     expect(qa('[role="radiogroup"]')).toHaveLength(1)
     expect(radios[0]!.getAttribute('aria-checked')).toBe('true')
     expect(radios[0]!.getAttribute('aria-label')).toBe('펜, 검정, 두께 2.0 (1)')
+    expect(radios.map((r) => r.querySelector('.pen-width')!.textContent)).toEqual(['2.0', '2.0', '14.0'])
+    expect(radios[0]!.querySelector('.pen-dot')).toBeNull()
     expect(canvas().getAttribute('aria-label')).toBe('1페이지 / 1, 세로')
     expect(canvas().hasAttribute('aria-current')).toBe(false)
     expect(q('.editor-page-area')!.getAttribute('aria-label')).toBe('필기 영역: 1페이지 / 1, 세로')

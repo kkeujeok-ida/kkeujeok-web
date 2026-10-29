@@ -215,7 +215,7 @@ class KkjLight {
     static const componentsToolbarBackground = Color(0xFFFFFFFF);
     static const componentsToolbarGripGlyph = Color(0xFF6B6A66);
     static const componentsToolbarGripSize = 48.0;
-    static const componentsToolbarGroupGap = 4.0;
+    static const componentsToolbarGroupGap = 0.0;
     static const componentsToolbarItemGap = 0.0;
     static const componentsToolbarPaddingBlock = 4.0;
     static const componentsToolbarPaddingInline = 8.0;
@@ -391,7 +391,7 @@ class KkjDark {
     static const componentsToolbarBackground = Color(0xFF25272B);
     static const componentsToolbarGripGlyph = Color(0xFFA3A19B);
     static const componentsToolbarGripSize = 48.0;
-    static const componentsToolbarGroupGap = 4.0;
+    static const componentsToolbarGroupGap = 0.0;
     static const componentsToolbarItemGap = 0.0;
     static const componentsToolbarPaddingBlock = 4.0;
     static const componentsToolbarPaddingInline = 8.0;

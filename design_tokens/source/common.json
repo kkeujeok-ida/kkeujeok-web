@@ -164,7 +164,8 @@
         "$value": "0px"
       },
       "group-gap": {
-        "$value": "{spacing.1}"
+        "$type": "dimension",
+        "$value": "0px"
       }
     },
     "tool-selected": {

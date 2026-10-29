@@ -41,7 +41,7 @@
   --components-toolbar-padding-block: 4px;
   --components-toolbar-padding-inline: 8px;
   --components-toolbar-item-gap: 0px;
-  --components-toolbar-group-gap: 4px;
+  --components-toolbar-group-gap: 0px;
   --components-toolbar-shadow: 0 2px 12px #22242A29;
   --components-tool-selected-indicator: #7A5A00;
   --components-tool-selected-width: 16px;
@@ -216,7 +216,7 @@
   --components-toolbar-padding-block: 4px;
   --components-toolbar-padding-inline: 8px;
   --components-toolbar-item-gap: 0px;
-  --components-toolbar-group-gap: 4px;
+  --components-toolbar-group-gap: 0px;
   --components-toolbar-shadow: 0 2px 12px #00000066;
   --components-tool-selected-indicator: #FDD55D;
   --components-tool-selected-width: 16px;

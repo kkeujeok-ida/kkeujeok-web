@@ -270,14 +270,15 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
             >
               <svg className="pen-nib" viewBox="0 0 20 36" aria-hidden="true">
                 <path
-                  d="M3 0V22.3L10 36L17 22.3V0M3 22.3H17"
+                  d={pen.tool === 'highlighter' ? 'M3 0V22.3L6 36H14L17 22.3V0M3 22.3H17' : 'M3 0V22.3L10 36L17 22.3V0M3 22.3H17'}
                   fill="none"
                   stroke={pen.color}
                   strokeWidth="1.75"
                   strokeLinejoin="round"
+                  strokeLinecap="round"
                 />
               </svg>
-              <span className="pen-dot" aria-hidden="true" style={{ background: pen.color }} />
+              <span className="pen-width" aria-hidden="true">{pen.width.toFixed(1)}</span>
               {on && (
                 <svg className="pen-caret" viewBox="0 0 8 4" aria-hidden="true">
                   <path d="M0 0H8L4 4Z" fill="currentColor" />
@@ -336,8 +337,10 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
         onClick={() => !readOnly && (tool === 'eraser' ? onEraserEdit() : onToolChange('eraser'))}
       >
         <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M16.24 3.56l4.95 4.94c.78.79.78 2.05 0 2.84L12 20.53a4.008 4.008 0 0 1-5.66 0L2.81 17c-.78-.79-.78-2.05 0-2.84l10.6-10.6c.79-.78 2.05-.78 2.83 0zM4.22 15.58l3.54 3.53c.78.79 2.04.79 2.83 0l3.53-3.53-4.95-4.95-4.95 4.95z" fill="currentColor" />
-          {eraserMode === 'partial' && <path d="M3 22h4v-1.5H3zm7 0h4v-1.5h-4zm7 0h4v-1.5h-4z" fill="currentColor" />}
+          <g fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round">
+            <path d="M15 3.5L20.5 9L10 19.5L4.5 14ZM8.7 9.8L14.2 15.3" />
+            {eraserMode === 'partial' && <path d="M3 22H7M10 22H14M17 22H21" />}
+          </g>
         </svg>
       </button>
       <button

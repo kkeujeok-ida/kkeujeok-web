@@ -632,8 +632,8 @@ h1 {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px var(--spacing-2);
+  gap: 0;
+  padding: 2px var(--spacing-1);
   border-radius: var(--components-toolbar-rounded);
   background: var(--components-toolbar-background);
   box-shadow: var(--components-toolbar-shadow);
@@ -865,8 +865,9 @@ h1 {
   top: calc(var(--spacing-2) * -1);
   left: 50%;
   width: 16px;
-  height: 28px;
+  height: 28.8px;
   transform: translateX(-50%);
+  overflow: visible;
   transition: top var(--components-pen-slot-selected-duration) var(--components-pen-slot-selected-easing);
 }
 
@@ -880,16 +881,16 @@ h1 {
   }
 }
 
-.pen-dot {
+/* Width number at the nib's lower right (spec/tool-icons.md). */
+.pen-width {
   position: absolute;
-  bottom: var(--spacing-1);
-  left: 50%;
-  box-sizing: border-box;
-  width: var(--spacing-2);
-  height: var(--spacing-2);
-  border: 1px solid var(--components-pen-slot-thickness-dot-outline);
-  border-radius: var(--rounded-full);
-  transform: translateX(-50%);
+  bottom: 3px;
+  right: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-ink-primary);
+  pointer-events: none;
 }
 
 .pen-caret {
