@@ -2338,6 +2338,34 @@ describe('pen popover (story 5.5)', () => {
     expect(qa('.pen-recent [role="radio"]')[0]!.getAttribute('aria-label')).toBe('사용자 지정')
   })
 
+  test('wheel picker: Esc and an outside press cancel (color restored, no recent); Done keeps and records', async () => {
+    const { slots, rec } = await open()
+    const dialog = () => q('[role="dialog"].pen-popover')
+    const slot = () => q('.pen-slots [role="radio"]')!
+    click(cell(0))
+    const orig = slotList(slots)[0]!.color
+    click(cell(12))
+    typeHex('#12ab34')
+    expect(slotList(slots)[0]!.color).toBe('#12ab34')
+    key(document.activeElement!, 'Escape')
+    expect(q('.color-ring')).toBeNull()
+    expect(dialog()).not.toBeNull() // Esc closed the picker only
+    expect(slotList(slots)[0]!.color).toBe(orig)
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual([orig]) // only the palette click recorded it
+    click(cell(12))
+    typeHex('#12ab34')
+    act(() => void q('.pen-popover-scrim')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
+    expect(dialog()).toBeNull()
+    expect(slotList(slots)[0]!.color).toBe(orig)
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual([orig])
+    click(slot())
+    click(cell(12))
+    typeHex('#12ab34')
+    click(q('.color-picker .pen-popover-delete')!)
+    expect(slotList(slots)[0]!.color).toBe('#12ab34')
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#12ab34', orig])
+  })
+
   test('width: slider arrows step 0.1 without float noise; the caption follows; the stepper disables at the end', async () => {
     const { slots } = await open()
     expect(caption()).toBe('두께 2.0')

@@ -18,7 +18,7 @@ export const withHash = (raw: string) => (/^[0-9a-f]{6}$/i.test(raw) ? `#${raw}`
  * A hue ring with a saturation/brightness square inside, and a HEX field. Nothing is reported until the person
  * touches it, so a palette color is never changed by an HSV round trip. `onChange` gets `#rrggbb` in lower case.
  */
-export function ColorWheelPicker({ color, onChange, onDone }: { color: string; onChange: (hex: string) => void; onDone: () => void }) {
+export function ColorWheelPicker({ color, onChange, onDone, onCancel }: { color: string; onChange: (hex: string) => void; onDone: () => void; onCancel: () => void }) {
   const { t } = useI18n()
   const [hsv, setHsv] = useState<Hsv>(() => hexToHsv(color) ?? { h: 0, s: 0, v: 0 })
   const [hex, setHex] = useState(color.toLowerCase())
@@ -90,7 +90,7 @@ export function ColorWheelPicker({ color, onChange, onDone }: { color: string; o
         if (e.key === 'Escape') {
           e.preventDefault()
           e.stopPropagation() // closes the picker, not the popover
-          onDone()
+          onCancel()
         }
       }}
     >

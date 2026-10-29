@@ -76,21 +76,29 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
   const palStop = palFocus !== null && palFocus <= customIdx ? palFocus : checkedIdx
   const recStop = Math.min(recFocus, recent.length - 1)
 
-  // The wheel picker replaces the bubble's content; colors are recorded as recent when it closes (also when the popover does).
+  // The wheel picker replaces the bubble's content. Done keeps the color and records it as recent; Esc, an outside press or any other close restores the color from when it opened.
   const [picking, setPicking] = useState(false)
   const picked = useRef<string | null>(null)
+  const orig = useRef(pen.color)
   const finishPick = () => {
     if (picked.current) live.current.onRecent(picked.current)
     picked.current = null
   }
-  useEffect(() => finishPick, []) // eslint-disable-line react-hooks/exhaustive-deps -- finishPick reads refs only
+  const cancelPick = () => {
+    if (picked.current) live.current.onChange({ color: orig.current })
+    picked.current = null
+  }
+  useEffect(() => cancelPick, []) // eslint-disable-line react-hooks/exhaustive-deps -- cancelPick reads refs only
 
   const apply = (hex: string) => {
     onChange({ color: hex })
     onRecent(hex)
     setPalFocus(null)
   }
-  const openPicker = () => setPicking(true)
+  const openPicker = () => {
+    orig.current = pen.color
+    setPicking(true)
+  }
   // Arrow keys move focus only (no wrap): Enter, Space or a click applies.
   const gridKeys = (e: KeyboardEvent, i: number, count: number, cols: number, refs: (HTMLElement | null)[], setStop: (n: number) => void, activate: () => void) => {
     const step = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' ? -cols : e.key === 'ArrowDown' ? cols : 0
@@ -137,6 +145,11 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
             }}
             onDone={() => {
               finishPick()
+              setPicking(false)
+              requestAnimationFrame(() => cells.current[customIdx]?.focus())
+            }}
+            onCancel={() => {
+              cancelPick()
               setPicking(false)
               requestAnimationFrame(() => cells.current[customIdx]?.focus())
             }}
