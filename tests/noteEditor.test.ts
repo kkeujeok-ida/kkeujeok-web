@@ -204,7 +204,7 @@ describe('semantics', () => {
   test('editor strings exist in ko and en', () => {
     const keys = Object.keys(resources.ko).filter((k) => k.startsWith('editor.'))
     expect(keys).toEqual(
-      expect.arrayContaining(['editor.undo', 'editor.redo', 'editor.undoTip', 'editor.redoTip', 'editor.historyNotApplied', 'editor.penSlot', 'editor.color.black', 'editor.color.lavender', 'editor.colorCustom', 'editor.highlighterSlot', 'editor.addSlot', 'editor.addSlotTip', 'editor.slotsFull', 'editor.slotMoved', 'editor.deleteSlot', 'editor.slotDeleted', 'editor.undoDelete', 'editor.page', 'editor.handwriting', 'editor.saveFailed', 'editor.strokeNotAdded', 'editor.toolbar', 'editor.canvas', 'editor.more', 'editor.zoomOut', 'editor.zoomIn', 'editor.zoomLevel', 'editor.fitWidth', 'editor.fitPage', 'editor.zoomOutTip', 'editor.zoomInTip', 'editor.fitWidthTip']),
+      expect.arrayContaining(['editor.undo', 'editor.redo', 'editor.undoTip', 'editor.redoTip', 'editor.historyNotApplied', 'editor.penSlot', 'editor.color.black', 'editor.color.lavender', 'editor.colorCustom', 'editor.highlighterSlot', 'editor.addSlot', 'editor.addSlotTip', 'editor.slotMoved', 'editor.deleteSlot', 'editor.slotDeleted', 'editor.undoDelete', 'editor.page', 'editor.handwriting', 'editor.saveFailed', 'editor.strokeNotAdded', 'editor.toolbar', 'editor.canvas', 'editor.more', 'editor.zoomOut', 'editor.zoomIn', 'editor.zoomLevel', 'editor.fitWidth', 'editor.fitPage', 'editor.zoomOutTip', 'editor.zoomInTip', 'editor.fitWidthTip']),
     )
     expect(Object.keys(resources.en).filter((k) => k.startsWith('editor.'))).toEqual(keys)
   })
@@ -2052,14 +2052,12 @@ describe('pen slots (story 5.3)', () => {
     expect(colors(m)).toEqual([BLACK, BLUE, YELLOW, BLUE])
   })
 
-  test('at 12 slots [+] is aria-disabled and announces; nothing is added', async () => {
-    const { m } = await open(many(12))
-    expect(addBtn().getAttribute('aria-disabled')).toBe('true')
+  test('at 12 slots [+] still adds a 13th; no limit notice', async () => {
+    await open(many(12))
+    expect(addBtn().getAttribute('aria-disabled')).toBeNull()
     click(addBtn())
-    expect(radios()).toHaveLength(12)
-    expect(dialog()).toBeNull()
-    expect(q('[role="alert"]')!.textContent).toBe('펜 슬롯은 12개까지예요')
-    expect(m.get(PEN_SLOTS_KEY)).toBe(many(12))
+    expect(radios()).toHaveLength(13)
+    expect(q('[role="alert"]')!.textContent).toBe('')
   })
 
   test('Alt+Right moves the slot and keeps it selected; the end does nothing', async () => {
@@ -2124,7 +2122,7 @@ describe('pen slots (story 5.3)', () => {
     expect(radios()).toHaveLength(2)
     expect(checked()).toBe(1) // the slot that moved up
     expect(colors(m)).toEqual([BLACK, YELLOW])
-    expect(q('.snackbar-action')!.textContent).toContain('슬롯을 지웠어요')
+    expect(q('.snackbar-action')!.textContent).toContain('도구를 지웠어요')
     click(q('.snackbar-button')!)
     expect(colors(m)).toEqual([BLACK, BLUE, YELLOW])
     expect(checked()).toBe(1)
@@ -2164,7 +2162,7 @@ describe('pen slots (story 5.3)', () => {
     expect(colors(m)).toEqual([BLUE, YELLOW])
   })
 
-  test('with one slot left [슬롯 삭제] is aria-disabled', async () => {
+  test('with one slot left [도구 삭제] is aria-disabled', async () => {
     const { m } = await open(many(1))
     click(radios()[0]!)
     const del = q('.pen-popover-delete')!

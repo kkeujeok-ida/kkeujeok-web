@@ -30,9 +30,9 @@ describe('pen slots store', () => {
     expect(createPenSlots(mem(raw)).read()).toEqual([{ tool: 'pen', color: '#1971c2', width: 3, usePressure: false }])
   })
 
-  test('12 slots are fine, 13 are not', () => {
+  test('12 and 13 slots are both fine', () => {
     expect(createPenSlots(mem(JSON.stringify(Array(12).fill(slot())))).read()).toHaveLength(12)
-    expect(createPenSlots(mem(JSON.stringify(Array(13).fill(slot())))).read()).toEqual(defaultPenSlots)
+    expect(createPenSlots(mem(JSON.stringify(Array(13).fill(slot())))).read()).toHaveLength(13)
   })
 
   test.each([

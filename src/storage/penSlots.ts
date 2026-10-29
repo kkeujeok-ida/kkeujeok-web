@@ -1,6 +1,6 @@
 // The pen slot list: a device setting (localStorage), kept apart from note data
 // so logout and disconnect leave it.
-import { MAX_PEN_SLOTS, PEN_WIDTH, defaultPenSlots, type Pen } from '../model/pen'
+import { PEN_WIDTH, defaultPenSlots, type Pen } from '../model/pen'
 
 export const PEN_SLOTS_KEY = 'kkeujeok.pen.slots'
 type Store = Pick<Storage, 'getItem' | 'setItem'>
@@ -17,7 +17,7 @@ function browserStorage(): Store | undefined {
 function parse(raw: string | null | undefined): Pen[] | null {
   if (raw == null) return null
   const list: unknown = JSON.parse(raw)
-  if (!Array.isArray(list) || list.length === 0 || list.length > MAX_PEN_SLOTS) return null
+  if (!Array.isArray(list) || list.length === 0) return null
   const pens: Pen[] = []
   for (const e of list as Record<string, unknown>[]) {
     const { color, width, usePressure, tool = 'pen' } = e ?? {}

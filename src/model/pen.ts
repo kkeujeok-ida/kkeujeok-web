@@ -19,8 +19,6 @@ export const defaultPenSlots: readonly Pen[] = [
   { tool: 'highlighter', color: '#ffe066', width: 14, usePressure: false },
 ]
 
-export const MAX_PEN_SLOTS = 12
-
 /** Width range in pt per tool (spec pen.md). */
 export const PEN_WIDTH: Record<PenTool, { min: number; max: number }> = {
   pen: { min: 0.5, max: 10 },

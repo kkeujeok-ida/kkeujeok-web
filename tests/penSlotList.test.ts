@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { MAX_PEN_SLOTS, colorNameKey, defaultPenSlots, type Pen } from '../src/model/pen'
+import { colorNameKey, defaultPenSlots, type Pen } from '../src/model/pen'
 import { addSlot, indexAfterMove, indexAfterRemove, moveSlot, pickByTool, removeSlot } from '../src/model/penSlotList'
 import ko from '../src/i18n/ko.json'
 import en from '../src/i18n/en.json'
@@ -8,10 +8,9 @@ import palette from '../../test/pen.palette.json'
 const [black, blue, yellow] = defaultPenSlots as [Pen, Pen, Pen]
 
 describe('slot list operations', () => {
-  test('add copies the given slot to the end; a full list stays', () => {
+  test('add copies the given slot to the end; an unknown index stays', () => {
     expect(addSlot([black, blue], 1)).toEqual([black, blue, blue])
-    const full = Array.from({ length: MAX_PEN_SLOTS }, () => black)
-    expect(addSlot(full, 0)).toHaveLength(MAX_PEN_SLOTS)
+    expect(addSlot(Array.from({ length: 12 }, () => black), 0)).toHaveLength(13)
     expect(addSlot([black], 5)).toEqual([black])
   })
 

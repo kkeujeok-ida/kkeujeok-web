@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
-import { MAX_PEN_SLOTS, colorNameKey, type Pen } from '../../model/pen'
+import { colorNameKey, type Pen } from '../../model/pen'
 import { fmt, useI18n } from '../../i18n'
 import type { EraserMode } from '../../storage/eraserSettings'
 import type { Dock } from '../../storage/toolbarPosition'
@@ -18,16 +18,15 @@ const DRAG_PX = 6
  * divider | undo, redo. Slots are one radiogroup; activating the selected one
  * opens the pen popover (onEdit). The slot buttons carry data-slot for the owner.
  */
-export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, onSlotsFull, tool, onToolChange, eraserMode, onEraserEdit, onImage, dock = STATIC_DOCK, onDocked, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
+export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, tool, onToolChange, eraserMode, onEraserEdit, onImage, dock = STATIC_DOCK, onDocked, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
   pens: readonly Pen[]
   selected: number
   onSelect: (i: number) => void
   onEdit: (i: number) => void
-  /** [+]: the owner copies the selected slot to the end. Not called at 12 slots (onSlotsFull is). */
+  /** [+]: the owner copies the selected slot to the end. */
   onAdd: () => void
   /** A slot dragged or moved with Alt+arrows from one place to another. */
   onMove: (from: number, to: number) => void
-  onSlotsFull: () => void
   /** The lasso and the text tool are toggles: pressed = that tool, else the pen. The lasso works read-only too (selecting changes nothing); the text tool does not. */
   tool: 'pen' | 'eraser' | 'lasso' | 'text'
   onToolChange: (t: 'pen' | 'eraser' | 'lasso' | 'text') => void
@@ -124,7 +123,6 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   }, [vertical])
-  const full = pens.length >= MAX_PEN_SLOTS
   const onToolbarKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const item = (e.target as HTMLElement).closest<HTMLElement>('[data-roving]')
     if (!item || e.nativeEvent.isComposing || e.ctrlKey || e.metaKey || e.shiftKey) return
@@ -293,10 +291,10 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, on
         type="button"
         aria-label={t('editor.addSlot')}
         title={readOnly ? t('editor.readOnlyTip') : t('editor.addSlotTip')}
-        aria-disabled={readOnly || full || undefined}
+        aria-disabled={readOnly || undefined}
         className="pen-add"
         {...rv('add')}
-        onClick={() => !readOnly && (full ? onSlotsFull() : onAdd())}
+        onClick={() => !readOnly && onAdd()}
       >
         <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" fill="currentColor" />

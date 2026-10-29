@@ -169,7 +169,7 @@ describe('lasso toolbar button', () => {
           createElement(
             I18nContext.Provider,
             { value: i18n },
-            createElement(PenToolbar, { pens: [defaultPen], selected: 0, onSelect() {}, onEdit() {}, onAdd() {}, onMove() {}, onSlotsFull() {}, tool, onToolChange: (t) => tools.push(t), eraserMode: 'stroke', onEraserEdit() {}, canUndo: false, canRedo: false, onUndo() {}, onRedo() {}, readOnly: true }),
+            createElement(PenToolbar, { pens: [defaultPen], selected: 0, onSelect() {}, onEdit() {}, onAdd() {}, onMove() {}, tool, onToolChange: (t) => tools.push(t), eraserMode: 'stroke', onEraserEdit() {}, canUndo: false, canRedo: false, onUndo() {}, onRedo() {}, readOnly: true }),
           ),
         ),
       )

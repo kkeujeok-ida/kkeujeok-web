@@ -45,7 +45,7 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
   anchor: HTMLElement | null
   /** Recent colors, newest first (at most 6). */
   recent: readonly string[]
-  /** False with one slot left: [슬롯 삭제] is off. */
+  /** False with one slot left: [도구 삭제] is off. */
   canDelete: boolean
   /** `{tool}` switches the tool (the owner resets the slot to that tool's defaults); anything else patches the slot. */
   onChange: (patch: Partial<Pen>) => void

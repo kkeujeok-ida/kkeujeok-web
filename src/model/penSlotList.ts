@@ -1,11 +1,11 @@
 // Pure slot-list operations. Slots have no id: a selected / last-used index is
 // carried through a change with indexAfterMove / indexAfterRemove.
-import { MAX_PEN_SLOTS, type Pen, type PenTool } from './pen'
+import { type Pen, type PenTool } from './pen'
 
-/** A copy of slot `i` at the end; the list itself when it is full. */
+/** A copy of slot `i` at the end; the list itself when `i` is out of range. */
 export function addSlot(list: readonly Pen[], i: number): Pen[] {
   const from = list[i]
-  return from && list.length < MAX_PEN_SLOTS ? [...list, { ...from }] : [...list]
+  return from ? [...list, { ...from }] : [...list]
 }
 
 export function moveSlot(list: readonly Pen[], from: number, to: number): Pen[] {

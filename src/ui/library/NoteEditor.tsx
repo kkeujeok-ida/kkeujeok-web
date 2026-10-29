@@ -615,7 +615,6 @@ export function NoteEditor({
   const addPenSlot = () => {
     if (readOnly) return
     const next = addSlot(pens, selected)
-    if (next.length === pens.length) return say(t('editor.slotsFull'))
     commitSlots(next)
     setSelected(next.length - 1)
     setTool('pen')
@@ -1294,7 +1293,6 @@ export function NoteEditor({
               }}
               onAdd={addPenSlot}
               onMove={movePenSlot}
-              onSlotsFull={() => say(t('editor.slotsFull'))}
               onEdit={(i) => {
                 if (readOnly || loaded.writer.busy()) return
                 setTool('pen')
