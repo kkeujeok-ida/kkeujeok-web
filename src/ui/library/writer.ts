@@ -9,7 +9,7 @@ import { COLOR_DEFAULT, SIZE_DEFAULT, WIDTH_MIN, cpLen, isBlankText, layoutText,
 import { imageInitialSize } from '../../model/imageRules'
 import type { ImageHost } from '../../render/imageHost'
 import { ERASER_WIDTH, type EraserMode } from '../../storage/eraserSettings'
-import { erasePieces, erasedElements } from '../../ops/ops'
+import { erasePieces, eraseTargets } from '../../ops/ops'
 import { ROTATE_GAP, paintSelection, selectionColors } from '../../render/selectionPainter'
 import type { Op } from '../../ops/ops'
 import type { Page, Stroke } from '../../model/note'
@@ -27,6 +27,7 @@ import {
   fitPageViewport,
   fitWidthViewport,
   paintPage,
+  eraserPreviewOpacity,
   scrollMetrics,
   StrokePathCache,
   toPage,
@@ -68,8 +69,8 @@ export type FitMode = 'width' | 'page' | 'free'
 // two-finger gesture, fingers to ignore until all lift, a pen/mouse, a pan drag.
 type Mode = 'none' | 'stroke' | 'idle' | 'gesture' | 'ignored' | 'pen' | 'pan' | 'lasso' | 'xform' | 'erase'
 export type Tool = 'pen' | 'eraser' | 'lasso' | 'text'
-/** An eraser gesture: one press to release is one operation. `path` is in the coordinates of the page it started on; `preview` is that page's elements as the erase would leave them. */
-type Erase = { id: number; type: string; temporary: boolean; pageId: string | null; ox: number; oy: number; path: number[][]; preview: Page['elements'] | null }
+/** An eraser gesture: one press to release is one operation. `path` is in the coordinates of the page it started on; `preview` is that page's elements with the struck strokes marked (drawn translucent). */
+type Erase = { id: number; type: string; temporary: boolean; pageId: string | null; ox: number; oy: number; path: number[][]; preview: ReturnType<typeof eraseTargets> | null; src: Page | null }
 /** What an eraser gesture did: `touched` is false when it hit no stroke; `temporary` is a pen-button erase under another tool. */
 export type ErasedInfo = { pointerType: string; touched: boolean; temporary: boolean }
 /** A press and release this close together (ms) and this near (CSS px) are a double click. */
@@ -666,8 +667,14 @@ export class Writer {
       if (top > this.cssH || top + s.page.height * vp.scale < 0 || left > this.cssW || left + s.page.width * vp.scale < 0) continue
       const at = { scale: vp.scale, offsetX: left, offsetY: top }
       const er = this.erase
-      const shown = er && er.pageId === s.page.id && er.preview ? { ...s.page, elements: er.preview } : s.page
-      paintPage(ctx, shown, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null, draft && draft.pageId === s.page.id ? draft : null, this.images ?? undefined)
+      // The preview is a snapshot: the page changed mid-gesture (undo, remote update), so recompute it.
+      if (er && er.pageId === s.page.id && er.preview && er.src !== s.page) {
+        er.src = s.page
+        er.preview = er.path.length > 0 ? eraseTargets(s.page, er.path, ERASER_WIDTH, this.eraserMode === 'partial') : null
+      }
+      const pv = er && er.pageId === s.page.id ? er.preview : null
+      const shown = pv ? { ...s.page, elements: pv.elements } : s.page
+      paintPage(ctx, shown, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null, draft && draft.pageId === s.page.id ? draft : null, this.images ?? undefined, pv ? { ids: pv.fadeIds, alpha: eraserPreviewOpacity(c) } : null)
     }
     if (this.ring && this.pointer && (this.tool === 'eraser' || this.erase)) {
       const [rx, ry] = this.local(this.pointer.x, this.pointer.y)
@@ -1573,7 +1580,7 @@ export class Writer {
       // focus is a convenience
     }
     this.mode = 'erase'
-    this.erase = { id: e.pointerId, type: e.pointerType, temporary, pageId: s && !locked ? s.page.id : null, ox: s?.x ?? 0, oy: s?.y ?? 0, path: [], preview: null }
+    this.erase = { id: e.pointerId, type: e.pointerType, temporary, pageId: s && !locked ? s.page.id : null, ox: s?.x ?? 0, oy: s?.y ?? 0, path: [], preview: null, src: null }
     this.erasePush([e])
   }
 
@@ -1589,7 +1596,8 @@ export class Writer {
         if (p && !(last && last[0] === p[0] && last[1] === p[1])) d.path.push([p[0]!, p[1]!])
       }
       // shortcut: the whole path is re-tested on every move (bounding-box prefilter only); make it incremental if long gestures lag.
-      d.preview = d.path.length > 0 ? erasedElements(page, erasePieces(page, d.path, ERASER_WIDTH), this.eraserMode === 'partial', (o, j) => `${o.id as string}~${j}`) : null
+      d.src = page
+      d.preview = d.path.length > 0 ? eraseTargets(page, d.path, ERASER_WIDTH, this.eraserMode === 'partial') : null
     }
     this.redraw()
   }

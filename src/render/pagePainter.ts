@@ -147,15 +147,29 @@ export class StrokePathCache {
   }
 }
 
+/** Eraser preview opacity: the design token `components.eraser.preview-opacity`, read from the element's computed style. */
+let previewOpacity: number | null = null
+export function eraserPreviewOpacity(el: Element): number {
+  if (previewOpacity !== null) return previewOpacity
+  const n = parseFloat(getComputedStyle(el).getPropertyValue('--components-eraser-preview-opacity'))
+  return (previewOpacity = n >= 0 && n <= 1 ? n : 0.35)
+}
+
 const MAX_BACKGROUND_ITEMS = 100000
 const COLOR = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
 const HIGHLIGHTER_ALPHA = 0.4
 // A highlighter stroke is one layer (one fill) composited once: 0.4 opacity, multiply (spec stroke-geometry.md).
-const fill = (ctx: CanvasRenderingContext2D, path: Path2D, color: unknown, tool?: unknown) => {
+const fill = (ctx: CanvasRenderingContext2D, path: Path2D, color: unknown, tool?: unknown, alpha = 1) => {
   ctx.fillStyle = typeof color === 'string' && COLOR.test(color) ? color : '#000000'
-  if (tool !== 'highlighter') return ctx.fill(path, 'nonzero')
+  if (tool !== 'highlighter') {
+    if (alpha === 1) return ctx.fill(path, 'nonzero')
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.fill(path, 'nonzero')
+    return ctx.restore()
+  }
   ctx.save()
-  ctx.globalAlpha = HIGHLIGHTER_ALPHA
+  ctx.globalAlpha = HIGHLIGHTER_ALPHA * alpha
   ctx.globalCompositeOperation = 'multiply'
   ctx.fill(path, 'nonzero')
   ctx.restore()
@@ -175,6 +189,8 @@ export function paintPage(
   draft?: { id: string; el: Record<string, unknown> } | null,
   /** Where the pictures of image elements come from; none (a thumbnail) draws grey boxes. */
   images?: ImageSource,
+  /** Strokes (by id) drawn at `alpha` of their opacity: the ones the eraser would remove. */
+  fade?: { ids: ReadonlySet<string>; alpha: number } | null,
 ): void {
   const { width: w, height: h } = page
   const { scale, offsetX, offsetY } = viewport
@@ -216,6 +232,18 @@ export function paintPage(
 
     const ids = new Set<string>()
     const elements: unknown = page.elements
+    // Partial erase: pieces `<id>~<j>` of a faded stroke; its faded copy is clipped to skip them so nothing composites twice.
+    const pieces = new Map<string, unknown[]>()
+    if (fade && Array.isArray(elements)) {
+      for (const e of elements) {
+        const id = (e as { id?: unknown } | null)?.id
+        const i = typeof id === 'string' ? id.lastIndexOf('~') : -1
+        if (i > 0 && fade.ids.has((id as string).slice(0, i))) {
+          const k = (id as string).slice(0, i)
+          pieces.set(k, [...(pieces.get(k) ?? []), e])
+        }
+      }
+    }
     let drafted = false
     for (const e of Array.isArray(elements) ? elements : []) {
       try {
@@ -226,7 +254,17 @@ export function paintPage(
         else if (drawableImage(e)) paintImage(ctx, e, images)
         if (!isValidStroke(e)) continue
         ids.add(e.id)
-        fill(ctx, cache.pathOf(e), e.color, e.tool)
+        const pcs = pieces.get(e.id)
+        if (pcs) {
+          ctx.save()
+          const hole = new Path2D()
+          hole.rect(-1e5, -1e5, 2e5, 2e5)
+          // shortcut: even-odd clip, a self-overlapping piece leaks a sliver of the faded copy.
+          for (const p of pcs) if (isValidStroke(p)) hole.addPath(cache.pathOf(p))
+          ctx.clip(hole, 'evenodd')
+        }
+        fill(ctx, cache.pathOf(e), e.color, e.tool, fade?.ids.has(e.id) ? fade.alpha : 1)
+        if (pcs) ctx.restore()
       } catch {
         // one bad element must not hide the rest
       }

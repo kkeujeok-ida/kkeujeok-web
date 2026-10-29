@@ -36,6 +36,7 @@
   --spacing-control-height-web: 32px;
   --spacing-cover-column-min: 168px;
   --spacing-fab-size: 56px;
+  --components-eraser-preview-opacity: 0.35;
   --components-toolbar-background: #FFFFFF;
   --components-toolbar-rounded: 16px;
   --components-toolbar-padding-block: 4px;
@@ -211,6 +212,7 @@
 }
 
 [data-theme="dark"] {
+  --components-eraser-preview-opacity: 0.35;
   --components-toolbar-background: #25272B;
   --components-toolbar-rounded: 16px;
   --components-toolbar-padding-block: 4px;

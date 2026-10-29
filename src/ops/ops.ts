@@ -394,6 +394,24 @@ export function erasedElements(page: Page, hits: ReturnType<typeof erasePieces>,
   })
 }
 
+/**
+ * The live eraser preview of `page`: the elements with every struck stroke kept in place (its id in `fadeIds`, drawn translucent) and, in partial mode, its surviving pieces right after it (opaque).
+ * Same `erasePieces` as the commit, so the preview cannot differ from the result. Story 15.8 may replace this with an incremental version.
+ */
+export function eraseTargets(page: Page, path: readonly Pt[], width: number, partial: boolean): { elements: Page['elements']; fadeIds: Set<string> } {
+  const hits = erasePieces(page, path, width)
+  const byIndex = new Map(hits.map((h) => [h.index, h.pieces]))
+  const fadeIds = new Set<string>()
+  const elements = page.elements.flatMap((e, index) => {
+    const pieces = byIndex.get(index)
+    if (!pieces) return [e]
+    fadeIds.add((e as El).id as string)
+    if (!partial) return [e]
+    return [e, ...pieces.map((points, j) => ({ ...(structuredClone(e) as object), id: `${(e as El).id as string}~${j}`, points }) as unknown as Page['elements'][number])]
+  })
+  return { elements, fadeIds }
+}
+
 function eraseOp(note: Note, op: Op, ctx: Ctx): OpResult {
   const next = structuredClone(note)
   const page = findPage(next, op.pageId)

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
 import type { Note } from '../src/model/note'
-import { type Ctx, type Op, applyOp, erasePieces, erasedElements } from '../src/ops/ops'
+import { type Ctx, type Op, applyOp, erasePieces, erasedElements, eraseTargets } from '../src/ops/ops'
 
 type Case = { name: string; input: { note: Note; op: Op; ctx: Ctx }; expected: { note?: Note; inverse?: Op | null; error?: string } }
 const load = (rule: string) => (JSON.parse(readFileSync(fileURLToPath(new URL(`../../test/${rule}.json`, import.meta.url)), 'utf8')) as { cases: Case[] }).cases
@@ -77,5 +77,26 @@ describe('insertElements.removeIds', () => {
     const el = { id: 'fresh', type: 'text', x: 0, y: 0, width: 20, rotation: 0, text: 'a' }
     const r = applyOp(done.note, { ...base, items: [{ index: 0, element: el }] }, ctx)
     expect((r as { inverse: Op }).inverse).toMatchObject({ op: 'delete', ids: ['fresh'] })
+  })
+})
+
+describe('eraseTargets (story 15.7 translucent preview)', () => {
+  const stroke = (id: string, y: number) => ({ id, type: 'stroke', tool: 'pen', color: '#000000', width: 2, usePressure: false, points: Array.from({ length: 11 }, (_, i) => [i * 10, y, 0.5, i * 10]) })
+  const text = { id: 'tx', type: 'text', x: 20, y: 40, width: 60, rotation: 0, text: 'hi' }
+  const page = { id: 'p', width: 200, height: 200, elements: [stroke('a', 40), text, stroke('b', 150)] } as unknown as Note['pages'][number]
+  const path = [[50, 30], [50, 50]]
+
+  test('stroke mode: the touched stroke is kept and faded; text and far strokes are not', () => {
+    const t = eraseTargets(page, path, 12, false)
+    expect([...t.fadeIds]).toEqual(['a'])
+    expect(t.elements).toEqual(page.elements)
+  })
+  test('partial mode: the original is faded, its surviving pieces follow it opaque', () => {
+    const t = eraseTargets(page, path, 12, true)
+    expect([...t.fadeIds]).toEqual(['a'])
+    expect(t.elements.map((e) => (e as { id: string }).id)).toEqual(['a', 'a~0', 'a~1', 'tx', 'b'])
+  })
+  test('no path / a path that touches nothing: nothing fades (rewinding or cancelling restores it)', () => {
+    expect(eraseTargets(page, [[150, 100]], 12, true).fadeIds.size).toBe(0)
   })
 })

@@ -122,6 +122,7 @@ class KkjLight {
     static const componentsEditorCornerTitleFontSize = 13.0;
     static const componentsEditorCornerTitleFontWeight = FontWeight.w500;
     static const componentsEditorCornerTitleLineHeight = 18.0;
+    static const componentsEraserPreviewOpacity = 0.35;
     static const componentsFabBackground = Color(0xFFFDD55D);
     static const componentsFabIcon = Color(0xFF22242A);
     static const componentsFabInset = 24.0;
@@ -298,6 +299,7 @@ class KkjDark {
     static const componentsEditorCornerTitleFontSize = 13.0;
     static const componentsEditorCornerTitleFontWeight = FontWeight.w500;
     static const componentsEditorCornerTitleLineHeight = 18.0;
+    static const componentsEraserPreviewOpacity = 0.35;
     static const componentsFabBackground = Color(0xFFFDD55D);
     static const componentsFabIcon = Color(0xFF141517);
     static const componentsFabInset = 24.0;

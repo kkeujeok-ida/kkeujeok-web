@@ -146,6 +146,12 @@
     }
   },
   "components": {
+    "eraser": {
+      "preview-opacity": {
+        "$type": "number",
+        "$value": 0.35
+      }
+    },
     "toolbar": {
       "background": {
         "$value": "{color.surface-raised}"
