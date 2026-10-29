@@ -1,8 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { placeBubble, type Placement } from './bubblePlace'
+
+/** The tail's box: on the bubble's edge facing the bar (placeBubble keeps `tail` off the corners). */
+const tailAt = (p: Placement & { w: number; h: number }) => {
+  const along = (p.tail ?? 0) - 8
+  if (p.side === 'down') return { left: p.left + along, top: p.top - 8 }
+  if (p.side === 'up') return { left: p.left + along, top: p.top + p.h }
+  if (p.side === 'right') return { left: p.left - 8, top: p.top + along }
+  return { left: p.left + p.w, top: p.top + along }
+}
 
 /**
- * The modal shell of the toolbar popovers: a scrim that takes the pointer, a dialog placed below the toolbar of `anchor` (above it when that sits in the lower half)
- * (pushed up when it would run off the bottom), Tab cycling the `[tabindex="0"]` stops inside, Esc and a press outside close it.
+ * The modal shell of the toolbar popovers: a scrim that takes the pointer, a speech bubble on the tool button `anchor` (placement: bubblePlace.ts; its tail is a sibling span), Tab cycling the `[tabindex="0"]` stops inside, Esc and a press outside close it.
  * The owner puts focus back in onClose. `relayout` changes when the content's height may have changed.
  */
 export function PopoverShell({ anchor, onClose, labelledBy, className, relayout, children }: {
@@ -14,38 +23,21 @@ export function PopoverShell({ anchor, onClose, labelledBy, className, relayout,
   children: ReactNode
 }) {
   const box = useRef<HTMLDivElement>(null)
-  // Below the toolbar; pushed up when it would run off the bottom; recomputed on resize.
+  const [pos, setPos] = useState<Placement & { w: number; h: number }>()
+  // Measured after render (the height depends on the content) and again on resize or when `relayout` changes.
   const place = () => {
-    const r = anchor?.closest('[role="toolbar"]')?.getBoundingClientRect()
-    if (!r) return undefined
-    const margin = 12
-    const width = Math.min(320, window.innerWidth - margin * 2)
-    if (r.height > r.width) {
-      // A vertical toolbar: beside it, on the side with room, so it is not covered.
-      const right = r.right + margin
-      const left = right + width <= window.innerWidth - margin ? right : Math.max(margin, r.left - margin - width)
-      return { above: null, top: Math.max(margin, r.top), left }
-    }
-    return {
-      // A toolbar in the lower half of the window: the dialog goes above it.
-      above: (r.top + r.bottom) / 2 > window.innerHeight / 2 ? r.top : null,
-      top: Math.max(margin, r.bottom),
-      left: Math.max(margin, Math.min(r.left, window.innerWidth - width - margin)),
-    }
+    const bar = anchor?.closest('[role="toolbar"]')?.getBoundingClientRect()
+    const b = box.current
+    if (!anchor || !bar || !b) return
+    const [w, h] = [b.offsetWidth, b.offsetHeight]
+    setPos({ ...placeBubble(bar, anchor.getBoundingClientRect(), { w, h }, { w: window.innerWidth, h: window.innerHeight }), w, h })
   }
-  const [pos, setPos] = useState(place)
-  const [top, setTop] = useState<number>()
+  useLayoutEffect(place, [anchor, relayout]) // eslint-disable-line react-hooks/exhaustive-deps -- place reads the current anchor
   useEffect(() => {
-    const on = () => setPos(place())
-    window.addEventListener('resize', on)
-    return () => window.removeEventListener('resize', on)
-    // place reads the current anchor
+    window.addEventListener('resize', place)
+    return () => window.removeEventListener('resize', place)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchor])
-  useLayoutEffect(() => {
-    const h = box.current?.offsetHeight
-    if (pos && h) setTop(Math.max(12, Math.min(pos.above !== null ? pos.above - h : pos.top, window.innerHeight - 12 - 8 - h)))
-  }, [pos, relayout])
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -75,10 +67,11 @@ export function PopoverShell({ anchor, onClose, labelledBy, className, relayout,
         aria-modal="true"
         aria-labelledby={labelledBy}
         tabIndex={-1}
-        style={pos && { left: pos.left, top: top ?? pos.top }}
+        style={pos && { left: pos.left, top: pos.top }}
       >
         {children}
       </div>
+      {pos && pos.tail !== null && <span className="pen-popover-tail" data-side={pos.side} style={tailAt(pos)} />}
     </div>
   )
 }

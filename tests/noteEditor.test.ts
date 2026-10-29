@@ -2783,7 +2783,9 @@ describe('toolbar move and snap (story 5.10)', () => {
     s.m.set(TOOLBAR_KEY, JSON.stringify({ dock: 'right', x: 0.5, y: 0, vertical: true }))
     await mountEditor({ toolbar: createToolbarPosition(s.storage) })
     bar().getBoundingClientRect = () => ({ left: 948, right: 988, top: 100, bottom: 500, width: 40, height: 400, x: 948, y: 100, toJSON() {} }) as DOMRect
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => 320 }) // jsdom measures 0
     click(q('[role="radio"]')!)
+    delete (HTMLElement.prototype as { offsetWidth?: number }).offsetWidth
     expect(q<HTMLElement>('[role="dialog"].pen-popover')!.style.left).toBe('616px') // 948 - 12 - 320
   })
 
