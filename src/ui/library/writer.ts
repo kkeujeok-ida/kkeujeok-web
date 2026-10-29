@@ -9,7 +9,7 @@ import { COLOR_DEFAULT, SIZE_DEFAULT, WIDTH_MIN, cpLen, isBlankText, layoutText,
 import { imageInitialSize } from '../../model/imageRules'
 import type { ImageHost } from '../../render/imageHost'
 import { ERASER_WIDTH, type EraserMode } from '../../storage/eraserSettings'
-import { erasePieces, eraseTargets } from '../../ops/ops'
+import { EraseScan, erasePieces } from '../../ops/ops'
 import { ROTATE_GAP, paintSelection, selectionColors } from '../../render/selectionPainter'
 import type { Op } from '../../ops/ops'
 import type { Page, Stroke } from '../../model/note'
@@ -70,7 +70,7 @@ export type FitMode = 'width' | 'page' | 'free'
 type Mode = 'none' | 'stroke' | 'idle' | 'gesture' | 'ignored' | 'pen' | 'pan' | 'lasso' | 'xform' | 'erase'
 export type Tool = 'pen' | 'eraser' | 'lasso' | 'text'
 /** An eraser gesture: one press to release is one operation. `path` is in the coordinates of the page it started on; `preview` is that page's elements with the struck strokes marked (drawn translucent). */
-type Erase = { id: number; type: string; temporary: boolean; pageId: string | null; ox: number; oy: number; path: number[][]; preview: ReturnType<typeof eraseTargets> | null; src: Page | null }
+type Erase = { id: number; type: string; temporary: boolean; pageId: string | null; ox: number; oy: number; path: number[][]; scan: EraseScan | null; scanned: number; preview: ReturnType<EraseScan['targets']> | null; src: Page | null }
 /** What an eraser gesture did: `touched` is false when it hit no stroke; `temporary` is a pen-button erase under another tool. */
 export type ErasedInfo = { pointerType: string; touched: boolean; temporary: boolean }
 /** A press and release this close together (ms) and this near (CSS px) are a double click. */
@@ -151,6 +151,7 @@ export class Writer {
   private canvas: HTMLCanvasElement | null = null
   private drawing: Drawing | null = null
   private erase: Erase | null = null
+  private eraseFrame = 0
   /** The mouse or pen last moved over the canvas (not a finger): the eraser ring shows. */
   private ring = false
   private mode: Mode = 'none'
@@ -670,7 +671,9 @@ export class Writer {
       // The preview is a snapshot: the page changed mid-gesture (undo, remote update), so recompute it.
       if (er && er.pageId === s.page.id && er.preview && er.src !== s.page) {
         er.src = s.page
-        er.preview = er.path.length > 0 ? eraseTargets(s.page, er.path, ERASER_WIDTH, this.eraserMode === 'partial') : null
+        er.scan = this.scanOf(s.page, er.path)
+        er.scanned = er.path.length
+        er.preview = er.scan?.targets() ?? null
       }
       const pv = er && er.pageId === s.page.id ? er.preview : null
       const shown = pv ? { ...s.page, elements: pv.elements } : s.page
@@ -1580,7 +1583,7 @@ export class Writer {
       // focus is a convenience
     }
     this.mode = 'erase'
-    this.erase = { id: e.pointerId, type: e.pointerType, temporary, pageId: s && !locked ? s.page.id : null, ox: s?.x ?? 0, oy: s?.y ?? 0, path: [], preview: null, src: null }
+    this.erase = { id: e.pointerId, type: e.pointerType, temporary, pageId: s && !locked ? s.page.id : null, ox: s?.x ?? 0, oy: s?.y ?? 0, path: [], scan: null, scanned: 0, preview: null, src: null }
     this.erasePush([e])
   }
 
@@ -1595,17 +1598,33 @@ export class Writer {
         const last = d.path[d.path.length - 1]
         if (p && !(last && last[0] === p[0] && last[1] === p[1])) d.path.push([p[0]!, p[1]!])
       }
-      // shortcut: the whole path is re-tested on every move (bounding-box prefilter only); make it incremental if long gestures lag.
-      d.src = page
-      d.preview = d.path.length > 0 ? eraseTargets(page, d.path, ERASER_WIDTH, this.eraserMode === 'partial') : null
+      // Incremental: only the new path points are tested (EraseScan); a changed page restarts the scan.
+      if (d.src !== page || !d.scan) {
+        d.src = page
+        d.scan = this.scanOf(page, d.path)
+      } else for (let i = d.scanned; i < d.path.length; i++) d.scan.push(d.path[i]!)
+      d.scanned = d.path.length
+      d.preview = d.scan?.targets() ?? null
     }
-    this.redraw()
+    this.eraseFrame ||= requestAnimationFrame(() => {
+      this.eraseFrame = 0
+      this.redraw()
+    })
+  }
+
+  private scanOf(page: Page, path: number[][]): EraseScan | null {
+    if (path.length === 0) return null
+    const sc = new EraseScan(page, ERASER_WIDTH, this.eraserMode === 'partial')
+    for (const p of path) sc.push(p)
+    return sc
   }
 
   /** Ends the eraser gesture: one operation for the whole path, one history step. */
   private finishErase(): void {
     const d = this.erase
     this.erase = null
+    if (this.eraseFrame) cancelAnimationFrame(this.eraseFrame)
+    this.eraseFrame = 0
     if (!d) return
     const page = d.pageId ? this.history.note.pages.find((p) => p.id === d.pageId) : undefined
     let touched = false

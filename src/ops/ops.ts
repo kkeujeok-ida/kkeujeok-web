@@ -346,42 +346,138 @@ function segSegDist(a: Pt, b: Pt, c: Pt, d: Pt): number {
  */
 export function erasePieces(page: Page, path: readonly Pt[], width: number): { index: number; pieces: number[][][] }[] {
   const r = width / 2 + EPS
-  const pathDist = (p: Pt) => (path.length === 1 ? Math.hypot(p[0]! - path[0]![0]!, p[1]! - path[0]![1]!) : Math.min(...path.slice(1).map((q, i) => segDist(path[i]!, q, p))))
-  const pathSeg = (a: Pt, b: Pt) => (path.length === 1 ? segDist(a, b, path[0]!) : Math.min(...path.slice(1).map((q, i) => segSegDist(a, b, path[i]!, q))))
+  const pathDist = (p: Pt) => {
+    if (path.length === 1) return Math.hypot(p[0]! - path[0]![0]!, p[1]! - path[0]![1]!)
+    let m = Infinity
+    for (let i = 1; i < path.length; i++) m = Math.min(m, segDist(path[i - 1]!, path[i]!, p))
+    return m
+  }
+  const pathSeg = (a: Pt, b: Pt) => {
+    if (path.length === 1) return segDist(a, b, path[0]!)
+    let m = Infinity
+    for (let i = 1; i < path.length; i++) m = Math.min(m, segSegDist(a, b, path[i - 1]!, path[i]!))
+    return m
+  }
   const out: { index: number; pieces: number[][][] }[] = []
   // A stroke whose box is farther than r from the path's box cannot be touched (keeps the live preview cheap).
-  const xs = path.map((p) => p[0]!), ys = path.map((p) => p[1]!)
-  const [x0, x1, y0, y1] = [Math.min(...xs) - r, Math.max(...xs) + r, Math.min(...ys) - r, Math.max(...ys) + r]
+  let [x0, x1, y0, y1] = [Infinity, -Infinity, Infinity, -Infinity]
+  for (const p of path) [x0, x1, y0, y1] = [Math.min(x0, p[0]!), Math.max(x1, p[0]!), Math.min(y0, p[1]!), Math.max(y1, p[1]!)]
+  ;[x0, x1, y0, y1] = [x0 - r, x1 + r, y0 - r, y1 + r]
   page.elements.forEach((e, index) => {
     const el = e as El
     if (el.type !== 'stroke') return
     const pts = (el.points as number[][] | undefined) ?? []
-    if (pts.length > 0 && !boxesCross(pts, x0, x1, y0, y1)) return
+    if (pts.length > 0) {
+      const bb = boxOf(pts)
+      if (!(bb[0] <= x1 && bb[1] >= x0 && bb[2] <= y1 && bb[3] >= y0)) return
+    }
     const erased = pts.map((p) => pathDist(p) <= r)
     const cut = pts.slice(1).map((p, i) => pathSeg(pts[i]!, p) <= r)
     if (!erased.some(Boolean) && !cut.some(Boolean)) return
-    const pieces: number[][][] = []
-    let cur: number[][] = []
-    const flush = () => {
-      if (cur.length > 1) pieces.push(cur)
-      cur = []
-    }
-    pts.forEach((p, i) => {
-      if (erased[i]) return flush()
-      if (i > 0 && cut[i - 1]) flush()
-      cur.push(p)
-    })
-    flush()
-    out.push({ index, pieces })
+    out.push({ index, pieces: piecesOf(pts, erased, cut) })
   })
   return out
 }
 
-// The stroke's box meets the path's box (grown by r): a necessary condition for any touch.
-function boxesCross(pts: number[][], x0: number, x1: number, y0: number, y1: number): boolean {
-  const bx = pts.map((p) => p[0]!), by = pts.map((p) => p[1]!)
-  return Math.min(...bx) <= x1 && Math.max(...bx) >= x0 && Math.min(...by) <= y1 && Math.max(...by) >= y0
+/** The stroke's surviving point runs (>= 2 points) given which points are erased and which segments are cut. */
+function piecesOf(pts: number[][], erased: readonly boolean[], cut: readonly boolean[]): number[][][] {
+  const pieces: number[][][] = []
+  let cur: number[][] = []
+  const flush = () => {
+    if (cur.length > 1) pieces.push(cur)
+    cur = []
+  }
+  pts.forEach((p, i) => {
+    if (erased[i]) return flush()
+    if (i > 0 && cut[i - 1]) flush()
+    cur.push(p)
+  })
+  flush()
+  return pieces
 }
+
+// [minX, maxX, minY, maxY] by plain loop (no Math.min(...spread) on big arrays).
+function boxOf(pts: number[][]): [number, number, number, number] {
+  let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity
+  for (const p of pts) {
+    if (p[0]! < a) a = p[0]!
+    if (p[0]! > b) b = p[0]!
+    if (p[1]! < c) c = p[1]!
+    if (p[1]! > d) d = p[1]!
+  }
+  return [a, b, c, d]
+}
+
+/**
+ * Incremental eraser (story 15.8): feed path points one by one; only the new segment is tested, against strokes whose cached box it can reach.
+ * `erased`/`cut` flags only ever turn on (min over segments <= r == any segment <= r), so `targets()` equals `eraseTargets` of the whole path.
+ * Bound to one page object: a changed page needs a new scan.
+ */
+export class EraseScan {
+  private readonly r: number
+  private boxes: ([number, number, number, number] | null)[] = []
+  private hit = new Map<number, { erased: boolean[]; cut: boolean[]; els: Page['elements'] }>()
+  private last: Pt | null = null
+  private cache: { elements: Page['elements']; fadeIds: Set<string> } | null = null
+  constructor(readonly page: Page, width: number, readonly partial: boolean) {
+    this.r = width / 2 + EPS
+  }
+
+  push(p: Pt): void {
+    const q = this.last
+    this.last = p
+    const { r } = this
+    const [sx0, sx1, sy0, sy1] = q ? [Math.min(q[0]!, p[0]!) - r, Math.max(q[0]!, p[0]!) + r, Math.min(q[1]!, p[1]!) - r, Math.max(q[1]!, p[1]!) + r] : [p[0]! - r, p[0]! + r, p[1]! - r, p[1]! + r]
+    const els = this.page.elements
+    for (let index = 0; index < els.length; index++) {
+      const el = els[index] as El
+      if (el.type !== 'stroke') continue
+      const pts = (el.points as number[][] | undefined) ?? []
+      if (pts.length === 0) continue
+      const bb = (this.boxes[index] ??= boxOf(pts))
+      if (!(bb[0] <= sx1 && bb[1] >= sx0 && bb[2] <= sy1 && bb[3] >= sy0)) continue
+      let st = this.hit.get(index)
+      let changed = false
+      const flags = () => (st ??= { erased: pts.map(() => false), cut: pts.slice(1).map(() => false), els: [] })
+      for (let i = 0; i < pts.length; i++) {
+        const d = q ? segDist(q, p, pts[i]!) : Math.hypot(pts[i]![0]! - p[0]!, pts[i]![1]! - p[1]!)
+        if (d <= r && !(st?.erased[i])) (flags().erased[i] = true), (changed = true)
+        if (i > 0 && !(st?.cut[i - 1])) {
+          const c = q ? segSegDist(pts[i - 1]!, pts[i]!, q, p) : segDist(pts[i - 1]!, pts[i]!, p)
+          if (c <= r) (flags().cut[i - 1] = true), (changed = true)
+        }
+      }
+      if (changed && st) {
+        this.hit.set(index, st)
+        st.els = []
+        this.cache = null
+      }
+    }
+  }
+
+  /** Same shape as `eraseTargets`; the array and the piece objects of unchanged strokes are reused between calls. */
+  targets(): { elements: Page['elements']; fadeIds: Set<string> } {
+    if (this.cache) return this.cache
+    const fadeIds = new Set<string>()
+    const elements: Page['elements'] = []
+    this.page.elements.forEach((e, index) => {
+      const st = this.hit.get(index)
+      elements.push(e)
+      if (!st) return
+      const id = (e as El).id as string
+      fadeIds.add(id)
+      if (!this.partial) return
+      if (st.els.length === 0) {
+        const pieces = piecesOf((e as El).points as number[][], st.erased, st.cut)
+        st.els = pieces.map((points, j) => ({ ...(structuredClone(e) as object), id: `${id}~${j}`, points }) as unknown as Page['elements'][number])
+        if (st.els.length === 0) st.els = EMPTY
+      }
+      if (st.els !== EMPTY) elements.push(...st.els)
+    })
+    return (this.cache = { elements, fadeIds })
+  }
+}
+const EMPTY: Page['elements'] = []
 
 /** The page's elements after the erase: a touched stroke is gone (stroke mode) or replaced in place by its pieces; `idOf` names piece `j` of `orig`. */
 export function erasedElements(page: Page, hits: ReturnType<typeof erasePieces>, partial: boolean, idOf: (orig: El, j: number) => string): Page['elements'] {
@@ -396,7 +492,7 @@ export function erasedElements(page: Page, hits: ReturnType<typeof erasePieces>,
 
 /**
  * The live eraser preview of `page`: the elements with every struck stroke kept in place (its id in `fadeIds`, drawn translucent) and, in partial mode, its surviving pieces right after it (opaque).
- * Same `erasePieces` as the commit, so the preview cannot differ from the result. Story 15.8 may replace this with an incremental version.
+ * Same `erasePieces` as the commit, so the preview cannot differ from the result. `EraseScan` is the incremental version the writer uses.
  */
 export function eraseTargets(page: Page, path: readonly Pt[], width: number, partial: boolean): { elements: Page['elements']; fadeIds: Set<string> } {
   const hits = erasePieces(page, path, width)
