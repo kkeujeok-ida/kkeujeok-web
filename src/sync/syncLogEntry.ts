@@ -11,7 +11,7 @@ export type EntryCheck =
 
 // (field, required) in check order.
 const EVENTS: Record<string, [string, boolean][]> = {
-  stateChange: [['noteId', true], ['from', true], ['to', true]],
+  stateChange: [['noteId', true], ['from', true], ['to', true], ['reason', false]],
   uploadStarted: [['noteId', true], ['kind', true]],
   uploadFinished: [['noteId', true], ['revisionId', true]],
   verifyRound: [['noteId', true], ['round', true], ['count', true]],
@@ -19,8 +19,9 @@ const EVENTS: Record<string, [string, boolean][]> = {
   merged: [['noteId', true], ['rev', false]],
   conflictFound: [['noteId', true], ['rev', false]],
   baseAdvanced: [['noteId', true], ['revisionId', true]],
-  backoff: [['class', true], ['attempt', true], ['delayMs', true], ['noteId', false]],
-  error: [['class', true], ['noteId', false], ['status', false], ['reason', false]],
+  backoff: [['class', true], ['attempt', true], ['delayMs', true], ['noteId', false], ['scope', false]],
+  error: [['class', true], ['noteId', false], ['status', false], ['reason', false], ['scope', false], ['cause', false], ['exception', false]],
+  conflictResolved: [['noteId', true], ['choice', true]],
   pageTokenRejected: [],
   duplicatesCleaned: [['count', true]],
 }
@@ -28,6 +29,8 @@ const EVENTS: Record<string, [string, boolean][]> = {
 const AT = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}Z$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const REASON = /^[A-Za-z0-9_]{1,64}$/
+const EXCEPTION = /^[A-Za-z0-9_.$:]{1,64}$/
+export const LOG_CAUSES = ['network', 'auth', 'quota', 'server', 'unknown']
 const STATES = ['synced', 'pending', 'syncing', 'conflict', 'error']
 const CLASSES = ['backoff', 'quota', 'reauth', 'deleted', 'unreadable', 'fatal']
 
@@ -48,6 +51,10 @@ function valid(field: string, v: unknown, event: unknown): boolean {
     case 'kind': return v === 'simple' || v === 'resumable'
     case 'class': return str && CLASSES.includes(v)
     case 'status': return int(v, 100, 599)
+    case 'cause': return str && LOG_CAUSES.includes(v)
+    case 'exception': return str && EXCEPTION.test(v)
+    case 'scope': return v === 'global' || v === 'note'
+    case 'choice': return v === 'local' || v === 'remote' || v === 'both'
     case 'reason': return validLogReason(v)
     case 'attempt': return int(v, 1, 7)
     case 'delayMs': return int(v, 0, 32000)
@@ -74,4 +81,32 @@ export function checkLogEntry(entry: unknown): EntryCheck {
     if (Object.hasOwn(e, f) && !valid(f, e[f], e.event)) return { ok: false, reason: 'badValue', field: f }
   }
   return { ok: true }
+}
+
+const QUOTA_REASON = /quota|ratelimit|limitexceeded/i
+
+/**
+ * The `cause`, `exception` and `scope` of an `error` entry, from the class, HTTP status, reason
+ * and thrown error in hand. Only a type name goes to the log, never a message.
+ */
+export function logWhy(
+  cls: string,
+  o: { status?: number; reason?: string; error?: unknown; noteId?: string } = {},
+): { cause: string; exception?: string; scope: string } {
+  const { status, reason, error, noteId } = o
+  const e = error as { name?: unknown; kind?: unknown } | null | undefined
+  const drive = e?.name === 'DriveError'
+  // shortcut: a fetch failure is only recognised by its TypeError message (browser-specific), upgrade if the drive client flags it
+  const network = (drive && e?.kind === 'network') || (error instanceof TypeError && /fetch|network/i.test(error.message))
+  const cause = network
+    ? 'network'
+    : cls === 'quota' || status === 429 || (reason !== undefined && QUOTA_REASON.test(reason))
+      ? 'quota'
+      : cls === 'reauth' || status === 401 || status === 403
+        ? 'auth'
+        : status !== undefined && status >= 500
+          ? 'server'
+          : 'unknown'
+  const exception = drive ? `DriveError.${String(e?.kind)}` : error instanceof Error ? error.name : undefined
+  return { cause, ...(exception && { exception }), scope: noteId === undefined ? 'global' : 'note' }
 }

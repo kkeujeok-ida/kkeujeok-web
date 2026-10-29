@@ -5,6 +5,7 @@
 import type { NoteStore } from '../storage/noteStore'
 import type { SyncDevice, SyncDeviceStore } from '../storage/syncDevice'
 import type { SyncLog } from '../sync/syncLog'
+import { logWhy } from '../sync/syncLogEntry'
 import { classifyDriveError } from '../sync/errorClass'
 import { DriveError, type DriveClient, type DriveFile, childrenQuery, kkeujeokIdQuery } from './driveClient'
 import { driveDuplicatesRule } from './duplicates'
@@ -72,11 +73,12 @@ export function createRootFolderService(deps: {
     return run
   }
 
-  async function fail(cls: string, status?: number, reason?: string): Promise<RootResult> {
+  async function fail(cls: string, status?: number, reason?: string, error?: unknown): Promise<RootResult> {
     await log.append('error', {
       class: cls,
       ...(status !== undefined && status >= 100 && status <= 599 && { status }),
       ...(reason !== undefined && { reason }),
+      ...logWhy(cls, { status, reason, error }),
     })
     return { status: 'failed', errorClass: cls }
   }
@@ -132,7 +134,7 @@ export function createRootFolderService(deps: {
         cleaned++
       } catch (e) {
         if (!(e instanceof DriveError)) throw e
-        await fail(classifyDriveError(e), e.status, e.reason)
+        await fail(classifyDriveError(e), e.status, e.reason, e)
         break
       }
     }
@@ -163,7 +165,7 @@ export function createRootFolderService(deps: {
       })
     } catch (e) {
       if (ctl.signal.aborted) return fail('fatal', undefined, 'lockTimeout')
-      await log.append('error', { class: 'fatal', reason: e instanceof Error ? e.message : String(e) }).catch(() => {})
+      await log.append('error', { class: 'fatal', reason: 'lock', ...logWhy('fatal', { error: e }) }).catch(() => {})
       return fail('fatal', undefined, 'lock')
     } finally {
       clearTimeout(timer)
@@ -233,7 +235,7 @@ export function createRootFolderService(deps: {
       if (id === undefined && truncated) {
         // A partial listing must not pick the "oldest" root.
         if (merged) {
-          await log.append('error', { class: 'fatal', reason: 'listTruncated' }).catch(() => {})
+          await log.append('error', { class: 'fatal', reason: 'listTruncated', ...logWhy('fatal') }).catch(() => {})
           id = cached
         } else if (createdId !== undefined) {
           id = createdId // never orphan the root this run made
@@ -262,7 +264,7 @@ export function createRootFolderService(deps: {
       })
       return { status: 'ready', folderId: id }
     } catch (e) {
-      if (e instanceof DriveError) return fail(classifyDriveError(e), e.status, e.reason)
+      if (e instanceof DriveError) return fail(classifyDriveError(e), e.status, e.reason, e)
       return fail('fatal', undefined, 'localWrite')
     } finally {
       storage?.close()

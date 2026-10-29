@@ -32,6 +32,7 @@ import type { AssetStore } from '../storage/assetStore'
 import { createAssetUploader } from './assetUploader'
 import { createSidecarUploader } from './sidecarUploader'
 import type { SyncLog } from './syncLog'
+import { logWhy } from './syncLogEntry'
 import { backoffRule, transition, uploadKindRule, verifyPlanRule } from './syncRules'
 
 /** The `sync.json` key of a deleted note that still waits to be trashed (an unknown key, kept by every commit). */
@@ -45,7 +46,7 @@ export const MAX_THUMBNAIL_BYTES = 2_097_152
 const KKJ_MIME = 'application/vnd.kkeujeok.kkj'
 const LAST_RESORT_TIME = '9999-12-31T23:59:59.999Z'
 
-type Failure = { cls: string; status?: number; reason?: string; clearVerify?: boolean; /** The remote head that could not be read. */ head?: string }
+type Failure = { cls: string; status?: number; reason?: string; clearVerify?: boolean; /** The error behind the failure, for the log's `exception` type name. */ source?: unknown; /** The remote head that could not be read. */ head?: string }
 class UploadFailure extends Error {
   constructor(readonly f: Failure) {
     super(`UploadFailure(${f.cls}, ${f.reason ?? ''})`)
@@ -159,7 +160,10 @@ export function createNoteUploader(d: UploaderDeps) {
       o.base ? { base: o.base } : undefined,
     )
     await o.committed?.()
-    if (o.event && from !== to) await log.append('stateChange', { noteId, from, to })
+    if (o.event && from !== to) {
+      const reason = to === 'pending' && (from === 'syncing' || from === 'error') ? (from === 'syncing' && o.event === 'edit' ? 'editDuringSync' : o.event) : undefined
+      await log.append('stateChange', { noteId, from, to, ...(reason && { reason }) })
+    }
     return done
   }
 
@@ -215,6 +219,7 @@ export function createNoteUploader(d: UploaderDeps) {
       noteId,
       ...(f.status !== undefined && { status: f.status }),
       ...(f.reason !== undefined && { reason: f.reason }),
+      ...logWhy(f.cls, { status: f.status, reason: f.reason, error: f.source, noteId }),
     })
     try {
       await commit(
@@ -261,12 +266,12 @@ export function createNoteUploader(d: UploaderDeps) {
         if (o.pass?.(e)) throw e
         const cls = classifyDriveError(e)
         const reason = e.kind === 'parse' ? 'parse' : e.reason
-        const base = { ...(e.status !== undefined && { status: e.status }), ...(reason !== undefined && { reason }) }
+        const base = { source: e, ...(e.status !== undefined && { status: e.status }), ...(reason !== undefined && { reason }) }
         if (cls !== 'backoff') throw failure(cls, base)
         attempt++
         const plan = backoffRule({ attempt, jitter: d.jitter() })
         if (!('retry' in plan) || plan.retry !== true) throw failure(cls, base)
-        await log.append('backoff', { class: cls, attempt, delayMs: plan.delayMs, noteId })
+        await log.append('backoff', { class: cls, attempt, delayMs: plan.delayMs, noteId, scope: 'note' })
         await d.sleep(plan.delayMs, noteId)
       }
     }
@@ -454,7 +459,7 @@ export function createNoteUploader(d: UploaderDeps) {
           if (up === null) {
             // Drive has no If-Match: the head moved, so merge again first.
             if (++moved > 3) throw failure('backoff', { reason: 'headMoved' })
-            await log.append('error', { class: 'backoff', noteId, reason: 'headMoved' })
+            await log.append('error', { class: 'backoff', noteId, reason: 'headMoved', ...logWhy('backoff', { noteId }) })
             skipPre = false
             continue
           }
@@ -686,6 +691,7 @@ export function createNoteUploader(d: UploaderDeps) {
         noteId,
         ...(f.status !== undefined && { status: f.status }),
         ...(f.reason !== undefined && { reason: f.reason }),
+        ...logWhy(f.cls, { status: f.status, reason: f.reason, error: 'source' in f ? f.source : undefined, noteId }),
       })
     } catch {
       // the log is not writable: nothing more to do
@@ -820,7 +826,7 @@ export function createNoteUploader(d: UploaderDeps) {
   /** A Drive call outside the upload failed (the pin of a restore): handled as a sync error of the note, like an upload failure. */
   async function failed(noteId: string, e: DriveError): Promise<void> {
     try {
-      await fail(noteId, { cls: classifyDriveError(e), ...(e.status !== undefined && { status: e.status }), ...((e.kind === 'parse' ? 'parse' : e.reason) !== undefined && { reason: e.kind === 'parse' ? 'parse' : e.reason }) })
+      await fail(noteId, { cls: classifyDriveError(e), source: e, ...(e.status !== undefined && { status: e.status }), ...((e.kind === 'parse' ? 'parse' : e.reason) !== undefined && { reason: e.kind === 'parse' ? 'parse' : e.reason }) })
     } catch {
       // the log or sync.json is not writable: nothing more to do here
     }
@@ -873,7 +879,13 @@ export function createNoteUploader(d: UploaderDeps) {
     uploadVerified: (noteId: string) => chained(noteId, () => verifiedHead(noteId)),
     reportFailure: (noteId: string, e: DriveError) => chained(noteId, () => failed(noteId, e)),
     /** A conflict was settled in the editor (chained with this note's uploads). */
-    conflictResolved: (noteId: string, conflict: JsonMap) => chained(noteId, () => resolved(noteId, conflict)),
+    conflictResolved: (noteId: string, conflict: JsonMap, choice?: string) =>
+      chained(noteId, async () => {
+        const info = await resolved(noteId, conflict)
+        const c = ({ mine: 'local', theirs: 'remote', both: 'both' } as Record<string, string>)[choice ?? '']
+        if (c) await log.append('conflictResolved', { noteId, choice: c })
+        return info
+      }),
     markResolved: (noteId: string) => chained(noteId, () => markResolved(noteId)),
     cleanResolvedSidecars,
     /** Uploads `noteId` when it has unsent changes or an unfinished upload. */

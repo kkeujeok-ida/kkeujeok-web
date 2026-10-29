@@ -6,6 +6,7 @@ import { driveDuplicatesRule } from '../drive/duplicates'
 import type { NoteStore } from '../storage/noteStore'
 import type { SyncDeviceStore } from '../storage/syncDevice'
 import type { SyncLog } from './syncLog'
+import { logWhy } from './syncLogEntry'
 
 export const CONFLICTS_KKEUJEOK_ID = 'conflicts'
 export const CONFLICTS_FOLDER_NAME = '.conflicts'
@@ -120,7 +121,7 @@ export function createSidecarUploader(d: SidecarUploaderDeps) {
       const rec = await d.store.sidecars.get(noteId, pageId, rev)
       if (!rec) {
         // Nothing to send: the entry would block the note for ever.
-        await log.append('error', { class: 'fatal', noteId, reason: 'sidecarMissing' })
+        await log.append('error', { class: 'fatal', noteId, reason: 'sidecarMissing', ...logWhy('fatal', { noteId }) })
         await d.store.sidecarSent(noteId, pageId, rev)
         continue
       }

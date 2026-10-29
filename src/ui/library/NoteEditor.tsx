@@ -1111,7 +1111,7 @@ export function NoteEditor({
     }
     // The resolved note is on disk before `sync.json` says so.
     if (!(await writer.flushSaves())) return null
-    const record = () => uploads.conflictResolved!(noteId, saved!.conflict as unknown as Record<string, unknown>)
+    const record = () => uploads.conflictResolved!(noteId, saved!.conflict as unknown as Record<string, unknown>, saved!.used)
     let info
     try {
       info = await record()

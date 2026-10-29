@@ -16,7 +16,7 @@ const CHOICES: { value: Choice; label: Key }[] = [
 
 type Action = 'logout' | 'disconnect'
 
-const defaultExport = () => syncLog().exportJsonl({ appVersion: __APP_VERSION__, now: new Date() })
+const defaultExport = () => syncLog().exportJsonl({ appVersion: __APP_VERSION__, buildId: __BUILD_ID__, now: new Date() })
 
 // Shown only behind the sign-in gate, so logout and disconnect are always valid.
 export function Settings({

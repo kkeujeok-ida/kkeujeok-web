@@ -169,7 +169,7 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
         moved = t !== null
         return t === null ? cur : { ...cur, state: t }
       })
-      if (moved) await d.log.append('stateChange', { noteId, from: 'error', to: 'pending' })
+      if (moved) await d.log.append('stateChange', { noteId, from: 'error', to: 'pending', reason: mode === 'manual' ? 'userRetry' : 'automatic' })
     } catch {
       // the next trigger tries again
     }
@@ -231,9 +231,9 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
      * A conflict was settled in the editor (Story 3.22): its `sync.json` entry and the state follow in one write.
      * Rejects when that could not be written. The caller then runs `syncNow`.
      */
-    async conflictResolved(noteId: string, conflict: Record<string, unknown>): Promise<SyncInfo> {
+    async conflictResolved(noteId: string, conflict: Record<string, unknown>, choice?: string): Promise<SyncInfo> {
       if (!d.uploader.conflictResolved) throw new Error('conflictResolved is not available')
-      return d.uploader.conflictResolved(noteId, conflict as Parameters<NonNullable<typeof d.uploader.conflictResolved>>[1])
+      return d.uploader.conflictResolved(noteId, conflict as Parameters<NonNullable<typeof d.uploader.conflictResolved>>[1], choice)
     },
 
     /**

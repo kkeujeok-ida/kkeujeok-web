@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { checkLogEntry, logWhy } from '../src/sync/syncLogEntry'
 import { LOG_STORE, SYNC_LOG_DB, createSyncLog, syncLogKeep } from '../src/sync/syncLog'
 
 const NOTE = '01926f3a-0000-7000-8000-000000000900'
@@ -63,6 +64,28 @@ describe('append', () => {
     expect((await log.entries()).map((e) => e.reason)).toEqual(['other', 'other', 'storageQuotaExceeded'])
   })
 
+  test('error cause and exception round-trip; a bad cause becomes unknown, the exception a clean name', async () => {
+    expect(await log.append('error', { class: 'backoff', noteId: NOTE, cause: 'network', exception: 'DriveError.network', scope: 'note' })).toBe(true)
+    expect(await log.append('error', { class: 'fatal', cause: 'weird', exception: 'Bad Name<T>' + 'x'.repeat(80) })).toBe(true)
+    const [a, b] = await log.entries()
+    expect(a).toMatchObject({ cause: 'network', exception: 'DriveError.network', scope: 'note' })
+    expect(b!.cause).toBe('unknown')
+    expect(String(b!.exception)).toHaveLength(64)
+    expect(String(b!.exception).startsWith('Bad_Name_T_')).toBe(true)
+    expect(checkLogEntry({ at: '2026-10-10T04:20:00.000Z', event: 'error', class: 'fatal', cause: 'x' })).toEqual({ ok: false, reason: 'badValue', field: 'cause' })
+  })
+
+  test('logWhy derives the cause from status, class, reason or error', () => {
+    const drive = (kind: string) => Object.assign(new Error('m'), { name: 'DriveError', kind })
+    expect(logWhy('backoff', { status: 503, error: drive('http') })).toEqual({ cause: 'server', exception: 'DriveError.http', scope: 'global' })
+    expect(logWhy('x', { error: drive('network'), noteId: NOTE })).toEqual({ cause: 'network', exception: 'DriveError.network', scope: 'note' })
+    expect(logWhy('x', { error: new TypeError('Failed to fetch') })).toEqual({ cause: 'network', exception: 'TypeError', scope: 'global' })
+    expect(logWhy('quota', { status: 403 }).cause).toBe('quota')
+    expect(logWhy('fatal', { status: 403, reason: 'storageQuotaExceeded' }).cause).toBe('quota')
+    expect(logWhy('reauth', { status: 401 }).cause).toBe('auth')
+    expect(logWhy('fatal', { reason: 'x' })).toEqual({ cause: 'unknown', scope: 'global' })
+  })
+
   test('never throws when the store is broken', async () => {
     const broken = createSyncLog({ open: () => { throw new Error('no idb') } } as unknown as IDBFactory, fixed)
     expect(await broken.append('pageTokenRejected')).toBe(false)
@@ -71,6 +94,16 @@ describe('append', () => {
 })
 
 describe('retention', () => {
+  test('an old-shape stored entry reads without error', async () => {
+    await seed([{ at: '2026-10-10T04:00:00.000Z', event: 'error', class: 'quota' }, { at: '2026-10-10T04:01:00.000Z', event: 'stateChange', noteId: NOTE, from: 'error', to: 'pending' }])
+    expect(await log.entries()).toHaveLength(2)
+  })
+
+  test('logWhy: only fetch-like TypeErrors are network', () => {
+    expect(logWhy('backoff', { error: new TypeError('Failed to fetch') }).cause).toBe('network')
+    expect(logWhy('fatal', { error: new TypeError('x is not a function') }).cause).toBe('unknown')
+  })
+
   test('the 5,001st append drops the oldest', async () => {
     await seed(Array.from({ length: syncLogKeep }, (_, i) => entryN(i)))
     expect(await log.append('verifyRound', { noteId: NOTE, round: 2, count: 99 })).toBe(true)
@@ -102,18 +135,36 @@ describe('retention', () => {
   })
 })
 
+test('new diagnostic fields round-trip; a bad one is refused or normalised', async () => {
+  const base = { noteId: NOTE, from: 'error', to: 'pending' }
+  expect(await log.append('stateChange', { ...base, reason: 'userRetry' })).toBe(true)
+  expect(await log.append('stateChange', { ...base, reason: 'a b' })).toBe(true)
+  expect(await log.append('backoff', { class: 'backoff', attempt: 1, delayMs: 0, scope: 'global' })).toBe(true)
+  expect(await log.append('backoff', { class: 'backoff', attempt: 1, delayMs: 0 })).toBe(true)
+  expect(await log.append('backoff', { class: 'backoff', attempt: 1, delayMs: 0, scope: 'x' })).toBe(false)
+  expect(await log.append('conflictResolved', { noteId: NOTE, choice: 'both' })).toBe(true)
+  expect(await log.append('conflictResolved', { noteId: NOTE, choice: 'x' })).toBe(false)
+  const e = await log.entries()
+  expect(e).toHaveLength(5)
+  expect(e[1]!.reason).toBe('other')
+})
+
 describe('export', () => {
   test('0 entries: the header line only', async () => {
-    const f = await log.exportJsonl({ appVersion: '1.2.3', now: new Date('2026-10-16T23:59:59.999Z') })
+    const f = await log.exportJsonl({ appVersion: '1.2.3', buildId: '42', now: new Date('2026-10-16T23:59:59.999Z') })
     expect(f.name).toBe('kkeujeok-sync-log-2026-10-16.jsonl')
     expect(f.text.endsWith('\n')).toBe(true)
     expect(f.text.charCodeAt(0)).not.toBe(0xfeff)
     const lines = f.text.split('\n')
     expect(lines).toHaveLength(2)
-    expect(JSON.parse(lines[0]!)).toEqual({
+    const header = JSON.parse(lines[0]!)
+    expect(header.deviceLabel).toMatch(/^[0-9a-f]{8}$/)
+    delete header.deviceLabel
+    expect(header).toEqual({
       type: 'header',
       app: 'kkeujeok',
       appVersion: '1.2.3',
+      buildId: '42',
       platform: 'web',
       supportedFormatVersion: 1,
       exportedAt: '2026-10-16T23:59:59.999Z',

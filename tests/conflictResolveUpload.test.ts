@@ -109,6 +109,15 @@ describe('conflictResolved', () => {
     expect(e.invalid).toEqual([])
   })
 
+  test.each([['mine', 'local'], ['theirs', 'remote'], ['both', 'both']])('choice %s is logged as %s; conflict -> pending has no reason', async (choice, logged) => {
+    const e = await make()
+    await conflicted(e)
+    const { conflict } = await resolveLocally(e, choice)
+    await e.uploader.conflictResolved(NID, conflict as never, choice)
+    expect(e.events('conflictResolved').at(-1)).toMatchObject({ noteId: NID, choice: logged })
+    expect(e.events('stateChange').at(-1)).not.toHaveProperty('reason')
+  })
+
   test('another conflict is still open: the state stays conflict', async () => {
     const e = await make()
     await conflicted(e)

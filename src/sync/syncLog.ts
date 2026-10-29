@@ -3,7 +3,7 @@
 // content; every entry passes `checkLogEntry` before it is stored.
 import { SUPPORTED_FORMAT_VERSION } from '../model/note'
 import { openDatabase } from '../storage/noteDb'
-import { checkLogEntry, validLogReason } from './syncLogEntry'
+import { LOG_CAUSES, checkLogEntry, validLogReason } from './syncLogEntry'
 
 export const SYNC_LOG_DB = 'kkeujeok-sync-log'
 export const LOG_STORE = 'log'
@@ -12,6 +12,20 @@ export const LOG_STORE = 'log'
 export const syncLogKeep = 5000
 
 type Entry = Record<string, unknown>
+
+// A random label per browser, not tied to the account.
+function deviceLabel(): string {
+  try {
+    let t = localStorage.getItem('kkeujeok-log-device')
+    if (!t || !/^[0-9a-f]{8}$/.test(t)) {
+      t = crypto.randomUUID().slice(0, 8)
+      localStorage.setItem('kkeujeok-log-device', t)
+    }
+    return t
+  } catch {
+    return 'unknown'
+  }
+}
 
 export function createSyncLog(
   idb: IDBFactory = globalThis.indexedDB,
@@ -40,6 +54,13 @@ export function createSyncLog(
       try {
         const entry: Entry = { ...fields, at: clock().toISOString(), event }
         if ('reason' in entry && !validLogReason(entry.reason)) entry.reason = 'other'
+        if ('cause' in entry && !LOG_CAUSES.includes(entry.cause as string)) entry.cause = 'unknown'
+        if ('exception' in entry) {
+          // A type name only: other characters become `_`, 64 at most.
+          const t = typeof entry.exception === 'string' ? entry.exception.replace(/[^A-Za-z0-9_.$:]/g, '_').slice(0, 64) : ''
+          if (t) entry.exception = t
+          else delete entry.exception
+        }
         if (!checkLogEntry(entry).ok) return false
         await ndb.withDb((db) => db.add(LOG_STORE, entry))
       } catch {
@@ -60,12 +81,14 @@ export function createSyncLog(
     },
 
     /** The file to download: the header line, then the entries. Rejects when the log cannot be read. */
-    async exportJsonl({ appVersion, now }: { appVersion: string; now: Date }) {
+    async exportJsonl({ appVersion, buildId = 'unknown', now }: { appVersion: string; buildId?: string; now: Date }) {
       const at = now.toISOString()
       const header = {
         type: 'header',
         app: 'kkeujeok',
         appVersion,
+        buildId,
+        deviceLabel: deviceLabel(),
         platform: 'web',
         supportedFormatVersion: SUPPORTED_FORMAT_VERSION,
         exportedAt: at,

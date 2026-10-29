@@ -28,6 +28,7 @@ import type { MergeIo } from './mergeIo'
 import { chained } from './noteChain'
 import { getOpenNote, openNoteIds } from './openNotes'
 import type { SyncLog } from './syncLog'
+import { logWhy } from './syncLogEntry'
 import { hasUnsentRule } from './hasUnsent'
 import { backoffRule, transition } from './syncRules'
 import { noteLockName } from './uploadCoordinator'
@@ -76,6 +77,8 @@ class Fail extends Error {
     readonly reason?: string,
     /** The remote head that could not be read (`lastError.head`). */
     readonly head?: string,
+    /** The error behind the failure, for the log's `exception` type name. */
+    readonly source?: unknown,
   ) {
     super(`Fail(${cls}, ${reason ?? ''})`)
   }
@@ -136,7 +139,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
     const key = `${noteId}:${head}:${reason}`
     if (!logged.has(key)) {
       logged.add(key)
-      await log.append('error', { class: 'fatal', noteId, reason })
+      await log.append('error', { class: 'fatal', noteId, reason, ...logWhy('fatal', { noteId }) })
     }
     return r
   }
@@ -167,6 +170,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
       ...(noteId !== undefined && { noteId }),
       ...(f.status !== undefined && { status: f.status }),
       ...(f.reason !== undefined && { reason: f.reason }),
+      ...logWhy(f.cls, { status: f.status, reason: f.reason, error: f.source, noteId }),
     })
   }
 
@@ -181,11 +185,11 @@ export function createNoteReceiver(d: ReceiverDeps) {
         if (pass?.(e)) throw e
         const cls = classifyDriveError(e)
         const reason = e.kind === 'parse' ? 'parse' : e.reason
-        if (cls !== 'backoff') throw new Fail(cls, e.status, reason)
+        if (cls !== 'backoff') throw new Fail(cls, e.status, reason, undefined, e)
         attempt++
         const plan = backoffRule({ attempt, jitter: d.jitter() })
-        if (!('retry' in plan) || plan.retry !== true) throw new Fail(cls, e.status, reason)
-        await log.append('backoff', { class: cls, attempt, delayMs: plan.delayMs, ...(noteId !== undefined && { noteId }) })
+        if (!('retry' in plan) || plan.retry !== true) throw new Fail(cls, e.status, reason, undefined, e)
+        await log.append('backoff', { class: cls, attempt, delayMs: plan.delayMs, ...(noteId !== undefined && { noteId }), scope: noteId === undefined ? 'global' : 'note' })
         await d.sleep(plan.delayMs)
         g.ensure()
       }
@@ -215,7 +219,10 @@ export function createNoteReceiver(d: ReceiverDeps) {
       },
       o.base ? { base: o.base } : undefined,
     )
-    if (from !== to) await log.append('stateChange', { noteId, from, to })
+    if (from !== to) {
+      const reason = to === 'pending' && (from === 'syncing' || from === 'error') ? (from === 'syncing' && event === 'edit' ? 'editDuringSync' : event) : undefined
+      await log.append('stateChange', { noteId, from, to, ...(reason && { reason }) })
+    }
     return done
   }
 
@@ -485,18 +492,18 @@ export function createNoteReceiver(d: ReceiverDeps) {
       const work = loaded?.result === 'ok' && loaded.writable ? loaded.note : undefined
       if (!work || s.info.fileId !== fileId) return false
       if (keepsLocal(s.hasUnsent, s.info)) {
-        await log.append('error', { class: 'deleted', noteId, reason: kind })
+        await log.append('error', { class: 'deleted', noteId, reason: kind, ...logWhy('deleted', { noteId }) })
         await reviveIn(g, noteId, kind, fileId, true)
         return !open
       }
       if (open) {
         if (goneKind(s.info) === null) {
-          await log.append('error', { class: 'deleted', noteId, reason: kind })
+          await log.append('error', { class: 'deleted', noteId, reason: kind, ...logWhy('deleted', { noteId }) })
           await markGone(noteId, kind)
         }
         return false
       }
-      await log.append('error', { class: 'deleted', noteId, reason: kind })
+      await log.append('error', { class: 'deleted', noteId, reason: kind, ...logWhy('deleted', { noteId }) })
       if (await store.removeNote(noteId, work)) {
         bump()
         return false
