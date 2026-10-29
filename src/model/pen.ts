@@ -36,7 +36,7 @@ export const PEN_PALETTE: Record<PenTool, { columns: number; rows: number; color
   pen: {
     columns: 6,
     rows: 2,
-    colors: ['#000000', '#495057', '#e03131', '#f76707', '#f59f00', '#2f9e44', '#0c8599', '#1971c2', '#3b5bdb', '#9c36b5', '#d6336c', '#7f5539'],
+    colors: ['#000000', '#2f9e44', '#1971c2', '#e03131', '#f59f00', '#495057', '#f76707', '#0c8599', '#3b5bdb', '#9c36b5', '#d6336c', '#7f5539'],
   },
   highlighter: { columns: 6, rows: 1, colors: ['#ffe066', '#8ce99a', '#74c0fc', '#faa2c1', '#ffc078', '#d0bfff'] },
 }

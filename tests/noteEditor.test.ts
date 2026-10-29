@@ -2300,22 +2300,22 @@ describe('pen popover (story 5.5)', () => {
     key(cell(1), 'ArrowDown')
     expect(document.activeElement).toBe(cell(7))
     key(cell(7), 'Enter')
-    expect(slotList(slots)[0]!.color).toBe('#1971c2')
+    expect(slotList(slots)[0]!.color).toBe('#0c8599')
     expect(cell(7).getAttribute('aria-checked')).toBe('true')
-    expect(cell(7).getAttribute('aria-label')).toBe('파랑')
-    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#1971c2'])
+    expect(cell(7).getAttribute('aria-label')).toBe('청록')
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#0c8599'])
     expect(qa('.pen-recent [role="radio"]')).toHaveLength(1)
     click(qa('.pen-recent [role="radio"]')[0]!)
-    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#1971c2'])
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#0c8599'])
   })
 
   test('recent keeps six: a new color goes first, the oldest drops, an old one moves up', async () => {
     const { rec } = await open(JSON.stringify(['#000001', '#000002', '#000003', '#000004', '#000005', '#000006']))
     expect(qa('.pen-recent [role="radio"]')).toHaveLength(6)
     click(cell(2))
-    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#e03131', '#000001', '#000002', '#000003', '#000004', '#000005'])
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#1971c2', '#000001', '#000002', '#000003', '#000004', '#000005'])
     click(qa('.pen-recent [role="radio"]')[3]!)
-    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#000003', '#e03131', '#000001', '#000002', '#000004', '#000005'])
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#000003', '#1971c2', '#000001', '#000002', '#000004', '#000005'])
   })
 
   test('[custom] opens the hidden picker; input applies, change records; the custom cell is checked', async () => {
@@ -2398,7 +2398,7 @@ describe('pen popover (story 5.5)', () => {
     await mountEditor({ pens: createPenSlots(slots.storage), recent: createRecentColors(rec.storage), note: null })
     click(q('.pen-slots [role="radio"]')!)
     expect(cell(2).getAttribute('aria-checked')).toBe('true')
-    expect(qa('.pen-recent [role="radio"]')[0]!.getAttribute('aria-label')).toBe('빨강')
+    expect(qa('.pen-recent [role="radio"]')[0]!.getAttribute('aria-label')).toBe('파랑')
   })
 
   test('strings exist in both languages and English names show', async () => {
@@ -2409,7 +2409,7 @@ describe('pen popover (story 5.5)', () => {
     await mountEditor({ lang: 'en-US', pens: createPenSlots(mem(PEN_SLOTS_KEY).storage), recent: createRecentColors(mem(RECENT_COLORS_KEY).storage) })
     click(q('.pen-slots [role="radio"]')!)
     expect(caption()).toBe('Width 2.0')
-    expect(cell(7).getAttribute('aria-label')).toBe('Blue')
+    expect(cell(7).getAttribute('aria-label')).toBe('Teal')
   })
 })
 

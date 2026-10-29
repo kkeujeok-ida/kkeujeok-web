@@ -157,6 +157,8 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
               type="button"
               role="radio"
               aria-checked={pen.tool === k}
+              aria-label={t(`editor.tool.${k}`)}
+              title={t(`editor.tool.${k}`)}
               tabIndex={pen.tool === k ? 0 : -1}
               onClick={() => k !== pen.tool && onChange({ tool: k })}
               onKeyDown={(e) => {
@@ -169,7 +171,9 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
                 }
               }}
             >
-              {t(`editor.tool.${k}`)}
+              <svg viewBox="0 0 20 36" width="12" height="22" aria-hidden="true">
+                <path d={k === 'highlighter' ? 'M3 0V22.3L6 36H14L17 22.3V0M3 22.3H17' : 'M3 0V22.3L10 36L17 22.3V0M3 22.3H17'} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
+              </svg>
             </button>
           ))}
         </div>
