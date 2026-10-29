@@ -224,6 +224,17 @@ describe('semantics', () => {
     key(canvas(), '1')
     expect(slot.getAttribute('aria-checked')).toBe('true')
   })
+
+  test('mouse-focused toolbar + shortcut key flags the toolbar (ring hidden); Tab clears it', async () => {
+    await mountEditor()
+    const tb = q('.pen-toolbar')!
+    const slot = q('[role="radio"]')!
+    act(() => void slot.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })))
+    key(slot, '1')
+    expect(tb.hasAttribute('data-pointer-focus')).toBe(true)
+    key(slot, 'Tab')
+    expect(tb.hasAttribute('data-pointer-focus')).toBe(false)
+  })
 })
 
 describe('sidebar and empty notes', () => {

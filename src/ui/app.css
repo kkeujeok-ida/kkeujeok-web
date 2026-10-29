@@ -100,6 +100,11 @@ h1 {
   outline-offset: var(--components-focus-ring-offset);
 }
 
+/* Mouse-focused toolbar button + shortcut key: no ring. Tab / F6 remove the flag, so keyboard focus stays visible. */
+[data-pointer-focus] :focus-visible {
+  outline: none;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

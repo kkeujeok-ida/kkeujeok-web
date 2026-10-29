@@ -557,7 +557,12 @@ export function NoteEditor({
   // F6 / Shift+F6 cycle corner -> toolbar -> canvas; 1 picks the first slot.
   useEffect(() => {
     if (!ready) return
+    // A key press while a mouse-focused button holds focus makes :focus-visible match it; mark pointer focus so CSS can hide that ring. Tab / F6 clear it.
+    const onPointer = (e: PointerEvent) => {
+      if (toolbar.current?.contains(e.target as Node)) toolbar.current.dataset.pointerFocus = ''
+    }
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Tab' || e.key === 'F6') delete toolbar.current?.dataset.pointerFocus
       if (e.ctrlKey || e.altKey || e.metaKey || popoverOpen.current) return
       const regions = [section.current?.querySelector<HTMLElement>('[data-banner]'), back.current?.parentElement, toolbar.current, canvas.current].filter((r): r is HTMLElement => !!r)
       const active = document.activeElement
@@ -602,7 +607,11 @@ export function NoteEditor({
     }
     // Capture, so a handler lower down cannot hide the key.
     document.addEventListener('keydown', onKey, true)
-    return () => document.removeEventListener('keydown', onKey, true)
+    document.addEventListener('pointerdown', onPointer, true)
+    return () => {
+      document.removeEventListener('keydown', onKey, true)
+      document.removeEventListener('pointerdown', onPointer, true)
+    }
   }, [ready, readOnly])
 
   // Slot list changes. Each one writes the device setting and drops a pending delete undo.
