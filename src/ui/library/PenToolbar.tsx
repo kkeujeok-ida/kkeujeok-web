@@ -200,9 +200,10 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, to
         }}
       >
         <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
-          <circle cx="8" cy="3.5" r="1.25" fill="currentColor" />
-          <circle cx="8" cy="8" r="1.25" fill="currentColor" />
-          <circle cx="8" cy="12.5" r="1.25" fill="currentColor" />
+          {/* Horizontal ⋯ when the bar is vertical (a 90 degree turn), see spec/toolbar-orientation.md */}
+          {[3.5, 8, 12.5].map((p) => (
+            <circle key={p} cx={vertical ? p : 8} cy={vertical ? 8 : p} r="1.25" fill="currentColor" />
+          ))}
         </svg>
       </button>
       {menu && (

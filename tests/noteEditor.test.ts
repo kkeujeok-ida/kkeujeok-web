@@ -2766,6 +2766,27 @@ describe('toolbar move and snap (story 5.10)', () => {
     expect(document.activeElement).toBe(grip())
   })
 
+  test('vertical bar: the handle is a horizontal ⋯; a tool popover opens at the right edge, flipped left at the right dock', async () => {
+    const horizontal = (g: Element) => [...g.querySelectorAll('circle')].map((c) => [c.getAttribute('cx'), c.getAttribute('cy')])
+    const s = mem()
+    s.m.set(TOOLBAR_KEY, JSON.stringify({ dock: 'left', x: 0.5, y: 0, vertical: true }))
+    await mountEditor({ toolbar: createToolbarPosition(s.storage) })
+    expect(horizontal(grip())).toEqual([['3.5', '8'], ['8', '8'], ['12.5', '8']])
+    const at = (left: number) => (bar().getBoundingClientRect = () => ({ left, right: left + 40, top: 100, bottom: 500, width: 40, height: 400, x: left, y: 100, toJSON() {} }) as DOMRect)
+    at(12)
+    click(q('[role="radio"]')!)
+    expect(q<HTMLElement>('[role="dialog"].pen-popover')!.style.left).toBe('64px') // 52 + 12: beside the bar's right edge
+  })
+
+  test('right dock: the same popover flips to the left of the bar', async () => {
+    const s = mem()
+    s.m.set(TOOLBAR_KEY, JSON.stringify({ dock: 'right', x: 0.5, y: 0, vertical: true }))
+    await mountEditor({ toolbar: createToolbarPosition(s.storage) })
+    bar().getBoundingClientRect = () => ({ left: 948, right: 988, top: 100, bottom: 500, width: 40, height: 400, x: 948, y: 100, toJSON() {} }) as DOMRect
+    click(q('[role="radio"]')!)
+    expect(q<HTMLElement>('[role="dialog"].pen-popover')!.style.left).toBe('616px') // 948 - 12 - 320
+  })
+
   test('a window smaller than the toolbar pulls it in for display only; growing it again restores', async () => {
     const s = mem()
     s.m.set(TOOLBAR_KEY, JSON.stringify({ dock: 'float', x: 0.95, y: 0.5, vertical: false }))
