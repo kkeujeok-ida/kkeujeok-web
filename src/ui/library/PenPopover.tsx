@@ -3,6 +3,7 @@ import { fmt, useI18n } from '../../i18n'
 import { PEN_PALETTE, PEN_WIDTH, colorNameKey, snapWidth, type Pen, type PenTool } from '../../model/pen'
 import { highlighterOutline, windAlike } from '../../render/highlighterOutline'
 import { strokeOutline } from '../../render/strokeOutline'
+import { ColorWheelPicker } from './ColorWheelPicker'
 import { PopoverShell } from './PopoverShell'
 
 const W = 240
@@ -10,7 +11,6 @@ const H = 72
 const AMP = 8
 const MARGIN = 32 // room for the round caps
 const SCALE = 3 // the preview is drawn this much thicker than the page
-const HEX = /^#[0-9a-f]{6}$/
 const TOOLS: PenTool[] = ['pen', 'highlighter']
 
 // A wave whose pressure rises and falls: flat when "use pressure" is off. The highlighter is the chisel rectangles in one path.
@@ -58,7 +58,6 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
   const toolBtns = useRef<(HTMLButtonElement | null)[]>([])
   const cells = useRef<(HTMLButtonElement | null)[]>([])
   const recents = useRef<(HTMLButtonElement | null)[]>([])
-  const colorInput = useRef<HTMLInputElement>(null)
   const titleId = useId()
   const labelId = useId()
   const widthId = useId()
@@ -77,41 +76,21 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
   const palStop = palFocus !== null && palFocus <= customIdx ? palFocus : checkedIdx
   const recStop = Math.min(recFocus, recent.length - 1)
 
-  // The native picker: `input` while choosing, `change` when it closes.
-  useEffect(() => {
-    const el = colorInput.current
-    if (!el) return
-    const hex = () => el.value.toLowerCase()
-    const onInput = () => HEX.test(hex()) && live.current.onChange({ color: hex() })
-    const onDone = () => {
-      if (!HEX.test(hex())) return
-      live.current.onChange({ color: hex() })
-      live.current.onRecent(hex())
-    }
-    el.addEventListener('input', onInput)
-    el.addEventListener('change', onDone)
-    return () => {
-      el.removeEventListener('input', onInput)
-      el.removeEventListener('change', onDone)
-    }
-  }, [])
+  // The wheel picker replaces the bubble's content; colors are recorded as recent when it closes (also when the popover does).
+  const [picking, setPicking] = useState(false)
+  const picked = useRef<string | null>(null)
+  const finishPick = () => {
+    if (picked.current) live.current.onRecent(picked.current)
+    picked.current = null
+  }
+  useEffect(() => finishPick, []) // eslint-disable-line react-hooks/exhaustive-deps -- finishPick reads refs only
 
   const apply = (hex: string) => {
     onChange({ color: hex })
     onRecent(hex)
     setPalFocus(null)
   }
-  const openPicker = () => {
-    const el = colorInput.current
-    if (!el) return
-    el.value = HEX.test(color) ? color : '#000000'
-    try {
-      if (el.showPicker) el.showPicker()
-      else el.click()
-    } catch {
-      el.click()
-    }
-  }
+  const openPicker = () => setPicking(true)
   // Arrow keys move focus only (no wrap): Enter, Space or a click applies.
   const gridKeys = (e: KeyboardEvent, i: number, count: number, cols: number, refs: (HTMLElement | null)[], setStop: (n: number) => void, activate: () => void) => {
     const step = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' ? -cols : e.key === 'ArrowDown' ? cols : 0
@@ -148,7 +127,22 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
   }
 
   return (
-    <PopoverShell anchor={anchor} onClose={onClose} labelledBy={titleId} className="pen-popover" relayout={`${pen.tool}${recent.length}`}>
+    <PopoverShell anchor={anchor} onClose={onClose} labelledBy={titleId} className="pen-popover" relayout={`${pen.tool}${recent.length}${picking}`}>
+        {picking ? (
+          <ColorWheelPicker
+            color={color}
+            onChange={(hex) => {
+              picked.current = hex
+              onChange({ color: hex })
+            }}
+            onDone={() => {
+              finishPick()
+              setPicking(false)
+              requestAnimationFrame(() => cells.current[customIdx]?.focus())
+            }}
+          />
+        ) : (
+          <>
         <div className="pen-tool-switch" role="radiogroup" aria-label={t('editor.toolKind')}>
           {TOOLS.map((k, i) => (
             <button
@@ -197,7 +191,6 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
             onClick={openPicker}
             onKeyDown={(e) => gridKeys(e, customIdx, customIdx + 1, columns, cells.current, setPalFocus, openPicker)}
           />
-          <input ref={colorInput} type="color" className="pen-color-input" tabIndex={-1} aria-hidden="true" defaultValue={pen.color} />
         </div>
         <div className="pen-caption">{t('editor.recent')}</div>
         <div className="pen-recent" role="radiogroup" aria-label={t('editor.recent')}>
@@ -283,6 +276,8 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
         >
           {t('editor.deleteSlot')}
         </button>
+          </>
+        )}
     </PopoverShell>
   )
 }

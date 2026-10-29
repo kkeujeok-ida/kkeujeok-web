@@ -1756,12 +1756,91 @@ h1 {
   background: conic-gradient(#e03131, #f59f00, #2f9e44, #1971c2, #9c36b5, #e03131);
 }
 
-.pen-color-input {
+/* Hue ring with the saturation/brightness square inside. */
+.color-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-3);
+}
+
+.color-wheel {
+  --ring-size: 200px;
+  --ring-width: 28px;
+  position: relative;
+  width: var(--ring-size);
+  height: var(--ring-size);
+}
+
+.color-ring {
   position: absolute;
-  width: 0;
-  height: 0;
-  opacity: 0;
+  inset: 0;
+  border-radius: 50%;
+  touch-action: none;
+  background: conic-gradient(#f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  -webkit-mask: radial-gradient(circle, transparent calc(var(--ring-size) / 2 - var(--ring-width) - 1px), #000 calc(var(--ring-size) / 2 - var(--ring-width)));
+  mask: radial-gradient(circle, transparent calc(var(--ring-size) / 2 - var(--ring-width) - 1px), #000 calc(var(--ring-size) / 2 - var(--ring-width)));
+}
+
+.color-ring-thumb,
+.color-square-thumb {
+  position: absolute;
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  border: 3px solid #fff;
+  border-radius: 50%;
   pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+
+.color-ring-thumb {
+  top: 50%;
+  left: 50%;
+}
+
+.color-square {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100px;
+  height: 100px;
+  margin: -50px 0 0 -50px;
+  touch-action: none;
+  background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, var(--hue));
+}
+
+.color-square-thumb:focus-visible,
+.color-ring-thumb:focus-visible {
+  outline: 2px solid var(--color-ink-primary);
+  outline-offset: 2px;
+}
+
+.color-hex-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  align-self: stretch;
+}
+
+.color-swatch {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--rounded-sm);
+  flex-shrink: 0;
+}
+
+.color-hex {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--spacing-hit-min-web);
+  box-sizing: border-box;
+  padding: 0 var(--spacing-3);
+  font: inherit;
+  font-family: monospace;
+  text-transform: uppercase;
 }
 
 .pen-caption {

@@ -2284,7 +2284,8 @@ describe('pen popover (story 5.5)', () => {
   }
   const slotList = (m: Map<string, string>) => JSON.parse(m.get(PEN_SLOTS_KEY)!) as { tool: string; color: string; width: number; usePressure: boolean }[]
   const cell = (i: number) => qa('.pen-palette [role="radio"]')[i]!
-  const picker = () => q<HTMLInputElement>('.pen-color-input')!
+  const hexField = () => q<HTMLInputElement>('.color-hex')!
+  const typeHex = (v: string) => act(() => void Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(hexField(), v) || hexField().dispatchEvent(new Event('input', { bubbles: true })))
   const caption = () => qa('.pen-caption')[1]!.textContent
   const slider = () => q<HTMLInputElement>('.pen-width-slider')!
   const up = () => q('.pen-step:not(.pen-step-down)')!
@@ -2318,18 +2319,25 @@ describe('pen popover (story 5.5)', () => {
     expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#000003', '#1971c2', '#000001', '#000002', '#000004', '#000005'])
   })
 
-  test('[custom] opens the hidden picker; input applies, change records; the custom cell is checked', async () => {
+  test('[custom] opens the wheel picker: untouched keeps the color, HEX/keys apply, Done records', async () => {
     const { slots, rec } = await open()
-    const spy = vi.spyOn(picker(), 'click').mockImplementation(() => {})
     click(cell(12))
-    expect(spy).toHaveBeenCalled()
-    picker().value = '#12AB34'
-    act(() => void picker().dispatchEvent(new Event('input', { bubbles: true })))
+    expect(q('input[type="color"]')).toBeNull()
+    expect(q('.color-ring')).not.toBeNull()
+    expect(slots.get(PEN_SLOTS_KEY)).toBeUndefined()
+    typeHex('#12AB34')
     expect(slotList(slots)[0]!.color).toBe('#12ab34')
-    expect(cell(12).getAttribute('aria-checked')).toBe('true')
+    typeHex('#12ab3')
+    expect(slotList(slots)[0]!.color).toBe('#12ab34') // rejected: the last color stays
+    const sv = q('.color-square-thumb')!
+    expect(sv.getAttribute('role')).toBe('slider')
+    expect(sv.getAttribute('aria-valuetext')).toContain('#12AB34')
+    key(sv, 'ArrowLeft')
+    expect(slotList(slots)[0]!.color).not.toBe('#12ab34')
     expect(rec.get(RECENT_COLORS_KEY)).toBeUndefined()
-    act(() => void picker().dispatchEvent(new Event('change', { bubbles: true })))
-    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#12ab34'])
+    click(q('.color-picker .pen-popover-delete')!)
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toHaveLength(1)
+    expect(cell(12).getAttribute('aria-checked')).toBe('true')
     expect(qa('.pen-recent [role="radio"]')[0]!.getAttribute('aria-label')).toBe('사용자 지정')
   })
 
