@@ -27,7 +27,6 @@ import { getOpenNote } from '../src/sync/openNotes'
 import { App } from '../src/ui/App'
 import { NoteEditor } from '../src/ui/library/NoteEditor'
 import { Writer } from '../src/ui/library/writer'
-import { publishNoteOrder } from '../src/ui/library/noteOrder'
 import { fakeLocks, signedIn } from './helpers'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -1210,18 +1209,16 @@ describe('zoom and pan', () => {
       'Vertical scroll',
       'Horizontal scroll',
       'Two pages',
-      'Previous note',
-      'Next note',
     ])
     expect(q('[role="status"][aria-live="polite"]')!.textContent).toBe(`Zoom ${Math.round(fit() * 100)}%`)
     expect(document.activeElement).toBe(items[0])
     key(items[0]!, 'ArrowUp')
-    expect(document.activeElement).toBe(items[8])
-    key(items[8]!, 'ArrowDown')
+    expect(document.activeElement).toBe(items[6])
+    key(items[6]!, 'ArrowDown')
     expect(document.activeElement).toBe(items[0])
     key(items[0]!, 'End')
-    expect(document.activeElement).toBe(items[8])
-    key(items[8]!, 'Home')
+    expect(document.activeElement).toBe(items[6])
+    key(items[6]!, 'Home')
     expect(document.activeElement).toBe(items[0])
 
     const plus = items[1]!
@@ -2835,86 +2832,13 @@ describe('toolbar move and snap (story 5.10)', () => {
   })
 })
 
-describe('previous / next note (Story 5.14)', () => {
-  const titled = (id: string, title: string): Note => {
-    const n = newNote(id)
-    return { ...n, meta: { ...n.meta, title } }
-  }
-  const order = (...ids: [string, string | null][]) => publishNoteOrder(ids.map(([noteId, title]) => ({ noteId, title })))
-  const openMenu = async () => {
+describe('⋯ menu (Story 15.12)', () => {
+  test('has no previous / next note', async () => {
+    await mountEditor({ id: 'a', note: newNote('a') })
     click(q('.editor-more button')!)
     await flush()
-  }
-  const item = (label: string) => qa('[role="menu"] [role="menuitem"]').find((b) => b.textContent === label)!
-  const render = (id: string) =>
-    act(() =>
-      root.render(
-        createElement(
-          I18nContext.Provider,
-          { value: i18nFor('ko-KR') },
-          createElement(NoteEditor, {
-            key: id,
-            noteId: id,
-            openStore: makeOpen(),
-            eraserStore: createEraserSettings({ getItem: () => null, setItem: () => {} }),
-            toolbarStore: createToolbarPosition({ getItem: () => null, setItem: () => {} }),
-            viewModeStore: createViewMode({ getItem: () => null, setItem: () => {} }),
-            penDetectedStore: createPenDetected({ getItem: () => null, setItem: () => {} }),
-          }),
-        ),
-      ),
-    )
-
-  test('next goes by the library order, then shows the chip, the back bar and the word; the ends are disabled', async () => {
-    await seed(titled('b', 'B'))
-    await seed(titled('c', 'C'))
-    order(['a', 'A'], ['b', 'B'], ['x', null], ['c', 'C'])
-    await mountEditor({ id: 'a', note: titled('a', 'A') })
-    await openMenu()
-    expect(item('이전 노트').getAttribute('aria-disabled')).toBe('true')
-    click(item('이전 노트'))
-    expect(location.hash).toBe('')
-    click(item('다음 노트'))
-    await flush()
-    expect(location.hash).toBe('#/notes/b')
-    expect(q('[role="menu"]')).toBeNull()
-    render('b')
-    await flush()
-    expect(q('.editor-position-chip')!.textContent).toBe('B · 2/3')
-    expect(q('.snackbar-action')!.textContent).toContain('‘A’로 돌아가기')
-    expect(q('[data-result]')!.textContent).toBe('‘B’ 열림')
-    const back = vi.spyOn(history, 'back').mockImplementation(() => {})
-    click(q('.snackbar-action button')!)
-    expect(back).toHaveBeenCalledOnce()
-    expect(q('.snackbar-action')).toBeNull()
-    back.mockRestore()
-    // the jump left a note behind that skips the title-less one
-    await openMenu()
-    expect(item('다음 노트').getAttribute('aria-disabled')).toBe('false')
-    click(item('다음 노트'))
-    await flush()
-    expect(location.hash).toBe('#/notes/c')
-  })
-
-  test('a fast second press jumps once', async () => {
-    await seed(titled('b', 'B'))
-    order(['a', 'A'], ['b', 'B'])
-    await mountEditor({ id: 'a', note: titled('a', 'A') })
-    await openMenu()
-    const next = item('다음 노트')
-    click(next)
-    click(next)
-    await flush()
-    expect(location.hash).toBe('#/notes/b')
-  })
-
-  test('without a published order the notes by name stand in', async () => {
-    await seed(titled('b', 'B'))
-    publishNoteOrder([])
-    await mountEditor({ id: 'a', note: titled('a', 'A') })
-    await flush()
-    await openMenu()
-    expect(item('이전 노트').getAttribute('aria-disabled')).toBe('true')
-    expect(item('다음 노트').getAttribute('aria-disabled')).toBe('false')
+    const labels = qa('[role="menu"] [role="menuitem"]').map((b) => b.textContent)
+    expect(labels).not.toContain('이전 노트')
+    expect(labels).not.toContain('다음 노트')
   })
 })

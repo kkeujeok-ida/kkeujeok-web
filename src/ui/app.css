@@ -1906,20 +1906,6 @@ h1 {
   font-weight: var(--typography-label-font-weight);
 }
 
-/* Where the opened note sits in the library order (Story 5.14). */
-.editor-position-chip {
-  position: fixed;
-  top: var(--spacing-5);
-  left: 50%;
-  max-width: calc(100% - var(--spacing-5) * 2);
-  padding: var(--spacing-2) var(--spacing-4);
-  border-radius: var(--rounded-sm);
-  background: var(--components-snackbar-background);
-  color: var(--components-snackbar-text);
-  transform: translateX(-50%);
-  pointer-events: none;
-}
-
 .editor-menu-item[aria-disabled='true'] {
   opacity: 0.4;
   cursor: default;
