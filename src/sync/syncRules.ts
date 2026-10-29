@@ -1,4 +1,4 @@
-// Spec sync.uploadKind, sync.verifyPlan, sync.backoff and sync.stateMachine.
+// Spec sync.uploadKind, sync.staleHead, sync.verifyPlan, sync.backoff and sync.stateMachine.
 // Pure; none of them throws, bad input is `{ error }`.
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -136,4 +136,24 @@ export function transition(
 ): SyncStateName | null {
   const r = transitionRule({ state, event, ...extra })
   return 'state' in r ? r.state : null
+}
+
+/** Known revision ids kept per note (`sync.staleHead`). */
+export const KNOWN_MAX = 20
+
+/** `sync.staleHead`: `{ known, base, head }` decides; `{ known, add }` remembers. */
+export function staleHeadRule(input: unknown): { result: 'skip' | 'receive' } | { known: string[] } | { error: 'invalidInput' } {
+  if (!isObj(input)) return bad
+  const { known, base, head, add } = input
+  if (!Array.isArray(known) || !known.every((k) => typeof k === 'string')) return bad
+  if (add !== undefined) {
+    if (!Array.isArray(add) || !add.every((k) => typeof k === 'string')) return bad
+    const out = [...known]
+    for (const id of add) if (!out.includes(id)) out.push(id)
+    return { known: out.slice(-KNOWN_MAX) }
+  }
+  if (typeof head !== 'string' || (base !== null && typeof base !== 'string')) return bad
+  // No base (file gone): the note must re-receive, whatever it knows.
+  if (base === null) return { result: 'receive' }
+  return { result: head === base || known.includes(head) ? 'skip' : 'receive' }
 }

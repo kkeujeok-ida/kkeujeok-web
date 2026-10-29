@@ -21,7 +21,7 @@ import type { Note, Page } from '../model/note'
 import { NoteSaveError } from '../storage/noteDb'
 import { type NoteStore, SYNC_UNREADABLE } from '../storage/noteStore'
 import type { SyncDeviceStore } from '../storage/syncDevice'
-import { type JsonMap, type SyncInfo } from '../storage/syncInfo'
+import { type JsonMap, type SyncInfo, withKnown } from '../storage/syncInfo'
 import { md5Hex } from '../util/md5'
 import { conflictLogFields } from './conflicts'
 import { classifyDriveError } from './errorClass'
@@ -651,7 +651,7 @@ export function createNoteUploader(d: UploaderDeps) {
       (c) => {
         unsidecars = c.unsentSidecars.length > 0
         return {
-          ...c,
+          ...withKnown(c, ours),
           fileId,
           baseHeadRevisionId: ours,
           pendingVerify: null,

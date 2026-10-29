@@ -1,6 +1,7 @@
 // `sync` record of one note (spec sync.md "On the device"). Fields this client
 // does not know are kept in `extra` and written back.
 import { revisionIdPattern } from '../sync/syncLogEntry'
+import { staleHeadRule } from '../sync/syncRules'
 
 export type SyncState = 'synced' | 'pending' | 'syncing' | 'conflict' | 'error'
 const STATES: unknown[] = ['synced', 'pending', 'syncing', 'conflict', 'error']
@@ -101,3 +102,22 @@ export const syncToJson = (i: SyncInfo): JsonMap => ({
   unsentSidecars: i.unsentSidecars,
   lastError: i.lastError,
 })
+
+const KNOWN_KEY = 'knownRevisionIds' // an unknown key of `sync`, so older readers keep it
+
+/** Revisions this device already knows (uploaded, received, merged from); see `sync.staleHead`. */
+export const knownRevisions = (i: SyncInfo): string[] => {
+  const v = i.extra[KNOWN_KEY]
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+}
+
+/** True when `head` is a revision this device knows and not the base: a late listing, not a remote change. */
+export const isStaleHead = (i: SyncInfo, head: string): boolean =>
+  (staleHeadRule({ known: knownRevisions(i), base: i.baseHeadRevisionId, head }) as { result?: string }).result === 'skip'
+
+/** `i` with the current base and `ids` remembered (oldest dropped past the cap). */
+export const withKnown = (i: SyncInfo, ...ids: string[]): SyncInfo => {
+  const add = [i.baseHeadRevisionId, ...ids].filter((x): x is string => x !== null)
+  const { known } = staleHeadRule({ known: knownRevisions(i), add }) as { known: string[] }
+  return { ...i, extra: { ...i.extra, [KNOWN_KEY]: known } }
+}

@@ -677,6 +677,23 @@ describe('opening a note', () => {
     expect(e.drive.calls).toEqual([])
   })
 
+  test('noteOpened with the base gone and a known head receives it (not stale)', async () => {
+    const e = await make()
+    const note = two()
+    const { head } = await e.seedSynced(note)
+    const h = sessionHistory(note)
+    let applied = 0
+    const off = registerOpenNote(NID, {
+      flush: async () => (await e.store.writeNote(h.note), true),
+      current: () => h.note,
+      applyMerge: (a) => (applied++, commitMerge(h, a)),
+    })
+    await e.store.updateSync(NID, (c) => ({ ...c, baseHeadRevisionId: null, extra: { ...c.extra, knownRevisionIds: [head] } }))
+    await e.receiver.noteOpened(NID)
+    off()
+    expect(downloads(e)).toBe(1)
+  })
+
   test('noteOpened asks the remote head once and receives through the open editor when it differs', async () => {
     const e = await make()
     const note = two()

@@ -23,6 +23,16 @@ export function createFakeDrive(o: { pageSize?: number; changePageSize?: number 
   let clock = Date.UTC(2026, 9, 10, 4, 0, 0)
   let lag = false
   const hooks: { beforeCall?: (method: string, nth: number) => void; afterUpload?: (fileId: string) => void; afterUploadAsync?: (fileId: string) => Promise<void> | void; corruptMd5?: boolean } = {}
+  // listings (get/list/listChanges) answer this older head `times` more times
+  let stale: { fileId: string; head: string; times: number } | null = null
+  const listing = (i: Item): DriveFile => {
+    const v = view(i)
+    if (stale && stale.times > 0 && stale.fileId === i.id) {
+      stale.times--
+      return { ...v, headRevisionId: stale.head }
+    }
+    return v
+  }
   const finished = new Map<string, DriveFile>()
   // the change log: entry k is change number k (the page token is a position in it)
   const changeLog: string[] = []
@@ -86,7 +96,7 @@ export function createFakeDrive(o: { pageSize?: number; changePageSize?: number 
       const size = o.pageSize ?? 1000
       const start = p.pageToken ? Number(p.pageToken) : 0
       const page = all.slice(start, start + size)
-      return { files: page.map(view), ...(start + size < all.length && { nextPageToken: String(start + size) }) }
+      return { files: page.map(listing), ...(start + size < all.length && { nextPageToken: String(start + size) }) }
     },
     async create(meta) {
       enter('create')
@@ -99,7 +109,7 @@ export function createFakeDrive(o: { pageSize?: number; changePageSize?: number 
       enter('get', id)
       const i = items.get(id)
       if (!i) throw new DriveError('http', 404, 'notFound')
-      return view(i)
+      return listing(i)
     },
     async update(id, p) {
       enter('update', JSON.stringify({ id, ...p }))
@@ -185,7 +195,7 @@ export function createFakeDrive(o: { pageSize?: number; changePageSize?: number 
       const ids = [...new Set(changeLog.slice(at, end))]
       const changes = ids.map((id) => {
         const i = items.get(id)
-        return !i || i.foreign ? { fileId: id, removed: true } : { fileId: id, removed: false, file: view(i) }
+        return !i || i.foreign ? { fileId: id, removed: true } : { fileId: id, removed: false, file: listing(i) }
       })
       return end < changeLog.length ? { changes, nextPageToken: String(end) } : { changes, newStartPageToken: String(end) }
     },
@@ -307,6 +317,8 @@ export function createFakeDrive(o: { pageSize?: number; changePageSize?: number 
     },
     /** The revision listing lacks the newest revision for the next `times` listings. */
     lagRevisions: (times: number) => void (hiddenRevs = times),
+    /** The next `times` listings of the file answer `head` (an older revision) as its head. */
+    staleHead: (fileId: string, head: string, times = 1) => void (stale = { fileId, head, times }),
     /** A 308 answers without a Range header. */
     hideRangeHeader: () => void (hideRange = true),
     /** Revisions Drive deleted. */

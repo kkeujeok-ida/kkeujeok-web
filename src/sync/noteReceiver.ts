@@ -21,7 +21,7 @@ import { NoteSaveError } from '../storage/noteDb'
 import type { NoteStore } from '../storage/noteStore'
 import type { RemoteCard, RemoteCardStore } from '../storage/remoteCards'
 import { type SyncDevice, type SyncDeviceStore } from '../storage/syncDevice'
-import { type SyncInfo, emptySync } from '../storage/syncInfo'
+import { type SyncInfo, emptySync, isStaleHead, withKnown } from '../storage/syncInfo'
 import { conflictLogFields } from './conflicts'
 import { classifyDriveError } from './errorClass'
 import type { MergeIo } from './mergeIo'
@@ -324,7 +324,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
             return 'ok'
           }
           if (info.fileId !== fileId) return skip(noteId, fileId, head, 'fileIdMismatch')
-          if (head === info.baseHeadRevisionId) {
+          if (head === info.baseHeadRevisionId || isStaleHead(info, head)) {
             if (relinked) {
               await settle(noteId) // the same file is back: nothing to receive, the note is whole again
               bump()
@@ -351,7 +351,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
               .hasUnsent !== false
           if (locks && !unsent && !openIds().includes(noteId)) {
             const hops = hopsFrom(moved.state, moved.conflicts.filter((c) => c.resolvedAt == null).length)
-            const next: SyncInfo = { ...moved, fileId, baseHeadRevisionId: head, lastError: null, state: (hops.at(-1) ?? moved.state) as SyncInfo['state'] }
+            const next: SyncInfo = { ...withKnown(moved, head), fileId, baseHeadRevisionId: head, lastError: null, state: (hops.at(-1) ?? moved.state) as SyncInfo['state'] }
             if (!(await store.commitReceive(noteId, work, remote, next, info))) continue // it changed meanwhile: look again
             await log.append('baseAdvanced', { noteId, revisionId: head })
             let prev: string = moved.state
@@ -366,7 +366,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
             if (r.result === 'error' && r.reason === 'applyFailed') return skip(noteId, fileId, head, 'mergeDeferred')
             if (r.result !== 'merged') throw new Fail('fatal', undefined, 'mergeFailed')
             await log.append('merged', { noteId })
-            await store.updateSync(noteId, (c) => ({ ...c, fileId, baseHeadRevisionId: head, lastError: null }), { base: remote })
+            await store.updateSync(noteId, (c) => ({ ...withKnown(c, head), fileId, baseHeadRevisionId: head, lastError: null }), { base: remote })
             await log.append('baseAdvanced', { noteId, revisionId: head })
             // A conflict (Story 3.20): the sidecars are recorded; the note is a `conflict` note whose
             // sidecars the next upload sends, and the other pages keep syncing.
@@ -568,7 +568,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
             throw e
           }
           g.ensure()
-          const info: SyncInfo = { ...emptySync(), fileId, baseHeadRevisionId: head, state: 'synced' }
+          const info: SyncInfo = { ...withKnown(emptySync(), head), fileId, baseHeadRevisionId: head, state: 'synced' }
           await store.commitReceive(noteId, null, note, info, (await store.readSync(noteId)).info) // false: a copy appeared meanwhile, which stays
           await d.remote.delete(noteId)
           bump()
@@ -679,7 +679,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
       if (local.has(noteId)) {
         const s = await store.readSync(noteId)
         const open = s.info.state !== 'error' || goneKind(s.info) !== null || recoverable(s.info, head)
-        if (s.info.fileId === file.id && head !== s.info.baseHeadRevisionId && open && s.info.pendingVerify === null) {
+        if (s.info.fileId === file.id && head !== s.info.baseHeadRevisionId && !isStaleHead(s.info, head) && open && s.info.pendingVerify === null) {
           badge.push(noteId)
           pending.set(noteId, { fileId: file.id, head })
         }

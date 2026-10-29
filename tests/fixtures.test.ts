@@ -29,7 +29,7 @@ import type { Conflict, Sidecar } from '../src/sync/merge'
 import { merge, mergeRequeue, type MergeCtx } from '../src/sync/merge'
 import { resolveConflict } from '../src/ops/resolveConflict'
 import { errorClassRule } from '../src/sync/errorClass'
-import { backoffRule, stateMachineRule, uploadKindRule, verifyPlanRule } from '../src/sync/syncRules'
+import { backoffRule, staleHeadRule, stateMachineRule, uploadKindRule, verifyPlanRule } from '../src/sync/syncRules'
 import { driveFileNameRule, driveRemoteTitleRule, listSummaryRule } from '../src/drive/noteSummary'
 import { restoreNote, restorePage } from '../src/ops/restore'
 import { keepForeverRule, versionListRule } from '../src/sync/versionList'
@@ -209,6 +209,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     expect(errorClassRule(input as Record<string, unknown>)).toEqual(expected)
   },
   'sync.uploadKind': ({ input, expected }) => void expect(uploadKindRule(input)).toEqual(expected),
+  'sync.staleHead': ({ input, expected }) => void expect(staleHeadRule(input)).toEqual(expected),
   'sync.verifyPlan': ({ input, expected }) => void expect(verifyPlanRule(input)).toEqual(expected),
   'sync.backoff': ({ input, expected }) => void expect(backoffRule(input)).toEqual(expected),
   'sync.stateMachine': ({ input, expected }) => void expect(stateMachineRule(input)).toEqual(expected),
