@@ -373,12 +373,28 @@ h1 {
 
 .library-toolbar {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: var(--spacing-3);
   padding-bottom: var(--spacing-3);
 }
 
+.library-heading {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--typography-title-font-family);
+  font-size: var(--typography-title-font-size);
+  font-weight: var(--typography-title-font-weight);
+  line-height: var(--typography-title-line-height);
+}
+
 .library-sort {
-  width: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
   min-height: var(--spacing-hit-min-web);
 }
 
@@ -397,12 +413,31 @@ h1 {
 
 .cover-item {
   position: relative;
+  container-type: inline-size;
 }
 
+/* Android parity: the 44px button sits at the end of the title row, under the thumbnail. */
+.cover-text {
+  display: flex;
+  flex-direction: column;
+  min-height: 44px;
+}
+
+.cover-item .cover-text {
+  padding-inline-end: 44px;
+}
+
+/* The thumbnail is 3 / 4 (--components-cover-card-aspect-ratio): its height is 4/3 of the width. */
 .cover-menu {
   position: absolute;
-  top: var(--spacing-2);
-  right: var(--spacing-2);
+  top: calc(100cqw * 4 / 3 + var(--spacing-2));
+  right: 0;
+}
+
+.cover-menu-button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
 }
 
 .cover-menu-list {

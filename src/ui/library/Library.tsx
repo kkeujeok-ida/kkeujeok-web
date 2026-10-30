@@ -169,6 +169,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     <section ref={section} className="library" aria-label={t('library.label')} aria-busy={status === 'loading'}>
       <Banner />
       <div className="library-toolbar">
+        <h2 className="library-heading">{t('library.label')}</h2>
         <select className="field-input library-sort" aria-label={t('library.sort')} value={sort} onChange={(e) => setSort(e.target.value as LibrarySort)}>
           {LIBRARY_SORTS.map((s) => (
             <option key={s} value={s}>
@@ -403,9 +404,11 @@ function Card({
             <Thumb page={item.page} />
             {badge && <SyncBadge label={badge} />}
           </span>
-          <span id={titleId} className="cover-title">{item.title}</span>
+          <span className="cover-text">
+            <span id={titleId} className="cover-title">{item.title}</span>
+            {date && <span id={dateId} className="cover-date">{date}</span>}
+          </span>
           {status}
-          {date && <span id={dateId} className="cover-date">{date}</span>}
         </div>
       </li>
     )
@@ -435,15 +438,17 @@ function Card({
           <Thumb page={item.page} />
           {badge && <SyncBadge label={badge} />}
         </span>
-        <span id={titleId} className="cover-title">
-          {item.title}
+        <span className="cover-text">
+          <span id={titleId} className="cover-title">
+            {item.title}
+          </span>
+          {date && (
+            <span id={dateId} className="cover-date">
+              {date}
+            </span>
+          )}
         </span>
         {status}
-        {date && (
-          <span id={dateId} className="cover-date">
-            {date}
-          </span>
-        )}
       </a>
       {onDelete && <NoteMenu onDelete={onDelete} />}
     </li>
