@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
-import { SNAP_RADIUS, applyDock, centerOf, dockRect, nearestDock, ratioOf, revealShift } from '../src/ui/library/toolbarDock'
+import { SNAP_RADIUS, applyDock, centerOf, dockRect, dockAtPointer, ratioOf, revealShift } from '../src/ui/library/toolbarDock'
 
 const win = { w: 1000, h: 800 }
 const size = { w: 400, h: 40 }
@@ -13,19 +14,16 @@ describe('toolbar dock geometry', () => {
   })
 
   test('the snap boundary is 48 from the outline rect', () => {
-    const at = (d: number) => nearestDock({ x: 500, y: 52 + d }, size, win)
+    const at = (d: number) => dockAtPointer({ x: 500, y: 52 + d }, size, win)
     expect(SNAP_RADIUS).toBe(48)
     expect(at(47.9)).toBe('top')
     expect(at(48)).toBe('top')
     expect(at(48.1)).toBeNull()
   })
 
-  test('the nearest wins; a tie goes to the earlier of top, left, right, bottom', () => {
-    expect(nearestDock({ x: 500, y: 770 }, size, win)).toBe('bottom')
-    // A square window: the centre point is equally far from the left and right outlines (and top and bottom).
-    const sq = { w: 40, h: 40 }
-    expect(nearestDock({ x: 100, y: 100 }, sq, { w: 200, h: 200 })).toBe('top')
-    expect(nearestDock({ x: 100, y: 100 }, sq, { w: 200, h: 200 })).not.toBe('bottom')
+  test('shared cases test/toolbar.snap.json', () => {
+    const { cases } = JSON.parse(readFileSync(new URL('../../test/toolbar.snap.json', import.meta.url), 'utf8'))
+    for (const c of cases) expect(dockAtPointer(c.input.pointer, c.input.bar, c.input.win), c.name).toBe(c.expected)
   })
 
   test('applyDock decides vertical', () => {

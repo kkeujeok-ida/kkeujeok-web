@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type RefObject } from 'react'
 import type { Dock, ToolbarPos, ToolbarPositionStore } from '../../storage/toolbarPosition'
-import { DOCKS, applyDock, centerOf, clampCenter, dockRect, nearestDock, ratioOf, sizeAt, type Pt, type Size } from './toolbarDock'
+import { DOCKS, applyDock, centerOf, clampCenter, dockRect, dockAtPointer, ratioOf, sizeAt, type Pt, type Size } from './toolbarDock'
 
 /** A press that moves farther than this many px starts dragging the toolbar. */
 const DRAG_PX = 6
@@ -13,7 +13,7 @@ export function useToolbarDock(store: ToolbarPositionStore, bar: RefObject<HTMLE
   const [pos, setPos] = useState<ToolbarPos>(() => store.read())
   const [win, setWin] = useState<Size>(winSize)
   const [size, setSize] = useState<Size>({ w: 0, h: 0 })
-  const [drag, setDrag] = useState<{ center: Pt } | null>(null)
+  const [drag, setDrag] = useState<{ center: Pt; pointer: Pt } | null>(null)
   const press = useRef<{ id: number; x: number; y: number; off: Pt; on: boolean } | null>(null)
   const justDragged = useRef(false)
 
@@ -59,7 +59,7 @@ export function useToolbarDock(store: ToolbarPositionStore, bar: RefObject<HTMLE
   const center = drag ? clampCenter(drag.center, shape, win) : centerOf(pos, size, win)
   const floating = pos.dock !== 'top' || !!drag
   const style: CSSProperties | undefined = floating && size.w > 0 ? { left: center.x, top: center.y } : undefined
-  const near = drag ? nearestDock(drag.center, size, win) : null
+  const near = drag ? dockAtPointer(drag.pointer, size, win) : null
   const outlines: Outline[] = drag
     ? DOCKS.map((d) => {
         const r = dockRect(d, size, win)
@@ -81,7 +81,7 @@ export function useToolbarDock(store: ToolbarPositionStore, bar: RefObject<HTMLE
         p.on = true
         e.currentTarget.setPointerCapture?.(e.pointerId)
       }
-      setDrag({ center: { x: e.clientX - p.off.x, y: e.clientY - p.off.y } })
+      setDrag({ center: { x: e.clientX - p.off.x, y: e.clientY - p.off.y }, pointer: { x: e.clientX, y: e.clientY } })
     },
     onPointerUp: (e: PointerEvent<HTMLElement>) => {
       const p = press.current
@@ -92,7 +92,7 @@ export function useToolbarDock(store: ToolbarPositionStore, bar: RefObject<HTMLE
       justDragged.current = true
       setTimeout(() => (justDragged.current = false), 0)
       const c = { x: e.clientX - p.off.x, y: e.clientY - p.off.y }
-      const d = nearestDock(c, size, win)
+      const d = dockAtPointer({ x: e.clientX, y: e.clientY }, size, win)
       commit(d ? applyDock(pos, d) : { dock: 'float', ...ratioOf(clampCenter(c, shape, win), win), vertical: pos.vertical })
       setDrag(null)
     },

@@ -22,16 +22,8 @@ export function dockRect(dock: Dock, size: Size, win: Size): Rect {
 
 const gap = (c: Pt, r: Rect) => Math.hypot(Math.max(r.left - c.x, 0, c.x - r.right), Math.max(r.top - c.y, 0, c.y - r.bottom))
 
-/** The nearest snap point whose outline is within SNAP_RADIUS of the dragged centre; ties: top, left, right, bottom. */
-export function nearestDock(center: Pt, size: Size, win: Size): Dock | null {
-  let best: Dock | null = null
-  let bestGap = Infinity
-  for (const d of DOCKS) {
-    const g = gap(center, dockRect(d, size, win))
-    if (g <= SNAP_RADIUS && g < bestGap) [best, bestGap] = [d, g]
-  }
-  return best
-}
+/** The first of top, left, right, bottom whose outline is within SNAP_RADIUS of the pointer, or null (float); same rule as Android `dockAtPointer`. */
+export const dockAtPointer = (pointer: Pt, size: Size, win: Size): Dock | null => DOCKS.find((d) => gap(pointer, dockRect(d, size, win)) <= SNAP_RADIUS) ?? null
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 

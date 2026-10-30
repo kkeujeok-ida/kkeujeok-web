@@ -16,6 +16,7 @@ import { highlighterOutline } from '../src/render/highlighterOutline'
 import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
 import { selectLasso, selectRect, selectTap, type El, type P } from '../src/model/select'
+import { dockAtPointer } from '../src/ui/library/toolbarDock'
 import { driveAssetsFolderRule } from '../src/drive/duplicates'
 import { assetState, imageAccept, imageInitialSize, imageUploadPlan, referencedAssets } from '../src/model/imageRules'
 import { layoutText, type LineBox } from '../src/model/textLayout'
@@ -266,6 +267,10 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'select.rect': ({ input, expected }) => {
     const i = input as { elements: El[]; rect: [number, number, number, number] }
     expect(selectRect(i.elements, i.rect)).toEqual(expected)
+  },
+  'toolbar.snap': ({ input, expected }) => {
+    const i = input as { pointer: { x: number; y: number }; bar: { w: number; h: number }; win: { w: number; h: number } }
+    expect(dockAtPointer(i.pointer, i.bar, i.win)).toBe(expected)
   },
   'zoom.snap': ({ input, expected }) => {
     const i = input as { scale: number; fitScale: number }
