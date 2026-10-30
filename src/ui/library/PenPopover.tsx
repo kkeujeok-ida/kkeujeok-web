@@ -40,9 +40,10 @@ function previewPath(pen: Pen): string {
  * Modal: the scrim takes the pointer, Tab cycles the stops inside, Esc and a press outside close it.
  * The owner puts focus back on the slot in onClose. Every change is passed on at once.
  */
-export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent, onDelete, onClose }: {
+export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onRecent, onDelete, onClose }: {
   pen: Pen
   anchor: HTMLElement | null
+  tool: string
   /** Recent colors, newest first (at most 6). */
   recent: readonly string[]
   /** False with one slot left: [도구 삭제] is off. */
@@ -135,7 +136,7 @@ export function PenPopover({ pen, anchor, recent, canDelete, onChange, onRecent,
   }
 
   return (
-    <PopoverShell anchor={anchor} onClose={onClose} labelledBy={titleId} className="pen-popover" relayout={`${pen.tool}${recent.length}${picking}`}>
+    <PopoverShell anchor={anchor} tool={tool} onClose={onClose} labelledBy={titleId} className="pen-popover" relayout={`${pen.tool}${recent.length}${picking}`}>
         {picking ? (
           <ColorWheelPicker
             color={color}

@@ -9,10 +9,11 @@ const MODES: EraserMode[] = ['stroke', 'partial']
  * The eraser options: stroke / partial (a radiogroup, changes apply at once) and "return to the pen after erasing".
  * Modal like the pen popover; the owner puts focus back on the eraser button in onClose.
  */
-export function EraserPopover({ mode, returnToPen, anchor, onChange, onClose }: {
+export function EraserPopover({ mode, returnToPen, anchor, tool, onChange, onClose }: {
   mode: EraserMode
   returnToPen: boolean
   anchor: HTMLElement | null
+  tool: string
   onChange: (patch: Partial<EraserSettings>) => void
   onClose: () => void
 }) {
@@ -33,7 +34,7 @@ export function EraserPopover({ mode, returnToPen, anchor, onChange, onClose }: 
     }
   }
   return (
-    <PopoverShell anchor={anchor} onClose={onClose} labelledBy={titleId} className="pen-popover eraser-popover">
+    <PopoverShell anchor={anchor} tool={tool} onClose={onClose} labelledBy={titleId} className="pen-popover eraser-popover">
       <h2 id={titleId} className="pen-popover-title">
         {t('editor.eraser')}
       </h2>

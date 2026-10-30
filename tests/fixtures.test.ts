@@ -17,6 +17,7 @@ import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
 import { selectLasso, selectRect, selectTap, type El, type P } from '../src/model/select'
 import { dockAtPointer } from '../src/ui/library/toolbarDock'
+import { placeBubble } from '../src/ui/library/bubblePlace'
 import { driveAssetsFolderRule } from '../src/drive/duplicates'
 import { assetState, imageAccept, imageInitialSize, imageUploadPlan, referencedAssets } from '../src/model/imageRules'
 import { layoutText, type LineBox } from '../src/model/textLayout'
@@ -271,6 +272,15 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'toolbar.snap': ({ input, expected }) => {
     const i = input as { pointer: { x: number; y: number }; bar: { w: number; h: number }; win: { w: number; h: number } }
     expect(dockAtPointer(i.pointer, i.bar, i.win)).toBe(expected)
+  },
+  'bubble.tail': ({ input, expected }) => {
+    type R = { left: number; top: number; w: number; h: number }
+    const i = input as { win: { w: number; h: number }; bar: R; tool: R; bubble: { w: number; h: number }; vertical: boolean }
+    const box = (r: R) => ({ left: r.left, top: r.top, right: r.left + r.w, bottom: r.top + r.h })
+    const p = placeBubble(box(i.bar), box(i.tool), i.bubble, i.win)
+    const e = expected as Record<string, unknown>
+    // `left`/`top` are only in cases where Android's 8 dp and web's 12 px window margin cannot differ.
+    expect(Object.fromEntries(Object.keys(e).map((k) => [k, p[k as keyof typeof p]]))).toEqual(e)
   },
   'zoom.snap': ({ input, expected }) => {
     const i = input as { scale: number; fitScale: number }

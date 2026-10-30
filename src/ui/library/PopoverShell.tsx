@@ -11,11 +11,12 @@ const tailAt = (p: Placement & { w: number; h: number }) => {
 }
 
 /**
- * The modal shell of the toolbar popovers: a scrim that takes the pointer, a speech bubble on the tool button `anchor` (placement: bubblePlace.ts; its tail is a sibling span), Tab cycling the `[tabindex="0"]` stops inside, Esc and a press outside close it.
+ * The modal shell of the toolbar popovers: a scrim that takes the pointer, a speech bubble on the tool button `tool` inside the toolbar `anchor` (placement: bubblePlace.ts; its tail is a sibling span), Tab cycling the `[tabindex="0"]` stops inside, Esc and a press outside close it.
  * The owner puts focus back in onClose. `relayout` changes when the content's height may have changed.
  */
-export function PopoverShell({ anchor, onClose, labelledBy, className, relayout, children }: {
-  anchor: HTMLElement | null
+export function PopoverShell({ anchor, tool, onClose, labelledBy, className, relayout, children }: {
+  anchor: HTMLElement | null // the toolbar
+  tool: string // selector of the tool button inside it that the tail points at
   onClose: () => void
   labelledBy: string
   className: string
@@ -30,7 +31,7 @@ export function PopoverShell({ anchor, onClose, labelledBy, className, relayout,
     const b = box.current
     if (!anchor || !bar || !b) return
     const [w, h] = [b.offsetWidth, b.offsetHeight]
-    setPos({ ...placeBubble(bar, anchor.getBoundingClientRect(), { w, h }, { w: window.innerWidth, h: window.innerHeight }), w, h })
+    setPos({ ...placeBubble(bar, (anchor.querySelector(tool) ?? anchor).getBoundingClientRect(), { w, h }, { w: window.innerWidth, h: window.innerHeight }), w, h })
   }
   useLayoutEffect(place, [anchor, relayout]) // eslint-disable-line react-hooks/exhaustive-deps -- place reads the current anchor
   useEffect(() => {

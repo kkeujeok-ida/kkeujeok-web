@@ -1505,6 +1505,7 @@ export function NoteEditor({
               mode={eraser.mode}
               returnToPen={eraser.returnToPen}
               anchor={toolbar.current}
+              tool='[data-tool="eraser"]'
               onChange={(patch) => {
                 if (patch.mode && patch.mode !== eraser.mode) setAnnounce(t(patch.mode === 'partial' ? 'editor.eraserSayPartial' : 'editor.eraserSayStroke'))
                 setEraser(eraserStore.write(patch))
@@ -1519,6 +1520,7 @@ export function NoteEditor({
             <PenPopover
               pen={pens[popover]}
               anchor={toolbar.current}
+              tool={`[data-slot="${popover}"]`}
               canDelete={pens.length > 1}
               onDelete={() => deletePenSlot(popover)}
               recent={recent}
