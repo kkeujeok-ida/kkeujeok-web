@@ -6,6 +6,7 @@ import type { Auth } from '../drive/auth'
 import { clearSessionHistories } from '../ops/sessionHistories'
 import { deleteNoteDatabase } from '../storage/noteDb'
 import { VISIBLE_TOOLS_MAX, VISIBLE_TOOLS_MIN, sharedVisibleTools } from '../storage/toolbarVisibleTools'
+import { PenPaletteEditor } from './PenPaletteEditor'
 import { ConfirmDialog } from './ConfirmDialog'
 import { downloadBlob } from './download'
 
@@ -142,6 +143,7 @@ export function Settings({
           </button>
         </div>
       </div>
+      <PenPaletteEditor />
       <a className="btn" href="/privacy" target="_blank" rel="noopener noreferrer">
         {t('settings.privacy')}
       </a>

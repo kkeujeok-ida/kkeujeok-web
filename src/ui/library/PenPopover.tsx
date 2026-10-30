@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { fmt, useI18n } from '../../i18n'
 import { PEN_PALETTE, PEN_WIDTH, colorNameKey, snapWidth, type Pen, type PenTool } from '../../model/pen'
+import { sharedPenPalette } from '../../storage/penPalette'
 import { highlighterOutline, windAlike } from '../../render/highlighterOutline'
 import { strokeOutline } from '../../render/strokeOutline'
 import { ColorWheelPicker } from './ColorWheelPicker'
@@ -67,7 +68,8 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => toolBtns.current[TOOLS.indexOf(pen.tool)]?.focus(), [])
 
-  const { colors, columns } = PEN_PALETTE[pen.tool]
+  const colors = sharedPenPalette().read(pen.tool)
+  const { columns } = PEN_PALETTE[pen.tool]
   const customIdx = colors.length
   const color = pen.color.toLowerCase()
   const checkedIdx = colors.includes(color) ? colors.indexOf(color) : customIdx
