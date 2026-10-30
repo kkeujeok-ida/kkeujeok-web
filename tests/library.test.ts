@@ -8,6 +8,7 @@ import { I18nContext, createI18n } from '../src/i18n'
 import type { Note } from '../src/model/note'
 import { createNote } from '../src/ops/ops'
 import { createNewNoteDefaults, NEW_NOTE_DEFAULTS_KEY } from '../src/storage/newNoteDefaults'
+import type { LibraryView } from '../src/storage/libraryView'
 import { NOTE_DB_NAME, deleteNoteDatabase } from '../src/storage/noteDb'
 import { type NoteStore, openNoteStore } from '../src/storage/noteStore'
 import { App } from '../src/ui/App'
@@ -43,7 +44,7 @@ const memStorage = () => {
   return { m, getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
 }
 
-async function mountLibrary(o: { lang?: string; afterPut?: NonNullable<Opts>['afterPut']; storage?: ReturnType<typeof memStorage> } = {}) {
+async function mountLibrary(o: { lang?: string; viewStore?: { read(): LibraryView; write(v: LibraryView): void }; afterPut?: NonNullable<Opts>['afterPut']; storage?: ReturnType<typeof memStorage> } = {}) {
   const storage = o.storage ?? memStorage()
   const defaults = createNewNoteDefaults(storage)
   const openStore = makeOpen({ afterPut: o.afterPut })
@@ -52,7 +53,7 @@ async function mountLibrary(o: { lang?: string; afterPut?: NonNullable<Opts>['af
       createElement(
         I18nContext.Provider,
         { value: i18nFor(o.lang ?? 'ko-KR') },
-        createElement(Library, { openStore, defaults, editedBy: 'Chrome, Windows' }),
+        createElement(Library, { openStore, defaults, editedBy: 'Chrome, Windows', viewStore: o.viewStore }),
       ),
     ),
   )
@@ -71,6 +72,11 @@ const typeInto = (el: HTMLInputElement, v: string) =>
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v)
     el.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+const select = (el: HTMLSelectElement, v: string) =>
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, v)
+    el.dispatchEvent(new Event('change', { bubbles: true }))
   })
 const buttonByText = (text: string) => qa<HTMLButtonElement>('button').find((b) => b.textContent === text)!
 const titleInput = () => q<HTMLInputElement>('input[type="text"]')!
@@ -694,5 +700,24 @@ describe('review fixes', () => {
     act(() => root.render(createElement(NoteEditor, { noteId: 'nope', openStore: open })))
     await flush()
     expect(editorClosed.n).toBe(1)
+  })
+})
+
+describe('library view modes', () => {
+  test('default is a large list; a pick is applied, saved and announced by the select', async () => {
+    let saved: LibraryView = { layout: 'list', size: 'large' }
+    const viewStore = { read: () => saved, write: (v: LibraryView) => void (saved = v) }
+    await mountLibrary({ lang: 'en-US', viewStore })
+    const grid = q('.cover-grid')!
+    expect(grid.getAttribute('data-layout')).toBe('list')
+    expect(grid.getAttribute('data-size')).toBe('large')
+    const sel = q<HTMLSelectElement>('select.library-view')!
+    expect(sel.getAttribute('aria-label')).toBe('View')
+    expect(sel.selectedOptions[0]!.textContent).toBe('Large list')
+    await select(sel, 'grid:small')
+    expect(q('.cover-grid')!.getAttribute('data-layout')).toBe('grid')
+    expect(q('.cover-grid')!.getAttribute('data-size')).toBe('small')
+    expect(saved).toEqual({ layout: 'grid', size: 'small' })
+    expect(q<HTMLSelectElement>('select.library-view')!.selectedOptions[0]!.textContent).toBe('Small grid')
   })
 })

@@ -391,6 +391,13 @@ h1 {
   line-height: var(--typography-title-line-height);
 }
 
+.library-view {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  min-height: var(--spacing-hit-min-web);
+}
+
 .library-sort {
   flex: 0 1 auto;
   min-width: 0;
@@ -400,7 +407,8 @@ h1 {
 
 .cover-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--spacing-cover-column-min), 1fr));
+  --cover-col: var(--spacing-cover-column-min);
+  grid-template-columns: repeat(auto-fill, minmax(var(--cover-col), 1fr));
   gap: var(--spacing-5);
   margin: 0;
   padding: 0;
@@ -409,6 +417,54 @@ h1 {
 
 .cover-grid > li {
   min-width: 0;
+}
+
+/* View modes (spec/library-layout.md): sizes are fractions of the cover column minimum, the same as Android. A large list is the original card flow. */
+.cover-grid[data-layout='grid'] {
+  gap: var(--spacing-3);
+}
+
+.cover-grid[data-layout='grid'][data-size='small'] {
+  --cover-col: calc(var(--spacing-cover-column-min) * 0.38);
+}
+
+.cover-grid[data-layout='grid'][data-size='standard'] {
+  --cover-col: calc(var(--spacing-cover-column-min) * 0.55);
+}
+
+.cover-grid[data-layout='grid'][data-size='large'] {
+  --cover-col: calc(var(--spacing-cover-column-min) * 1.2);
+}
+
+.cover-grid[data-layout='list']:not([data-size='large']) {
+  --row-thumb: calc(var(--spacing-cover-column-min) * 0.5);
+  grid-template-columns: 1fr;
+  gap: var(--spacing-3);
+}
+
+.cover-grid[data-layout='list'][data-size='small'] {
+  --row-thumb: calc(var(--spacing-cover-column-min) * 0.33);
+}
+
+.cover-grid[data-layout='list']:not([data-size='large']) .cover-card {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--spacing-3);
+}
+
+.cover-grid[data-layout='list']:not([data-size='large']) .cover-card > .cover-thumb,
+.cover-grid[data-layout='list']:not([data-size='large']) .cover-thumb-wrap {
+  flex: none;
+  width: var(--row-thumb);
+}
+
+.cover-grid[data-layout='list']:not([data-size='large']) .cover-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.cover-grid[data-layout='list']:not([data-size='large']) .cover-menu {
+  top: 0;
 }
 
 .cover-item {

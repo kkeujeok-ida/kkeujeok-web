@@ -17,6 +17,7 @@ import { useNoteConflicts, useNoteIssue, useOffline } from '../sync/syncUi'
 import { useDisplayLabel } from '../sync/useDisplayLabel'
 import type { UploadCoordinator } from '../../sync/uploadCoordinator'
 import { ConfirmDialog } from '../ConfirmDialog'
+import { LIBRARY_LAYOUTS, LIBRARY_SIZES, sharedLibraryView, type LibraryView } from '../../storage/libraryView'
 import { LibraryFab } from './LibraryFab'
 import { NewNoteDialog } from './NewNoteDialog'
 import { noteHref } from './NoteEditor'
@@ -40,6 +41,8 @@ type Props = {
   receiver?: Pick<NoteReceiver, 'subscribe' | 'getState'>
   /** Story 7.8: deleting a note sends what is unsent, then trashes it on Drive. Without it no delete is offered. */
   uploads?: Pick<UploadCoordinator, 'deleteNote'>
+  /** The list's layout and size, a device setting. */
+  viewStore?: { read(): LibraryView; write(v: LibraryView): void }
 }
 
 const NO_RECEIVE: ReceiveState = { version: 0, receiving: new Set(), scanning: false, revived: 0 }
@@ -59,7 +62,7 @@ function formatDate(ms: number | null, locale: string): string {
   }
 }
 
-export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver, uploads }: Props) {
+export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver, uploads, viewStore = sharedLibraryView() }: Props) {
   const { t, locale } = useI18n()
   const lib = useLibrary(openStore, defaults, editedBy, receiver)
   const rx = receiver ?? NO_RECEIVER
@@ -154,6 +157,12 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   }, [asking])
 
   const [sort, setSort] = useState<LibrarySort>('nameAsc') // by name at every start
+  const [view, setView] = useState<LibraryView>(() => viewStore.read())
+  const pickView = (v: LibraryView) => {
+    setView(v)
+    viewStore.write(v)
+  }
+  const viewName = (v: LibraryView) => `${t(`library.view.${v.size}`)} ${t(`library.view.${v.layout}`)}`
   const items = useMemo(() => sortBy(lib.items, sort), [lib.items, sort])
   const { status } = lib
   const offline = useOffline()
@@ -170,6 +179,23 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       <Banner />
       <div className="library-toolbar">
         <h2 className="library-heading">{t('library.label')}</h2>
+        <select
+          className="field-input library-view"
+          aria-label={t('library.view')}
+          value={`${view.layout}:${view.size}`}
+          onChange={(e) => {
+            const [layout, size] = e.target.value.split(':') as [LibraryView['layout'], LibraryView['size']]
+            pickView({ layout, size })
+          }}
+        >
+          {LIBRARY_LAYOUTS.flatMap((layout) =>
+            LIBRARY_SIZES.map((size) => (
+              <option key={`${layout}:${size}`} value={`${layout}:${size}`}>
+                {viewName({ layout, size })}
+              </option>
+            )),
+          )}
+        </select>
         <select className="field-input library-sort" aria-label={t('library.sort')} value={sort} onChange={(e) => setSort(e.target.value as LibrarySort)}>
           {LIBRARY_SORTS.map((s) => (
             <option key={s} value={s}>
@@ -183,7 +209,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           {t('library.saveFailed')}
         </p>
       )}
-      <ul className="cover-grid">
+      <ul className="cover-grid" data-layout={view.layout} data-size={view.size}>
         {status === 'loading' && (
           <li className="cover-status" role="status">
             {t('library.loading')}
