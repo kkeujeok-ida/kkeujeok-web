@@ -1781,8 +1781,8 @@ h1 {
 }
 
 .color-wheel {
-  --ring-size: 200px;
-  --ring-width: 28px;
+  --ring-size: 224px;
+  --ring-width: 24px;
   position: relative;
   width: var(--ring-size);
   height: var(--ring-size);
@@ -1820,9 +1820,9 @@ h1 {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 100px;
-  height: 100px;
-  margin: -50px 0 0 -50px;
+  width: 122px;
+  height: 122px;
+  margin: -61px 0 0 -61px;
   touch-action: none;
   background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, var(--hue));
 }

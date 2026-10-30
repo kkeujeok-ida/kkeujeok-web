@@ -2739,9 +2739,9 @@ describe('toolbar move and snap (story 5.10)', () => {
     ptr('pointermove', 200, 100)
     expect(qa('.toolbar-snap')).toHaveLength(4)
     expect(bar().classList.contains('is-dragging')).toBe(true)
-    ptr('pointermove', -138, 384) // centre (32, 384): on the left outline
+    ptr('pointermove', 32, 384) // the pointer is on the left outline (the rule is pointer based, 17.2)
     expect(qa('.toolbar-snap-near')).toHaveLength(1)
-    ptr('pointerup', -138, 384)
+    ptr('pointerup', 32, 384)
     expect(qa('.toolbar-snap')).toHaveLength(0)
     expect(bar().classList.contains('is-vertical')).toBe(true)
     expect(stored(s.m)).toMatchObject({ dock: 'left', vertical: true })

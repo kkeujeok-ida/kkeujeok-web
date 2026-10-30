@@ -31,9 +31,9 @@ describe('color model (story 15.6)', () => {
 import { onRingBand, withHash } from '../src/ui/library/ColorWheelPicker'
 describe('ring hit-test / hex input', () => {
   test('ignores the hole and the outside', () => {
-    expect(onRingBand(0, 0, 200, 28)).toBe(false)
-    expect(onRingBand(90, 0, 200, 28)).toBe(true)
-    expect(onRingBand(150, 0, 200, 28)).toBe(false)
+    expect(onRingBand(0, 0, 224, 48)).toBe(false)
+    expect(onRingBand(100, 0, 224, 48)).toBe(true)
+    expect(onRingBand(150, 0, 224, 48)).toBe(false)
   })
   test('accepts hex without #', () => {
     expect(withHash('ff0000')).toBe('#ff0000')

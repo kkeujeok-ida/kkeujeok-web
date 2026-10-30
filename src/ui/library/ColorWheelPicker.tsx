@@ -2,10 +2,10 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } fr
 import { fmt, useI18n } from '../../i18n'
 import { HEX6, hexToHsv, hsvToHex, type Hsv } from '../../model/colorModel'
 
-const RING_WIDTH = 28 // matches --ring-width in app.css
+const RING_HIT = 48 // ring touch band (>= 44px), reaches inward; the square wins on top. Sizes: spec/pen.md, app.css
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
 
-/** True when (dx, dy) from the center lies on the ring band (not in the hole, not outside). */
+/** True when (dx, dy) from the center lies on the ring's touch band (not deeper in, not outside). */
 export const onRingBand = (dx: number, dy: number, size: number, width: number) => {
   const d = Math.hypot(dx, dy)
   return d >= size / 2 - width && d <= size / 2
@@ -46,7 +46,7 @@ export function ColorWheelPicker({ color, onChange, onDone, onCancel }: { color:
   const onRing = (e: PointerEvent<HTMLDivElement>) => {
     const r = ring.current!.getBoundingClientRect()
     if (e.type === 'pointerdown') {
-      ringDrag.current = onRingBand(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2), r.width, RING_WIDTH)
+      ringDrag.current = onRingBand(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2), r.width, RING_HIT)
       if (!ringDrag.current) return
       capture(e)
     } else if (!(e.buttons & 1) || !ringDrag.current) return
