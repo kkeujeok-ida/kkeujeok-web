@@ -42,52 +42,76 @@ export function createSyncLog(
     return ok.slice(-syncLogKeep)
   }
 
+  // Consecutive `error` entries per note since its last `synced`, in memory: a reload starts the count again
+  // (shortcut: the log is diagnostic only).
+  const failures = new Map<string, number>()
+
+  /**
+   * Stores one entry stamped with the clock's time. A `reason` outside its domain
+   * becomes `other`. False, nothing stored, when the entry is invalid or the
+   * write fails. Never throws.
+   */
+  async function put(event: string, fields: Entry = {}): Promise<boolean> {
+    try {
+      const entry: Entry = { ...fields, at: clock().toISOString(), event }
+      if ('reason' in entry && !validLogReason(entry.reason)) entry.reason = 'other'
+      if ('cause' in entry && !LOG_CAUSES.includes(entry.cause as string)) entry.cause = 'unknown'
+      if ('exception' in entry) {
+        // A type name only: other characters become `_`, 64 at most.
+        const t = typeof entry.exception === 'string' ? entry.exception.replace(/[^A-Za-z0-9_.$:]/g, '_').slice(0, 64) : ''
+        if (t) entry.exception = t
+        else delete entry.exception
+      }
+      if (!checkLogEntry(entry).ok) return false
+      await ndb.withDb((db) => db.add(LOG_STORE, entry))
+    } catch {
+      return false
+    }
+    // The entry is stored; a failed trim is tried again by the next append.
+    try {
+      await ndb.withDb(async (db) => {
+        const tx = db.transaction(LOG_STORE, 'readwrite')
+        const extra = (await tx.store.count()) - syncLogKeep
+        if (extra > 0) for (const k of await tx.store.getAllKeys(undefined, extra)) await tx.store.delete(k)
+        await tx.done
+      })
+    } catch {
+      // kept
+    }
+    return true
+  }
+
   return {
     entries,
 
     /**
-     * Adds one entry stamped with the clock's time. A `reason` outside its domain
-     * becomes `other`. False, nothing stored, when the entry is invalid or the
-     * write fails. Never throws.
+     * Adds one entry stamped with the clock's time. A `reason` outside its domain becomes `other`.
+     * False, nothing stored, when the entry is invalid or the write fails. Never throws.
+     * More than 3 failures in a row of one note add a `repeatedFailure` line.
      */
     async append(event: string, fields: Entry = {}): Promise<boolean> {
-      try {
-        const entry: Entry = { ...fields, at: clock().toISOString(), event }
-        if ('reason' in entry && !validLogReason(entry.reason)) entry.reason = 'other'
-        if ('cause' in entry && !LOG_CAUSES.includes(entry.cause as string)) entry.cause = 'unknown'
-        if ('exception' in entry) {
-          // A type name only: other characters become `_`, 64 at most.
-          const t = typeof entry.exception === 'string' ? entry.exception.replace(/[^A-Za-z0-9_.$:]/g, '_').slice(0, 64) : ''
-          if (t) entry.exception = t
-          else delete entry.exception
-        }
-        if (!checkLogEntry(entry).ok) return false
-        await ndb.withDb((db) => db.add(LOG_STORE, entry))
-      } catch {
-        return false
+      const ok = await put(event, fields)
+      const id = fields.noteId
+      if (!ok || typeof id !== 'string') return ok
+      if (event === 'stateChange' && fields.to === 'synced') failures.delete(id)
+      if (event === 'error') {
+        const n = (failures.get(id) ?? 0) + 1
+        failures.set(id, n)
+        if (n > 3) await put('repeatedFailure', { noteId: id, count: n, ...(typeof fields.reason === 'string' && { reason: fields.reason }) })
       }
-      // The entry is stored; a failed trim is tried again by the next append.
-      try {
-        await ndb.withDb(async (db) => {
-          const tx = db.transaction(LOG_STORE, 'readwrite')
-          const extra = (await tx.store.count()) - syncLogKeep
-          if (extra > 0) for (const k of await tx.store.getAllKeys(undefined, extra)) await tx.store.delete(k)
-          await tx.done
-        })
-      } catch {
-        // kept
-      }
-      return true
+      return ok
     },
 
+
     /** The file to download: the header line, then the entries. Rejects when the log cannot be read. */
-    async exportJsonl({ appVersion, buildId = 'unknown', now }: { appVersion: string; buildId?: string; now: Date }) {
+    async exportJsonl({ appVersion, buildId = 'unknown', buildNumber = 'unknown', now }: { appVersion: string; buildId?: string; buildNumber?: string; now: Date }) {
       const at = now.toISOString()
       const header = {
         type: 'header',
         app: 'kkeujeok',
         appVersion,
         buildId,
+        buildNumber,
         deviceLabel: deviceLabel(),
         platform: 'web',
         supportedFormatVersion: SUPPORTED_FORMAT_VERSION,

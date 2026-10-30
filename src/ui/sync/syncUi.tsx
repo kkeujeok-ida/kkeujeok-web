@@ -69,7 +69,7 @@ function defaultStatus(): SyncStatus {
   }
 }
 
-const defaultExport = () => syncLog().exportJsonl({ appVersion: __APP_VERSION__, buildId: __BUILD_ID__, now: new Date() })
+const defaultExport = () => syncLog().exportJsonl({ appVersion: __APP_VERSION__, buildId: __BUILD_ID__, buildNumber: __BUILD_NUMBER__, now: new Date() })
 
 export function SyncUiProvider({
   auth,

@@ -32,7 +32,7 @@ import type { AssetStore } from '../storage/assetStore'
 import { createAssetUploader } from './assetUploader'
 import { createSidecarUploader } from './sidecarUploader'
 import type { SyncLog } from './syncLog'
-import { logWhy } from './syncLogEntry'
+import { backoffReason, logWhy } from './syncLogEntry'
 import { backoffRule, transition, uploadKindRule, verifyPlanRule } from './syncRules'
 
 /** The `sync.json` key of a deleted note that still waits to be trashed (an unknown key, kept by every commit). */
@@ -251,7 +251,7 @@ export function createNoteUploader(d: UploaderDeps) {
   async function call<T>(
     noteId: string,
     fn: () => Promise<T>,
-    o: { pass?: (e: DriveError) => boolean; beforeRetry?: () => Promise<T | null> } = {},
+    o: { pass?: (e: DriveError) => boolean; beforeRetry?: () => Promise<T | null>; stage?: string } = {},
   ): Promise<T> {
     let attempt = 0
     for (;;) {
@@ -271,14 +271,14 @@ export function createNoteUploader(d: UploaderDeps) {
         attempt++
         const plan = backoffRule({ attempt, jitter: d.jitter() })
         if (!('retry' in plan) || plan.retry !== true) throw failure(cls, base)
-        await log.append('backoff', { class: cls, attempt, delayMs: plan.delayMs, noteId, scope: 'note' })
+        await log.append('backoff', { class: cls, attempt, delayMs: plan.delayMs, noteId, scope: 'note', reason: backoffReason(e), stage: o.stage ?? 'upload' })
         await d.sleep(plan.delayMs, noteId)
       }
     }
   }
 
   async function download(noteId: string, fileId: string, revision: string): Promise<Note> {
-    const bytes = await call(noteId, () => drive.downloadRevision(fileId, revision))
+    const bytes = await call(noteId, () => drive.downloadRevision(fileId, revision), { stage: 'download' })
     await log.append('revisionDownloaded', { noteId, revisionId: revision })
     const r = await decodeKkj(bytes)
     if (!r.note || r.note.noteId !== noteId) {
@@ -632,7 +632,7 @@ export function createNoteUploader(d: UploaderDeps) {
         await d.sleep('delayMs' in w ? w.delayMs : 1000, noteId)
       }
       throw new DriveError('network')
-    })
+    }, { stage: 'verify' })
     await log.append('verifyRound', { noteId, round: a.round, count: 'download' in plan ? plan.download.length : 0 })
     if (!('result' in plan)) throw failure('fatal', { reason: 'verifyExhausted', clearVerify: true })
     switch (plan.result) {

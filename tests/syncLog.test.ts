@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { checkLogEntry, logWhy } from '../src/sync/syncLogEntry'
+import { backoffReason, checkLogEntry, logWhy } from '../src/sync/syncLogEntry'
 import { LOG_STORE, SYNC_LOG_DB, createSyncLog, syncLogKeep } from '../src/sync/syncLog'
 
 const NOTE = '01926f3a-0000-7000-8000-000000000900'
@@ -149,9 +149,34 @@ test('new diagnostic fields round-trip; a bad one is refused or normalised', asy
   expect(e[1]!.reason).toBe('other')
 })
 
+describe('repeatedFailure', () => {
+  const fail = (reason: string) => log.append('error', { class: 'backoff', noteId: NOTE, reason })
+  const repeated = async () => (await log.entries()).filter((e) => e.event === 'repeatedFailure')
+
+  test('the 4th failure in a row adds a line; synced resets', async () => {
+    for (let i = 0; i < 3; i++) await fail('a')
+    expect(await repeated()).toHaveLength(0)
+    await fail('headMoved')
+    await fail('headMoved')
+    const r = await repeated()
+    expect(r.map((e) => e.count)).toEqual([4, 5])
+    expect(r[0]).toMatchObject({ reason: 'headMoved', noteId: NOTE })
+    await log.append('stateChange', { noteId: NOTE, from: 'syncing', to: 'synced' })
+    await fail('a')
+    expect(await repeated()).toHaveLength(2)
+  })
+
+  test('a backoff keeps reason and stage; a bad stage is refused', async () => {
+    expect(await log.append('backoff', { class: 'backoff', attempt: 1, delayMs: 1000, reason: 'http429', stage: 'download' })).toBe(true)
+    expect(await log.append('backoff', { class: 'backoff', attempt: 1, delayMs: 1000, stage: 'x' })).toBe(false)
+    expect(backoffReason({ status: 429, kind: 'http' })).toBe('http429')
+    expect(backoffReason({ kind: 'network' })).toBe('network')
+  })
+})
+
 describe('export', () => {
   test('0 entries: the header line only', async () => {
-    const f = await log.exportJsonl({ appVersion: '1.2.3', buildId: '42', now: new Date('2026-10-16T23:59:59.999Z') })
+    const f = await log.exportJsonl({ appVersion: '1.2.3', buildId: '42', buildNumber: '7', now: new Date('2026-10-16T23:59:59.999Z') })
     expect(f.name).toBe('kkeujeok-sync-log-2026-10-16.jsonl')
     expect(f.text.endsWith('\n')).toBe(true)
     expect(f.text.charCodeAt(0)).not.toBe(0xfeff)
@@ -165,6 +190,7 @@ describe('export', () => {
       app: 'kkeujeok',
       appVersion: '1.2.3',
       buildId: '42',
+      buildNumber: '7',
       platform: 'web',
       supportedFormatVersion: 1,
       exportedAt: '2026-10-16T23:59:59.999Z',

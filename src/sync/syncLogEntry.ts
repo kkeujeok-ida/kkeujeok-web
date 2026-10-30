@@ -19,17 +19,19 @@ const EVENTS: Record<string, [string, boolean][]> = {
   merged: [['noteId', true], ['rev', false]],
   conflictFound: [['noteId', true], ['rev', false]],
   baseAdvanced: [['noteId', true], ['revisionId', true]],
-  backoff: [['class', true], ['attempt', true], ['delayMs', true], ['noteId', false], ['scope', false]],
+  backoff: [['class', true], ['attempt', true], ['delayMs', true], ['noteId', false], ['scope', false], ['reason', false], ['stage', false]],
   error: [['class', true], ['noteId', false], ['status', false], ['reason', false], ['scope', false], ['cause', false], ['exception', false]],
   conflictResolved: [['noteId', true], ['choice', true]],
   pageTokenRejected: [],
   duplicatesCleaned: [['count', true]],
+  repeatedFailure: [['noteId', true], ['count', true], ['reason', false]],
 }
 
 const AT = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])T([01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}Z$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const REASON = /^[A-Za-z0-9_]{1,64}$/
 const EXCEPTION = /^[A-Za-z0-9_.$:]{1,64}$/
+export const LOG_STAGES = ['download', 'upload', 'verify', 'merge']
 export const LOG_CAUSES = ['network', 'auth', 'quota', 'server', 'unknown']
 const STATES = ['synced', 'pending', 'syncing', 'conflict', 'error']
 const CLASSES = ['backoff', 'quota', 'reauth', 'deleted', 'unreadable', 'fatal']
@@ -56,6 +58,7 @@ function valid(field: string, v: unknown, event: unknown): boolean {
     case 'scope': return v === 'global' || v === 'note'
     case 'choice': return v === 'local' || v === 'remote' || v === 'both'
     case 'reason': return validLogReason(v)
+    case 'stage': return str && LOG_STAGES.includes(v)
     case 'attempt': return int(v, 1, 7)
     case 'delayMs': return int(v, 0, 32000)
     case 'round': return int(v, 1, 3)
@@ -82,6 +85,10 @@ export function checkLogEntry(entry: unknown): EntryCheck {
   }
   return { ok: true }
 }
+
+/** The `reason` of a `backoff` entry: Drive's reason, else what the failure was. The log writer turns a bad one into `other`. */
+export const backoffReason = (e: { reason?: string; status?: number; kind: string }): string =>
+  e.reason ?? (e.status !== undefined ? `http${e.status}` : e.kind)
 
 const QUOTA_REASON = /quota|ratelimit|limitexceeded/i
 

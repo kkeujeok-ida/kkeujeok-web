@@ -28,7 +28,7 @@ import type { MergeIo } from './mergeIo'
 import { chained } from './noteChain'
 import { getOpenNote, openNoteIds } from './openNotes'
 import type { SyncLog } from './syncLog'
-import { logWhy } from './syncLogEntry'
+import { backoffReason, logWhy } from './syncLogEntry'
 import { hasUnsentRule } from './hasUnsent'
 import { backoffRule, transition } from './syncRules'
 import { noteLockName } from './uploadCoordinator'
@@ -189,7 +189,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
         attempt++
         const plan = backoffRule({ attempt, jitter: d.jitter() })
         if (!('retry' in plan) || plan.retry !== true) throw new Fail(cls, e.status, reason, undefined, e)
-        await log.append('backoff', { class: cls, attempt, delayMs: plan.delayMs, ...(noteId !== undefined && { noteId }), scope: noteId === undefined ? 'global' : 'note' })
+        await log.append('backoff', { class: cls, attempt, delayMs: plan.delayMs, ...(noteId !== undefined && { noteId }), scope: noteId === undefined ? 'global' : 'note', reason: backoffReason(e), stage: 'download' }) // the receiver only reads Drive
         await d.sleep(plan.delayMs)
         g.ensure()
       }
