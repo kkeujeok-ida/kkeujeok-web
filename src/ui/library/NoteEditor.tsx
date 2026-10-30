@@ -71,7 +71,8 @@ function backToLibrary() {
 
 const SNACKBAR_MS = 4000
 /** The "slot deleted" snackbar with [되돌리기] stays this long. */
-const DELETE_UNDO_MS = 6000
+const DELETE_UNDO_MS = 5000
+const DELETE_UNDO_FOCUS_MS = 15000
 /** The scale badge stays this long after the last zoom. */
 const ZOOM_BADGE_MS = 1500
 /** An assertive announcement stays in its live region this long. */
@@ -662,11 +663,16 @@ export function NoteEditor({
     lastUsed.current = deleted.last
     focusSlot(deleted.selected)
   }
+  // Focus inside the snackbar (keyboard, screen reader) gives more time.
+  const [deletedFocus, setDeletedFocus] = useState(false)
   useEffect(() => {
-    if (!deleted) return
-    const id = setTimeout(() => setDeleted(null), DELETE_UNDO_MS)
+    if (!deleted) {
+      setDeletedFocus(false) // an unmounted focused button fires no blur
+      return
+    }
+    const id = setTimeout(() => setDeleted(null), deletedFocus ? DELETE_UNDO_FOCUS_MS : DELETE_UNDO_MS)
     return () => clearTimeout(id)
-  }, [deleted])
+  }, [deleted, deletedFocus])
 
   // Ctrl/Cmd+Z undoes, Ctrl+Y and Ctrl/Cmd+Shift+Z redo, wherever focus is
   // except in a text field (which keeps its own undo).
@@ -1455,7 +1461,12 @@ export function NoteEditor({
             {message ? t(MESSAGE_KEY[message.key]) : ''}
           </div>
           {deleted && (
-            <div role="status" className="snackbar snackbar-action">
+            <div
+              role="status"
+              className="snackbar snackbar-action"
+              onFocus={() => setDeletedFocus(true)}
+              onBlur={() => setDeletedFocus(false)}
+            >
               <span>{t('editor.slotDeleted')}</span>
               <button type="button" className="snackbar-button" onClick={undoDelete}>
                 {t('editor.undoDelete')}
