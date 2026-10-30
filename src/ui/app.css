@@ -133,6 +133,17 @@ h1 {
   border: 0;
 }
 
+.settings-stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+}
+
+.settings-stepper .btn {
+  min-width: var(--spacing-hit-min-web);
+  min-height: var(--spacing-hit-min-web);
+}
+
 .settings-group legend {
   padding: 0 0 var(--spacing-2);
   color: var(--color-ink-secondary);
@@ -664,6 +675,8 @@ h1 {
 
 .pen-toolbar.is-vertical .pen-slots {
   flex-direction: column;
+  max-width: none;
+  max-height: calc(var(--visible-tools, 7) * 36px + (var(--visible-tools, 7) - 1) * var(--components-toolbar-item-gap));
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -793,6 +806,8 @@ h1 {
   display: flex;
   gap: var(--components-toolbar-item-gap);
   min-width: 0;
+  /* Stops at "tools shown at once" slots (36px each); the rest scrolls inside. */
+  max-width: calc(var(--visible-tools, 7) * 36px + (var(--visible-tools, 7) - 1) * var(--components-toolbar-item-gap));
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -891,8 +906,9 @@ h1 {
   position: absolute;
   bottom: 3px;
   right: 2px;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
+  letter-spacing: -0.02em;
   line-height: 1;
   color: var(--color-ink-primary);
   pointer-events: none;

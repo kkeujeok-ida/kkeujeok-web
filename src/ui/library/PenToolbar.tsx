@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
 import { colorNameKey, type Pen } from '../../model/pen'
 import { fmt, useI18n } from '../../i18n'
 import type { EraserMode } from '../../storage/eraserSettings'
+import { sharedVisibleTools } from '../../storage/toolbarVisibleTools'
 import type { Dock } from '../../storage/toolbarPosition'
 import type { ToolbarDock } from './useToolbarDock'
 
@@ -227,7 +228,7 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, to
           ))}
         </div>
       )}
-      <div ref={slotsEl} role="radiogroup" className="pen-slots">
+      <div ref={slotsEl} role="radiogroup" className="pen-slots" style={{ '--visible-tools': sharedVisibleTools().read() } as CSSProperties}>
         {pens.map((pen, i) => {
           const label = fmt(t(pen.tool === 'highlighter' ? 'editor.highlighterSlot' : 'editor.penSlot'), { color: t(colorNameKey(pen.color)), width: pen.width.toFixed(1), n: i + 1 })
           const on = i === selected

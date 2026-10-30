@@ -5,6 +5,7 @@ import { fmt, useI18n, type Choice, type Key } from '../i18n'
 import type { Auth } from '../drive/auth'
 import { clearSessionHistories } from '../ops/sessionHistories'
 import { deleteNoteDatabase } from '../storage/noteDb'
+import { VISIBLE_TOOLS_MAX, VISIBLE_TOOLS_MIN, sharedVisibleTools } from '../storage/toolbarVisibleTools'
 import { ConfirmDialog } from './ConfirmDialog'
 import { downloadBlob } from './download'
 
@@ -84,6 +85,7 @@ export function Settings({
       setBusy(false)
     }
   }
+  const [visible, setVisible] = useState(() => sharedVisibleTools().read())
   const [exportFailed, setExportFailed] = useState(false)
   const exporting = useRef(false) // a second press while one runs is ignored
   async function exportSyncLog() {
@@ -128,6 +130,18 @@ export function Settings({
           </label>
         ))}
       </fieldset>
+      <div className="settings-group" role="group" aria-labelledby="visible-tools-label">
+        <span id="visible-tools-label">{t('settings.visibleTools')}</span>
+        <div className="settings-stepper">
+          <button type="button" className="btn" aria-label={t('settings.visibleToolsLess')} disabled={visible <= VISIBLE_TOOLS_MIN} onClick={() => setVisible(sharedVisibleTools().write(visible - 1))}>
+            −
+          </button>
+          <output aria-live="polite">{visible}</output>
+          <button type="button" className="btn" aria-label={t('settings.visibleToolsMore')} disabled={visible >= VISIBLE_TOOLS_MAX} onClick={() => setVisible(sharedVisibleTools().write(visible + 1))}>
+            +
+          </button>
+        </div>
+      </div>
       <a className="btn" href="/privacy" target="_blank" rel="noopener noreferrer">
         {t('settings.privacy')}
       </a>
