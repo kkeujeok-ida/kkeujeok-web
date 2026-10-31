@@ -120,4 +120,15 @@ describe('scroll past the end', () => {
     step(-PULL_PX, 1000)
     expect(out).toEqual(['start'])
   })
+
+  test('undoing a delete of more than half the pages restores every page with a rev', () => {
+    const { h, w } = mk()
+    for (let i = 0; i < 3; i++) expect(w.pageEdit({ op: 'addPage', index: 0 })).toBeNull()
+    const all = ids(h)
+    expect(w.pageEdit({ op: 'deletePage', pageIds: all.slice(0, 4) })).toBeNull()
+    expect(h.note.pages).toHaveLength(1)
+    expect(w.undo()).toBe(true)
+    expect(ids(h)).toEqual(all)
+    expect(h.note.pages.every((p) => typeof p.rev === 'string')).toBe(true)
+  })
 })

@@ -1919,8 +1919,8 @@ export class Writer {
   private ctx(pages = false) {
     const base = { rev: newId(), now: new Date().toISOString(), editedBy: this.editedBy(), lastSeenRemoteSeq: 0 }
     if (!pages) return base
-    // Page operations (spec ops.md): enough ids for any of them; undo and redo of a page operation use them too.
-    const ids = () => Array.from({ length: this.history.note.pages.length + 1 }, newId)
+    // Page operations (spec ops.md): enough ids for any of them (undoing a delete of k pages inserts k pages, more than the note holds now); undo and redo of a page operation use them too.
+    const ids = () => Array.from({ length: Math.max(this.history.note.pages.length + 1, 512) }, newId)
     return { ...base, revs: ids(), pageIds: ids(), orderRev: newId() }
   }
 
