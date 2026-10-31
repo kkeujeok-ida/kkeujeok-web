@@ -15,7 +15,7 @@ import { ROTATE_GAP, paintSelection, selectionColors } from '../../render/select
 import type { Op } from '../../ops/ops'
 import type { Page, Stroke } from '../../model/note'
 import type { Pen } from '../../model/pen'
-import type { History } from '../../ops/history'
+import { type History, touched } from '../../ops/history'
 import type { Note } from '../../model/note'
 import { type ResolveResult, resolveConflict } from '../../ops/resolveConflict'
 import { commitMerge } from '../../sync/commitMerge'
@@ -625,6 +625,7 @@ export class Writer {
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return
     this.snap()
     if (e.ctrlKey) {
+      this.pullEnd() // a zoom never continues a pull
       if (this.busy()) return
       this.forced = null
       const [fx, fy] = this.local(e.clientX, e.clientY)
@@ -1933,27 +1934,44 @@ export class Writer {
     this.commitEdit()
     this.clearNudge()
     this.lastDot = null
-    const named = [...((op.pageIds as string[] | undefined) ?? []), ...((op.items as { pageId?: string; page?: { id: string } }[] | undefined) ?? []).map((i) => i.pageId ?? i.page?.id), op.pageId]
-    if (named.some((id) => typeof id === 'string' && this.history.isLocked(id))) {
+    if (touched(op).some((id) => this.history.isLocked(id))) {
       this.onBlocked()
       return 'pageReadOnly'
     }
     const note = this.history.note
     const elementIds = op.op === 'duplicatePage' ? note.pages.filter((p) => (op.pageIds as string[]).includes(p.id)).flatMap((p) => p.elements.map(() => newId())) : undefined
     const key = this.docKey()
+    const view = this.viewAnchor()
+    const depth = this.history.undoDepth
     const err = this.history.doOp(op, { ...this.ctx(true), ...(elementIds ? { elementIds } : {}) })
     if (err) {
       this.message('historyNotApplied')
       return err
     }
+    if (this.history.undoDepth === depth) return 'noChange' // nothing changed: no save, no announcement
     try {
       this.docChanged(key)
+      this.keepView(view)
     } catch {
       // the next layout repaints
     }
     this.queue.commit(this.history.note)
     this.onChange()
     return null
+  }
+
+  /** The page in view and its index, to come back to after pages moved, came or went. */
+  private viewAnchor(): { id?: string; index: number } {
+    const id = this.inView()
+    return { id, index: Math.max(0, this.history.note.pages.findIndex((p) => p.id === id)) }
+  }
+
+  /** Stay on the same page id; when it is gone, the page now at its index (the next one, or the last). */
+  private keepView(a: { id?: string; index: number }): void {
+    const pages = this.history.note.pages
+    const found = pages.findIndex((p) => p.id === a.id)
+    const to = found >= 0 ? found : Math.min(a.index, pages.length - 1)
+    if (to >= 0 && this.inView() !== pages[to]!.id) this.goToPage(to)
   }
 
   get canUndo() {
@@ -1983,6 +2001,7 @@ export class Writer {
     }
     if (this.readOnly || this.leaving || this.drawing || this.touches.size > 0 || this.mode !== 'none' || depth === 0) return false
     const key = this.docKey()
+    const view = this.viewAnchor()
     const err = this.history[kind](this.ctx(true))
     if (err) {
       this.message('historyNotApplied')
@@ -1991,6 +2010,7 @@ export class Writer {
     // The history has advanced: the save must happen even if drawing throws.
     try {
       this.docChanged(key)
+      this.keepView(view)
     } catch {
       // the next layout repaints
     }

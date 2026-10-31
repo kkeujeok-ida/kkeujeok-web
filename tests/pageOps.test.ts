@@ -132,3 +132,16 @@ describe('scroll past the end', () => {
     expect(h.note.pages.every((p) => typeof p.rev === 'string')).toBe(true)
   })
 })
+
+describe('review fixes', () => {
+  test('page-op records follow pageIds / items; no-op edits say noChange', () => {
+    const { h, w } = mk()
+    w.pageEdit({ op: 'deletePage', pageIds: [PA] })
+    h.setLocked([PA]) // the undo record (insertPages items[].page.id) names PA
+    expect(h.topLocked('undo')).toBe(true)
+    h.setLocked([])
+    expect(w.pageEdit({ op: 'setPageBackground', items: [{ pageId: PB, background: h.note.pages[0]!.background }] })).toBe('noChange')
+    h.applyMerged(h.note, [PA])
+    expect(h.undoDepth).toBe(0)
+  })
+})

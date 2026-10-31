@@ -3,6 +3,12 @@
 import type { Note } from '../model/note'
 import { type Ctx, type Op, applyOp } from './ops'
 
+/** Every page id an op names: its own pageId, pageIds, and items[].pageId / items[].page.id (page-op inverses). */
+export function touched(op: Op): string[] {
+  const items = (Array.isArray(op.items) ? op.items : []) as { pageId?: unknown; page?: { id?: unknown } }[]
+  return [op.pageId, ...(Array.isArray(op.pageIds) ? op.pageIds : []), ...items.flatMap((i) => [i?.pageId, i?.page?.id])].filter((x): x is string => typeof x === 'string')
+}
+
 export class History {
   private undoStack: Op[] = []
   private redoStack: Op[] = []
@@ -28,7 +34,7 @@ export class History {
     return !!top && this.touchesLocked(top)
   }
   private touchesLocked(op: Op): boolean {
-    return typeof op.pageId === 'string' && this.locked.has(op.pageId)
+    return touched(op).some((id) => this.locked.has(id))
   }
 
   get undoDepth() {
@@ -45,7 +51,7 @@ export class History {
    */
   applyMerged(note: Note, dropPages: readonly string[]): void {
     const drop = new Set(dropPages)
-    const keep = (op: Op) => !(typeof op.pageId === 'string' && drop.has(op.pageId))
+    const keep = (op: Op) => !touched(op).some((id) => drop.has(id))
     this.note = note
     this.undoStack = this.undoStack.filter(keep)
     this.redoStack = this.redoStack.filter(keep)
