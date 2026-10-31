@@ -1010,7 +1010,7 @@ describe('zoom and pan', () => {
   let size = { w: 800, h: 600 }
   const proto = HTMLCanvasElement.prototype
   const origRect = proto.getBoundingClientRect
-  const fit = () => (size.w - GAP * 2) / 595
+  const fit = () => size.w / 595
   beforeEach(() => {
     size = { w: 800, h: 600 }
     proto.getBoundingClientRect = () =>
@@ -1062,7 +1062,7 @@ describe('zoom and pan', () => {
   test('opens fitted to the width', async () => {
     await mountEditor()
     const s = fit()
-    closeTo(await pageAt(GAP + 100 * s, GAP + 50 * s), 100, 50)
+    closeTo(await pageAt(100 * s, GAP + 50 * s), 100, 50)
     await openMenu()
     expect(level()).toBe(`${Math.round(s * 100)}%`)
   })
@@ -1072,22 +1072,22 @@ describe('zoom and pan', () => {
     const s = fit()
     const e = wheel({ deltaY: 100 })
     expect(e.defaultPrevented).toBe(true)
-    closeTo(await pageAt(GAP, GAP), 0, 100 / s)
+    closeTo(await pageAt(0, GAP), 0, 100 / s)
     wheel({ deltaY: 2, deltaMode: 1 }) // two lines = 32 px
-    closeTo(await pageAt(GAP, GAP), 0, 132 / s)
+    closeTo(await pageAt(0, GAP), 0, 132 / s)
     // Shift moves along x; the page is no wider than the area, so nothing moves.
     wheel({ deltaY: 50, shiftKey: true })
-    closeTo(await pageAt(GAP, GAP), 0, 132 / s)
+    closeTo(await pageAt(0, GAP), 0, 132 / s)
     wheel({ deltaY: 100000 })
     const end = size.h - GAP - GAP // the page bottom on screen: gap + room under (gap, no toolbar)
-    closeTo(await pageAt(300, end - 0.5), (300 - GAP) / s, 842 - 0.5 / s)
+    closeTo(await pageAt(300, end - 0.5), 300 / s, 842 - 0.5 / s)
     expect(await pageAt(300, end + 3)).toBeNull()
   })
 
   test('Ctrl+wheel keeps the page point under the pointer, 50-800%, default prevented', async () => {
     await mountEditor()
     const s = fit()
-    const px = (400 - GAP) / s
+    const px = 400 / s
     const py = (300 - GAP) / s
     const e = wheel({ deltaY: -230, ctrlKey: true })
     expect(e.defaultPrevented).toBe(true)
@@ -1112,7 +1112,7 @@ describe('zoom and pan', () => {
     space('keyup')
     expect(canvas().classList.contains('is-hand')).toBe(false)
     expect(strokesOf(await saved())).toHaveLength(0)
-    closeTo(await pageAt(GAP, GAP), 0, 100 / s) // dragged up 100: the content moved up
+    closeTo(await pageAt(0, GAP), 0, 100 / s) // dragged up 100: the content moved up
   })
 
   test('Space is not the hand in a text field or on a focused button', async () => {
@@ -1167,7 +1167,7 @@ describe('zoom and pan', () => {
     fire('pointermove', { type: 'mouse', x: 300, y: 260, button: 1, buttons: 4 })
     fire('pointerup', { type: 'mouse', x: 300, y: 260, button: 1, buttons: 0 })
     expect(strokesOf(await saved())).toHaveLength(0)
-    closeTo(await pageAt(GAP, GAP), 0, 40 / s)
+    closeTo(await pageAt(0, GAP), 0, 40 / s)
   })
 
   test('keyboard: Ctrl+= / Ctrl+- / Ctrl+0 and arrows on the canvas only', async () => {
@@ -1181,7 +1181,7 @@ describe('zoom and pan', () => {
     canvas().focus()
     press(canvas(), '0', { ctrlKey: true, code: 'Digit0' })
     press(canvas(), 'ArrowDown')
-    closeTo(await pageAt(GAP, GAP), 0, 40 / s)
+    closeTo(await pageAt(0, GAP), 0, 40 / s)
     press(canvas(), '-', { ctrlKey: true, code: 'Minus' })
     await openMenu()
     expect(level()).toBe(`${Math.round(s * 0.8 * 100)}%`)
@@ -1256,7 +1256,7 @@ describe('zoom and pan', () => {
     expect(q('[role="status"][aria-live="polite"]')!.textContent).toBe(`배율 ${Math.round(fit() * 100)}%`)
     click(qa('[role="menuitem"]')[3]!)
     const sp = Math.min((800 - 24) / 595, (600 - 24 - 12) / 842)
-    const x0 = GAP + (800 - 24 - 595 * sp) / 2
+    const x0 = (800 - 595 * sp) / 2
     const y0 = GAP + (600 - 24 - 12 - 842 * sp) / 2
     closeTo(await pageAt(x0 + 10 * sp, y0 + 10 * sp), 10, 10)
   })
@@ -1265,8 +1265,8 @@ describe('zoom and pan', () => {
     await mountEditor()
     size = { w: 1000, h: 700 }
     act(() => void globalThis.dispatchEvent(new Event('resize')))
-    const s = (1000 - 24) / 595
-    closeTo(await pageAt(GAP + 100 * s, GAP + 50 * s), 100, 50)
+    const s = 1000 / 595
+    closeTo(await pageAt(100 * s, GAP + 50 * s), 100, 50)
 
     wheel({ deltaY: -230, ctrlKey: true, clientX: 500, clientY: 350 })
     const center = await pageAt(500, 350)
@@ -1301,7 +1301,7 @@ describe('zoom and pan', () => {
     expect(frames).toHaveLength(0)
     const s = fit() * 1.25
     // The view itself is already at the target: the focus (center) is fixed.
-    closeTo(await pageAt(400, 300), (400 - GAP) / fit(), (300 - GAP) / fit())
+    closeTo(await pageAt(400, 300), 400 / fit(), (300 - GAP) / fit())
     await openMenu()
     expect(level()).toBe(`${Math.round(s * 100)}%`)
   })
@@ -1324,12 +1324,12 @@ describe('zoom and pan', () => {
     key(document, 'Escape')
     // A frame far past the end lands exactly on the target.
     while (frames.length > 0) act(() => void frames.shift()!(performance.now() + 10000))
-    closeTo(await pageAt(400, 300), (400 - GAP) / fit(), (300 - GAP) / fit())
+    closeTo(await pageAt(400, 300), 400 / fit(), (300 - GAP) / fit())
 
     // Mid-animation, a pointerdown ends it at the target before the point is mapped.
     press(canvas(), '=', { ctrlKey: true, code: 'Equal' })
     expect(frames.length).toBeGreaterThan(0)
-    closeTo(await pageAt(400, 300), (400 - GAP) / fit(), (300 - GAP) / fit())
+    closeTo(await pageAt(400, 300), 400 / fit(), (300 - GAP) / fit())
     expect(canvas().classList.contains('is-panning')).toBe(false)
   })
 
@@ -1339,8 +1339,8 @@ describe('zoom and pan', () => {
     click(qa('[role="menuitem"]')[3]!)
     size = { w: 1000, h: 800 }
     act(() => void globalThis.dispatchEvent(new Event('resize')))
-    const sp = Math.min((1000 - 24) / 595, (800 - 24 - 12) / 842)
-    const x0 = GAP + (1000 - 24 - 595 * sp) / 2
+    const sp = Math.min(1000 / 595, (800 - 24 - 12) / 842)
+    const x0 = (1000 - 595 * sp) / 2
     const y0 = GAP + (800 - 24 - 12 - 842 * sp) / 2
     closeTo(await pageAt(x0 + 10 * sp, y0 + 10 * sp), 10, 10)
   })
@@ -1368,7 +1368,7 @@ describe('zoom and pan', () => {
       const s = fit()
       wheel({ deltaY: 100000 })
       const end = size.h - GAP - (60 + GAP) // page bottom on screen
-      closeTo(await pageAt(300, end - 0.5), (300 - GAP) / s, 842 - 0.5 / s)
+      closeTo(await pageAt(300, end - 0.5), 300 / s, 842 - 0.5 / s)
       expect(await pageAt(300, end + 3)).toBeNull()
     } finally {
       spy.mockRestore()
@@ -1382,7 +1382,7 @@ describe('zoom and pan', () => {
     canvas().focus()
     press(canvas(), 'ArrowDown')
     fire('pointerup', { type: 'pen', x: 300, y: 300 })
-    closeTo(await pageAt(GAP, GAP), 0, 0)
+    closeTo(await pageAt(0, GAP), 0, 0)
   })
 })
 
@@ -1424,8 +1424,8 @@ describe('touch arbitration', () => {
 
   test('pinch keeps the page point under the fingers; a finger left over never draws', async () => {
     await mountEditor()
-    const s = (800 - 24) / 595
-    const p0 = [(350 - 12) / s, (300 - 12) / s]
+    const s = 800 / 595
+    const p0 = [350 / s, (300 - 12) / s]
     t('pointerdown', 1, 300, 300, 1000)
     t('pointerdown', 2, 400, 300, 1050)
     t('pointermove', 2, 500, 300, 1100) // distance 100 -> 200, focus (350,300) -> (400,300)
@@ -1452,7 +1452,7 @@ describe('touch arbitration', () => {
     await flush()
     const strokes = strokesOf(await saved())
     expect(strokes).toHaveLength(1)
-    expect(strokes[0]!.points[0]![0]).toBeCloseTo((200 - 12) / ((800 - 24) / 595), 1)
+    expect(strokes[0]!.points[0]![0]).toBeCloseTo(200 / (800 / 595), 1)
   })
 })
 

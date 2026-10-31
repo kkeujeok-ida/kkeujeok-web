@@ -427,14 +427,14 @@ export class Writer {
     const u = d.units[d.list[this.currentIndex(d.list, d.units)]!.unit]!
     // 'width' fits the tallest page of the layout, so a mix of heights never leaves a vertical range.
     const v = mode === 'width' ? fitHeightViewport(this.cssW, this.cssH, u.w, d.h, this.ins) : fitPageViewport(this.cssW, this.cssH, u.w, u.h, this.ins)
-    return this.clamp({ scale: v.scale, offsetX: (mode === 'width' ? this.ins.gap : v.offsetX) - u.x * v.scale, offsetY: mode === 'width' ? v.offsetY : v.offsetY - u.y * v.scale })
+    return this.clamp({ scale: v.scale, offsetX: (mode === 'width' ? 0 : v.offsetX) - u.x * v.scale, offsetY: mode === 'width' ? v.offsetY : v.offsetY - u.y * v.scale })
   }
 
   /** `v` moved so that the current page (unit) starts the view along the page axis. */
   private atStart(v: PageViewport): PageViewport {
     const d = this.slots()
     const u = d.units[d.list[this.currentIndex(d.list, d.units)]!.unit]!
-    return this.clamp(this.viewMode === 'vertical' ? { ...v, offsetY: this.ins.gap - u.y * v.scale } : { ...v, offsetX: this.ins.gap - u.x * v.scale })
+    return this.clamp(this.viewMode === 'vertical' ? { ...v, offsetY: this.ins.gap - u.y * v.scale } : { ...v, offsetX: -u.x * v.scale })
   }
 
   /** The way pages are laid out. The page in view stays in view; the view starts at the mode's width fit. */
@@ -483,7 +483,7 @@ export class Writer {
     const v = this.anim?.to ?? this.viewport
     const u = units[list[k]!.unit]!
     this.forced = list[k]!.page.id
-    const at = this.viewMode === 'vertical' ? { offsetX: v.offsetX, offsetY: this.ins.gap - u.y * v.scale } : { offsetX: this.ins.gap - u.x * v.scale, offsetY: v.offsetY }
+    const at = this.viewMode === 'vertical' ? { offsetX: v.offsetX, offsetY: this.ins.gap - u.y * v.scale } : { offsetX: -u.x * v.scale, offsetY: v.offsetY }
     this.goTo(this.clamp({ scale: v.scale, ...at }), 'free')
   }
 

@@ -3,12 +3,11 @@
 import { round2 } from '../model/number'
 import { DEDUPE_DISTANCE } from './strokeOutline'
 
-const H = Math.SQRT1_2
-
 /** `points` are `[x, y, pressure, t]` (pressure is not used). Returns the rectangles in point order, `[]` for no points. */
 export function highlighterOutline(width: number, points: readonly (readonly number[])[]): number[][][] {
-  const ax = (width / 2) * H
-  const ay = -(width / 2) * H
+  // upright chisel; the 1/16 lean keeps a straight vertical stroke visible
+  const ax = width / 16
+  const ay = -width / 2
   const kept: number[][] = []
   for (const p of points) {
     const last = kept[kept.length - 1]

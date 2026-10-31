@@ -61,9 +61,9 @@ describe('layoutSlots', () => {
 })
 
 describe('fitHeightViewport', () => {
-  test('the height of the padded area, starting at the gap', () => {
+  test('the height of the padded area, starting at the left edge', () => {
     const v = fitHeightViewport(800, 600, 400, 200, { gap: 10, extraBottom: 20 })
     expect(v.scale).toBeCloseTo(560 / 200)
-    expect(v.offsetX).toBe(10)
+    expect(v.offsetX).toBe(0)
   })
 })

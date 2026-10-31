@@ -133,6 +133,11 @@ h1 {
   border: 0;
 }
 
+.settings .btn:not(.btn-destructive):not(.btn-primary) {
+  border: 0;
+  background: none;
+}
+
 .settings-stepper {
   display: flex;
   align-items: center;
@@ -419,7 +424,7 @@ h1 {
   min-width: 0;
 }
 
-/* View modes (spec/library-layout.md): sizes are fractions of the cover column minimum, the same as Android. A large list is the original card flow. */
+/* View modes (spec/library-layout.md): sizes are fractions of the cover column minimum, the same as Android. Every list is one note per row. */
 .cover-grid[data-layout='grid'] {
   gap: var(--spacing-3);
 }
@@ -436,7 +441,7 @@ h1 {
   --cover-col: calc(var(--spacing-cover-column-min) * 1.2);
 }
 
-.cover-grid[data-layout='list']:not([data-size='large']) {
+.cover-grid[data-layout='list'] {
   --row-thumb: calc(var(--spacing-cover-column-min) * 0.5);
   grid-template-columns: 1fr;
   gap: var(--spacing-3);
@@ -446,24 +451,28 @@ h1 {
   --row-thumb: calc(var(--spacing-cover-column-min) * 0.33);
 }
 
-.cover-grid[data-layout='list']:not([data-size='large']) .cover-card {
+.cover-grid[data-layout='list'][data-size='large'] {
+  --row-thumb: var(--spacing-cover-column-min);
+}
+
+.cover-grid[data-layout='list'] .cover-card {
   flex-direction: row;
   align-items: flex-start;
   gap: var(--spacing-3);
 }
 
-.cover-grid[data-layout='list']:not([data-size='large']) .cover-card > .cover-thumb,
-.cover-grid[data-layout='list']:not([data-size='large']) .cover-thumb-wrap {
+.cover-grid[data-layout='list'] .cover-card > .cover-thumb,
+.cover-grid[data-layout='list'] .cover-thumb-wrap {
   flex: none;
   width: var(--row-thumb);
 }
 
-.cover-grid[data-layout='list']:not([data-size='large']) .cover-text {
+.cover-grid[data-layout='list'] .cover-text {
   flex: 1;
   min-width: 0;
 }
 
-.cover-grid[data-layout='list']:not([data-size='large']) .cover-menu {
+.cover-grid[data-layout='list'] .cover-menu {
   top: 0;
 }
 
@@ -490,10 +499,13 @@ h1 {
   right: 0;
 }
 
-.cover-menu-button {
+.cover-menu-button.btn {
+  justify-content: center;
   min-width: 44px;
   min-height: 44px;
   padding: 0;
+  border: 0;
+  background: none;
 }
 
 .cover-menu-list {
@@ -501,6 +513,20 @@ h1 {
   top: 100%;
   right: 0;
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacing-1) 0;
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  box-shadow: var(--components-popover-shadow, 0 2px 8px rgb(0 0 0 / 0.2));
+}
+
+.cover-menu-list .btn {
+  justify-content: flex-start;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  white-space: nowrap;
 }
 
 .cover-card {
@@ -536,12 +562,9 @@ h1 {
 }
 
 .cover-title {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
   overflow: hidden;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--components-cover-card-title-font-family);
   font-size: var(--components-cover-card-title-font-size);
   font-weight: var(--components-cover-card-title-font-weight);
@@ -549,6 +572,9 @@ h1 {
 }
 
 .cover-date {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--color-ink-secondary);
   font-size: var(--typography-caption-font-size);
   font-weight: var(--typography-caption-font-weight);
@@ -770,6 +796,66 @@ h1 {
   max-height: calc(var(--visible-tools, 7) * 36px + (var(--visible-tools, 7) - 1) * var(--components-toolbar-item-gap));
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+/* Vertical bar: the nib lies on its side and comes in from the dock edge, tip toward the page. */
+.pen-toolbar.is-vertical .pen-slot {
+  width: 44px;
+}
+
+.pen-toolbar.is-vertical .pen-nib {
+  top: calc(50% - 14.4px - 3px);
+  left: -1.6px;
+  transform: rotate(-90deg);
+  transition: left var(--components-pen-slot-selected-duration) var(--components-pen-slot-selected-easing);
+}
+
+.pen-toolbar.is-vertical .pen-slot-selected .pen-nib {
+  top: calc(50% - 14.4px - 3px);
+  left: calc(-1.6px + var(--components-pen-slot-selected-offset));
+}
+
+.pen-toolbar.is-vertical .pen-width {
+  left: 22px;
+  right: auto;
+}
+
+.pen-toolbar.is-vertical .pen-caret {
+  display: none;
+}
+
+.pen-toolbar.is-vertical .pen-underline {
+  top: 50%;
+  bottom: auto;
+  left: auto;
+  right: 1px;
+  width: var(--components-pen-slot-selected-height);
+  height: var(--components-pen-slot-selected-width);
+  transform: translateY(-50%);
+}
+
+.pen-toolbar.is-vertical.from-right .pen-nib,
+.pen-toolbar.is-vertical.from-right .pen-slot-selected .pen-nib {
+  left: auto;
+  transform: rotate(90deg);
+}
+
+.pen-toolbar.is-vertical.from-right .pen-nib {
+  right: -1.6px;
+}
+
+.pen-toolbar.is-vertical.from-right .pen-slot-selected .pen-nib {
+  right: calc(-1.6px + var(--components-pen-slot-selected-offset));
+}
+
+.pen-toolbar.is-vertical.from-right .pen-width {
+  left: auto;
+  right: 22px;
+}
+
+.pen-toolbar.is-vertical.from-right .pen-underline {
+  left: 1px;
+  right: auto;
 }
 
 .pen-toolbar.is-vertical .toolbar-divider {
@@ -2040,9 +2126,28 @@ h1 {
   border: 1px solid var(--color-border-control);
 }
 
-.palette-editor-item .btn {
+.palette-editor-item {
+  cursor: grab;
+}
+
+.palette-editor-swatch {
+  padding: 0;
+  cursor: inherit;
+}
+
+.palette-editor-remove {
   min-width: var(--spacing-hit-min-web);
   min-height: var(--spacing-hit-min-web);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.palette-editor-remove:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .palette-editor-actions {

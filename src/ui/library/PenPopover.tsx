@@ -182,7 +182,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
               }}
             >
               <svg viewBox="0 0 20 36" width="12" height="22" aria-hidden="true">
-                <path d={k === 'highlighter' ? 'M3 0V36H17V0M3 22.3H17' : 'M3 0V22.3L10 36L17 22.3V0M3 22.3H17'} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
+                <path d={k === 'highlighter' ? 'M3 0V22.3L6 36H14L17 22.3V0M3 22.3H17' : 'M3 0V22.3L10 36L17 22.3V0M3 22.3H17'} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
               </svg>
             </button>
           ))}

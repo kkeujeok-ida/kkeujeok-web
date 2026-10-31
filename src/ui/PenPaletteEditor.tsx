@@ -6,11 +6,13 @@ import { ColorWheelPicker } from './library/ColorWheelPicker'
 
 const TOOLS: PenTool[] = ['pen', 'highlighter']
 
-/** Settings: per tool, add / remove / reorder palette colors or reset them. Every change is stored at once. */
+/** Settings: per tool, add / remove / reorder palette colors or reset them. Every change is stored at once. Swatches only: drag one to move it, click it to show its remove button, Alt+arrows move it by keyboard. */
 export function PenPaletteEditor() {
   const { t } = useI18n()
   const [lists, setLists] = useState(() => ({ pen: sharedPenPalette().read('pen'), highlighter: sharedPenPalette().read('highlighter') }))
   const [adding, setAdding] = useState<PenTool | null>(null)
+  const [sel, setSel] = useState<string | null>(null) // swatch whose remove button shows
+  const drag = useRef<number | null>(null)
   const picked = useRef('#000000')
   const save = (tool: PenTool, next: string[]) => setLists((l) => ({ ...l, [tool]: sharedPenPalette().write(tool, next) }))
   const name = (hex: string) => (colorNameKey(hex) === 'editor.colorCustom' ? hex : t(colorNameKey(hex)))
@@ -20,27 +22,51 @@ export function PenPaletteEditor() {
       {TOOLS.map((tool) => {
         const list = lists[tool]
         const full = list.length >= PALETTE_MAX
-        const move = (i: number, d: number) => {
+        const move = (from: number, to: number) => {
+          if (from === to || to < 0 || to >= list.length) return
           const next = [...list]
-          next.splice(i + d, 0, next.splice(i, 1)[0]!)
+          next.splice(to, 0, next.splice(from, 1)[0]!)
           save(tool, next)
+        }
+        const remove = (hex: string) => {
+          setSel(null)
+          save(tool, list.filter((c) => c !== hex))
         }
         return (
           <div key={tool} role="group" aria-label={t(`editor.tool.${tool}`)} className="palette-editor">
             <strong>{t(`editor.tool.${tool}`)}</strong>
             <ul className="palette-editor-list">
               {list.map((hex, i) => (
-                <li key={hex} className="palette-editor-item">
-                  <span className="palette-editor-swatch" style={{ background: hex }} role="img" aria-label={name(hex)} />
-                  <button type="button" className="btn" disabled={i === 0} aria-label={fmt(t('settings.paletteEarlier'), { color: name(hex) })} onClick={() => move(i, -1)}>
-                    ‹
-                  </button>
-                  <button type="button" className="btn" disabled={i === list.length - 1} aria-label={fmt(t('settings.paletteLater'), { color: name(hex) })} onClick={() => move(i, 1)}>
-                    ›
-                  </button>
-                  <button type="button" className="btn" disabled={list.length <= 1} aria-label={fmt(t('settings.paletteRemove'), { color: name(hex) })} onClick={() => save(tool, list.filter((c) => c !== hex))}>
-                    ✕
-                  </button>
+                <li
+                  key={hex}
+                  className="palette-editor-item"
+                  draggable
+                  onDragStart={() => void (drag.current = i)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => {
+                    if (drag.current !== null) move(drag.current, i)
+                    drag.current = null
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="palette-editor-swatch"
+                    style={{ background: hex }}
+                    aria-label={name(hex)}
+                    aria-pressed={sel === hex}
+                    title={fmt(t('settings.paletteRemove'), { color: name(hex) })}
+                    onClick={() => setSel(sel === hex ? null : hex)}
+                    onKeyDown={(e) => {
+                      if (!e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return
+                      e.preventDefault()
+                      move(i, i + (e.key === 'ArrowLeft' ? -1 : 1))
+                    }}
+                  />
+                  {sel === hex && (
+                    <button type="button" className="palette-editor-remove" disabled={list.length <= 1} aria-label={fmt(t('settings.paletteRemove'), { color: name(hex) })} onClick={() => remove(hex)}>
+                      ✕
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

@@ -25,7 +25,7 @@ export function fitViewport(width: number, height: number, pageW: number, pageH:
 export const ZOOM_MIN = 0.5
 export const ZOOM_MAX = 8
 
-/** `gap` around the visible area; `extraBottom` more room under a page that is scrolled to its end. */
+/** `gap` above, below (and the toolbar side) of the visible area; there is no side margin, so a width fit is the full view width; `extraBottom` more room under a page that is scrolled to its end. */
 export type ViewInsets = { gap: number; extraBottom: number }
 /** A scrollbar thumb as fractions (0..1) of its track. */
 export type Thumb = { start: number; size: number }
@@ -37,6 +37,8 @@ export function snapScale(scale: number, fitScale: number): number {
   const s = clampScale(scale)
   return f * 0.9 <= s && s <= f * 1.1 ? f : s
 }
+/** A page this close to the view width (float error of a width fit) counts as fitting. */
+const FIT_EPS = 0.01
 const IDENTITY: PageViewport = { scale: 1, offsetX: 0, offsetY: 0 }
 
 /** The padded area (left, top, width, height without extraBottom), or null when nothing fits. */
@@ -44,7 +46,7 @@ function area(w: number, h: number, pageW: number, pageH: number, ins: ViewInset
   const gap = Number.isFinite(ins.gap) && ins.gap > 0 ? ins.gap : 0
   const extra = Number.isFinite(ins.extraBottom) && ins.extraBottom > 0 ? ins.extraBottom : 0
   if (![w, h, pageW, pageH].every(finitePositive)) return null
-  const aw = w - gap * 2
+  const aw = w
   const ah = h - gap * 2 - extra
   if (aw <= 0 || ah <= 0) return null
   return { gap, extra, aw, ah }
@@ -63,14 +65,14 @@ export function toPage(vp: PageViewport, x: number, y: number): [number, number]
 export function clampViewport(vp: PageViewport, w: number, h: number, pageW: number, pageH: number, ins: ViewInsets): PageViewport {
   const a = area(w, h, pageW, pageH, ins)
   if (!a || !finitePositive(vp.scale)) return vp
-  const axis = (o: number, len: number, avail: number) => {
-    if (len <= avail) return a.gap + (avail - len) / 2
-    return Math.min(a.gap, Math.max(a.gap + avail - len, Number.isFinite(o) ? o : a.gap))
+  const axis = (o: number, len: number, avail: number, gap: number) => {
+    if (len <= avail + FIT_EPS) return gap + (avail - len) / 2
+    return Math.min(gap, Math.max(gap + avail - len, Number.isFinite(o) ? o : gap))
   }
   return {
     scale: vp.scale,
-    offsetX: axis(vp.offsetX, pageW * vp.scale, a.aw),
-    offsetY: axis(vp.offsetY, pageH * vp.scale, a.ah),
+    offsetX: axis(vp.offsetX, pageW * vp.scale, a.aw, 0),
+    offsetY: axis(vp.offsetY, pageH * vp.scale, a.ah, a.gap),
   }
 }
 
@@ -79,7 +81,7 @@ export function fitWidthViewport(w: number, h: number, pageW: number, pageH: num
   const a = area(w, h, pageW, pageH, ins)
   if (!a) return IDENTITY
   const scale = clampScale(a.aw / pageW)
-  return clampViewport({ scale, offsetX: a.gap, offsetY: a.gap }, w, h, pageW, pageH, ins)
+  return clampViewport({ scale, offsetX: 0, offsetY: a.gap }, w, h, pageW, pageH, ins)
 }
 
 /** The whole page inside the padded area, centered. */
@@ -102,15 +104,15 @@ export function scrollMetrics(vp: PageViewport, w: number, h: number, pageW: num
   const a = area(w, h, pageW, pageH, ins)
   const none = { x: null as Thumb | null, y: null as Thumb | null }
   if (!a) return none
-  const thumb = (o: number, len: number, avail: number, extra: number): Thumb | null => {
-    if (len <= avail) return null
+  const thumb = (o: number, len: number, avail: number, extra: number, gap: number): Thumb | null => {
+    if (len <= avail + FIT_EPS) return null
     const total = len + extra
     const view = avail + extra
-    return { start: Math.min(1, Math.max(0, (a.gap - o) / total)), size: Math.min(1, view / total) }
+    return { start: Math.min(1, Math.max(0, (gap - o) / total)), size: Math.min(1, view / total) }
   }
   return {
-    x: thumb(vp.offsetX, pageW * vp.scale, a.aw, 0),
-    y: thumb(vp.offsetY, pageH * vp.scale, a.ah, a.extra),
+    x: thumb(vp.offsetX, pageW * vp.scale, a.aw, 0, 0),
+    y: thumb(vp.offsetY, pageH * vp.scale, a.ah, a.extra, a.gap),
   }
 }
 
@@ -294,5 +296,5 @@ export function fitHeightViewport(w: number, h: number, pageW: number, pageH: nu
   const a = area(w, h, pageW, pageH, ins)
   if (!a) return IDENTITY
   const scale = clampScale(a.ah / pageH)
-  return clampViewport({ scale, offsetX: a.gap, offsetY: a.gap }, w, h, pageW, pageH, ins)
+  return clampViewport({ scale, offsetX: 0, offsetY: a.gap }, w, h, pageW, pageH, ins)
 }

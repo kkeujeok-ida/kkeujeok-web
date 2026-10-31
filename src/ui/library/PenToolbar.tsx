@@ -177,7 +177,7 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, to
       role="toolbar"
       aria-label={t('editor.toolbar')}
       aria-orientation={vertical ? 'vertical' : 'horizontal'}
-      className={'pen-toolbar' + (vertical ? ' is-vertical' : '') + (dock.floating ? ' is-floating' : '') + (dock.dragging ? ' is-dragging' : '')}
+      className={'pen-toolbar' + (vertical ? ' is-vertical' : '') + (vertical && (dock.pos.dock === 'right' || (dock.pos.dock === 'float' && dock.pos.x > 0.5)) ? ' from-right' : '') + (dock.floating ? ' is-floating' : '') + (dock.dragging ? ' is-dragging' : '')}
       style={dock.style}
       onKeyDown={onToolbarKey}
       onFocus={(e: FocusEvent<HTMLDivElement>) => {
@@ -270,7 +270,7 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, to
             >
               <svg className="pen-nib" viewBox="0 0 20 36" aria-hidden="true">
                 <path
-                  d={pen.tool === 'highlighter' ? 'M3 0V36H17V0M3 22.3H17' : 'M3 0V22.3L10 36L17 22.3V0M3 22.3H17'}
+                  d={pen.tool === 'highlighter' ? 'M3 0V22.3L6 36H14L17 22.3V0M3 22.3H17' : 'M3 0V22.3L10 36L17 22.3V0M3 22.3H17'}
                   fill="none"
                   stroke={pen.color}
                   strokeWidth="1.75"

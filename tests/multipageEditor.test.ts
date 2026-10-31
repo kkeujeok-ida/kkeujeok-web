@@ -362,10 +362,10 @@ describe('page view modes (Story 5.12)', () => {
     rect = { width: 800, height: 600 }
     await mount(three())
     pick('가로 스크롤')
-    draw(G + 100 * S, G + 100 * S)
+    draw(100 * S, G + 100 * S)
     expect((await lastPoint(PA)).slice(0, 2)).toEqual([expect.closeTo(100, 0), expect.closeTo(100, 0)])
     wheel(100) // 100 px to the right
-    draw(G + 50, G + 40 * S)
+    draw(50, G + 40 * S)
     expect((await lastPoint(PA))[0]).toBeCloseTo((50 + 100) / S, 0)
     wheel(100000)
     expect(current()).toBe(2)
@@ -378,7 +378,7 @@ describe('page view modes (Story 5.12)', () => {
     key('PageDown')
     pick('가로 스크롤')
     expect(current()).toBe(1)
-    draw(G + 100 * S, G + 100 * S)
+    draw(100 * S, G + 100 * S)
     expect(strokesOf(await stored(), PB)).toHaveLength(1)
     focusCanvas()
     key('End')
@@ -395,7 +395,7 @@ describe('page view modes (Story 5.12)', () => {
     pick('가로 스크롤')
     focusCanvas()
     key('ArrowDown')
-    draw(G + 50, G + 40 * S)
+    draw(50, G + 40 * S)
     expect((await lastPoint(PA))[0]).toBeCloseTo((50 + 40) / S, 0)
     key('=', { ctrlKey: true }) // zoomed: a vertical range appears
     draw(300, 300)
@@ -413,10 +413,10 @@ describe('page view modes (Story 5.12)', () => {
     n.pages[1] = { ...n.pages[1]!, height: 500 }
     await mount(n)
     pick('가로 스크롤')
-    draw(G + 50, G + 40 * S)
+    draw(50, G + 40 * S)
     const [x0, y0] = (await lastPoint(PA)).slice(0, 2) as [number, number]
     wheel(100)
-    draw(G + 50, G + 40 * S)
+    draw(50, G + 40 * S)
     const [x1, y1] = (await lastPoint(PA)).slice(0, 2) as [number, number]
     expect(x1).toBeGreaterThan(x0 + 50)
     expect(y1).toBeCloseTo(y0, 5)
@@ -453,7 +453,7 @@ describe('page view modes (Story 5.12)', () => {
     pick('두 페이지')
     expect(current()).toBe(0)
     // page 2 of the pair starts one page and a gap to the right of page 1
-    draw(G + (595 + 16 + 100) * S, G + 100 * S)
+    draw((595 + 16 + 100) * S, G + 100 * S)
     expect(strokesOf(await stored(), PB)).toHaveLength(1)
     focusCanvas()
     key('PageDown')
@@ -475,7 +475,7 @@ describe('page view modes (Story 5.12)', () => {
     act(() => void window.dispatchEvent(new Event('resize')))
     expect(current()).toBe(1)
     const s = (700 - 2 * G) / 595
-    draw(G + 100 * s, G + 40 * s)
+    draw(100 * s, G + 40 * s)
     const n = await stored()
     expect(strokesOf(n, PA)).toHaveLength(0)
     expect(strokesOf(n, PB)).toHaveLength(1)
@@ -492,7 +492,7 @@ describe('page view modes (Story 5.12)', () => {
     fire('pointermove', 300, 200, 'touch')
     fire('pointerup', 300, 200, 'touch')
     expect(strokesOf(await stored(), PA)).toHaveLength(0)
-    draw(G + 10, G + 10) // the pen still writes, on a view moved 100 px up the document
+    draw(10, G + 10) // the pen still writes, on a view moved 100 px up the document
     expect((await lastPoint(PA))[1]).toBeGreaterThan(50)
   })
 

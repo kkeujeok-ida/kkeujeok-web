@@ -18,10 +18,10 @@ const PW = 595
 const PH = 842
 
 describe('viewport math', () => {
-  test('width fit: padded width, top aligned, clamped into 50-400%', () => {
+  test('width fit: full width (no side margin), top aligned, clamped into 50-400%', () => {
     const v = fitWidthViewport(W, H, PW, PH, ins)
-    expect(v.scale).toBeCloseTo(776 / 595, 6)
-    expect(v.offsetX).toBeCloseTo(12, 6)
+    expect(v.scale).toBeCloseTo(800 / 595, 6)
+    expect(v.offsetX).toBeCloseTo(0, 6)
     expect(v.offsetY).toBe(12)
     expect(fitWidthViewport(100, H, 1000, 1000, ins).scale).toBe(ZOOM_MIN)
     expect(fitWidthViewport(5000, H, 100, 100, ins).scale).toBe(ZOOM_MAX)
@@ -29,21 +29,21 @@ describe('viewport math', () => {
 
   test('page fit: whole page, centered in the area above the toolbar room', () => {
     const v = fitPageViewport(W, H, PW, PH, ins)
-    const s = Math.min(776 / PW, (600 - 24 - 60) / PH)
+    const s = Math.min(800 / PW, (600 - 24 - 60) / PH)
     expect(v.scale).toBeCloseTo(s, 6)
-    expect(v.offsetX).toBeCloseTo(12 + (776 - PW * s) / 2, 6)
+    expect(v.offsetX).toBeCloseTo((800 - PW * s) / 2, 6)
     expect(v.offsetY).toBeCloseTo(12 + (516 - PH * s) / 2, 6)
   })
 
   test('clamp: small axes center, large axes stop at the gap and above the toolbar room', () => {
     const c = clampViewport({ scale: 2, offsetX: 500, offsetY: 500 }, W, H, PW, PH, ins)
-    expect(c.offsetX).toBe(12) // 1190 wide > 776: the left edge is at most at the gap
+    expect(c.offsetX).toBe(0) // 1190 wide > 800: the left edge is at most at the view edge
     expect(c.offsetY).toBe(12)
     const far = clampViewport({ scale: 2, offsetX: -9999, offsetY: -9999 }, W, H, PW, PH, ins)
-    expect(far.offsetX).toBe(12 + 776 - PW * 2)
+    expect(far.offsetX).toBe(800 - PW * 2)
     expect(far.offsetY).toBe(12 + 516 - PH * 2)
     const small = clampViewport({ scale: 0.5, offsetX: 0, offsetY: 0 }, W, H, PW, PH, ins)
-    expect(small.offsetX).toBeCloseTo(12 + (776 - PW * 0.5) / 2, 6)
+    expect(small.offsetX).toBeCloseTo((800 - PW * 0.5) / 2, 6)
     expect(small.offsetY).toBeCloseTo(12 + (516 - PH * 0.5) / 2, 6)
   })
 
@@ -66,10 +66,10 @@ describe('viewport math', () => {
   test('scroll metrics: none when the page fits, thumbs reach the track ends', () => {
     const fit = fitPageViewport(W, H, PW, PH, ins)
     expect(scrollMetrics(fit, W, H, PW, PH, ins)).toEqual({ x: null, y: null })
-    const top = scrollMetrics({ scale: 2, offsetX: 12, offsetY: 12 }, W, H, PW, PH, ins)
+    const top = scrollMetrics({ scale: 2, offsetX: 0, offsetY: 12 }, W, H, PW, PH, ins)
     expect(top.y!.start).toBe(0)
     expect(top.x!.start).toBe(0)
-    const end = scrollMetrics({ scale: 2, offsetX: 12 + 776 - PW * 2, offsetY: 12 + 516 - PH * 2 }, W, H, PW, PH, ins)
+    const end = scrollMetrics({ scale: 2, offsetX: 800 - PW * 2, offsetY: 12 + 516 - PH * 2 }, W, H, PW, PH, ins)
     expect(end.y!.start + end.y!.size).toBeCloseTo(1, 9)
     expect(end.x!.start + end.x!.size).toBeCloseTo(1, 9)
   })
