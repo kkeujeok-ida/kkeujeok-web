@@ -434,7 +434,7 @@ h1 {
 }
 
 .cover-grid[data-layout='grid'][data-size='standard'] {
-  --cover-col: calc(var(--spacing-cover-column-min) * 0.55);
+  --cover-col: calc(var(--spacing-cover-column-min) * 0.8);
 }
 
 .cover-grid[data-layout='grid'][data-size='large'] {
