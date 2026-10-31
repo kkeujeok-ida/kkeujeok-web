@@ -130,4 +130,48 @@ describe('page overview panel', () => {
     expect(moves).toEqual(['1@1', '1@1'])
     expect(document.querySelector('[data-drop]')).toBeNull()
   })
+
+  test('the menu: arrows move, background choices and orientation call back, Esc returns focus (Story 6.9)', () => {
+    const calls: string[] = []
+    mount(0, () => {}, [], { onBackground: (ids: string[], b: string) => calls.push(`bg ${ids.length} ${b}`), onOrientation: (id: string, o: string) => calls.push(`${id === PA ? 'A' : '?'} ${o}`) })
+    const more = document.querySelectorAll<HTMLElement>('.po-more')[0]!
+    act(() => more.click())
+    const items = () => [...document.querySelectorAll<HTMLElement>('[role="menu"] [role^="menuitem"]')]
+    expect(items().map((i) => i.textContent)).toEqual(['복제', '삭제', '배경 바꾸기', '가로로 바꾸기'])
+    key(document.activeElement!, 'ArrowDown')
+    key(document.activeElement!, 'ArrowDown')
+    expect(document.activeElement!.textContent).toBe('배경 바꾸기')
+    key(document.activeElement!, 'ArrowDown')
+    key(document.activeElement!, 'ArrowDown') // wraps to the first
+    expect(document.activeElement!.textContent).toBe('복제')
+    key(document.activeElement!, 'ArrowUp')
+    act(() => (document.activeElement as HTMLElement).click())
+    expect(calls).toEqual(['A landscape'])
+    act(() => more.click())
+    key(document.activeElement!, 'End')
+    key(document.activeElement!, 'ArrowUp')
+    act(() => (document.activeElement as HTMLElement).click()) // the background choices
+    expect(items().map((i) => i.textContent)).toEqual(['무지', '줄', '모눈', '점'])
+    act(() => items()[2]!.click())
+    expect(calls).toEqual(['A landscape', 'bg 1 grid'])
+    act(() => more.click())
+    key(document.activeElement!, 'Escape')
+    expect(document.activeElement).toBe(more)
+  })
+
+  test('the header [배경] sets every picked page; the out-of-bounds badge selects (Story 6.9)', () => {
+    const calls: string[] = []
+    const pages = mkNote({ title: 'x', pages: { [PA]: 'a1', [PB]: 'b1' } }).pages
+    pages[0]!.elements = [{ id: 'e1', type: 'stroke', tool: 'pen', color: '#000000', width: 2, usePressure: false, points: [[-90, 5, 0.5, 0], [10, 10, 0.5, 5]] }] as never
+    m = mountUi(createElement(PageOverview, { id: 'p', pages, current: 0, conflicted: new Set(), side: 'right', overlay: false, onGo: () => {}, onClose: () => {}, onBackground: (ids: string[], b: string) => calls.push(`bg ${ids.length} ${b}`), onSelectOutOfBounds: (id: string) => calls.push(`out ${id === PA ? 'A' : '?'}`) }), 'ko')
+    const badge = document.querySelector<HTMLElement>('.po-badge-btn')!
+    expect(badge.textContent).toContain('페이지 밖 요소 1개')
+    act(() => badge.click())
+    const ctrl = (el: Element) => act(() => void el.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })))
+    ctrl(options()[0]!)
+    ctrl(options()[1]!)
+    act(() => document.querySelectorAll<HTMLElement>('.po-action')[2]!.click())
+    act(() => document.querySelectorAll<HTMLElement>('.po-bg-menu [role="menuitemradio"]')[3]!.click())
+    expect(calls).toEqual(['out A', 'bg 2 dot'])
+  })
 })

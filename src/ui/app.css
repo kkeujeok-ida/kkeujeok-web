@@ -2444,3 +2444,23 @@ h1 {
     scroll-behavior: auto !important;
   }
 }
+
+/* Story 6.9: background choices, the badge that selects what is outside the page. */
+.po-actions {
+  position: relative;
+}
+
+.po-bg-menu {
+  top: 100%;
+  left: var(--spacing-3);
+  right: auto;
+  z-index: 4;
+}
+
+.po-badge-btn {
+  position: absolute;
+  left: 4px;
+  bottom: calc(1.5rem + 4px);
+  border: 1px solid var(--color-border-hairline);
+  cursor: pointer;
+}

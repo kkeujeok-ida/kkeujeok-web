@@ -362,5 +362,11 @@
   "page.moved": "{n}페이지를 {to}번째로 옮겼어요",
   "page.movedMany": "{n}장을 옮겼어요",
   "page.deletedMany": "{n}장을 지웠어요",
-  "page.duplicatedMany": "{n}장을 복제했어요"
+  "page.duplicatedMany": "{n}장을 복제했어요",
+  "page.changeBackground": "배경 바꾸기",
+  "page.toLandscape": "가로로 바꾸기",
+  "page.toPortrait": "세로로 바꾸기",
+  "page.backgroundSet": "배경을 바꿨어요: {name}",
+  "page.orientationSet": "{n}페이지를 {orientation}로 바꿨어요",
+  "page.selectOutOfBounds": "페이지 밖 요소 {n}개 선택"
 }

@@ -66,6 +66,25 @@ describe('moving pages (Story 6.7)', () => {
   })
 })
 
+describe('background, orientation, out of bounds (Story 6.9)', () => {
+  test('several backgrounds are one undo step; orientation swaps the size; the selection takes the elements outside', () => {
+    const { h, w } = mk()
+    expect(w.pageEdit({ op: 'setPageBackground', items: [{ pageId: PA, background: 'grid' }, { pageId: PB, background: 'dot' }] })).toBeNull()
+    expect(h.note.pages.map((p) => p.background)).toEqual(['grid', 'dot'])
+    expect(w.pageEdit({ op: 'setPageOrientation', pageId: PA, orientation: 'landscape' })).toBeNull()
+    expect(h.note.pages[0]!.width).toBeGreaterThan(h.note.pages[0]!.height)
+    w.undo()
+    expect(h.note.pages[0]!.width).toBeLessThan(h.note.pages[0]!.height)
+    w.undo()
+    expect(h.note.pages[0]!.background).not.toBe('grid')
+    expect(h.note.pages[1]!.background).not.toBe('dot')
+    h.doOp({ op: 'addStroke', pageId: PA, stroke: { id: 's9', type: 'stroke', tool: 'pen', color: '#000000', width: 2, usePressure: false, points: [[-90, 5, 0.5, 0], [10, 10, 0.5, 5]] } }, { rev: 'r', now: 'n', editedBy: 'C', lastSeenRemoteSeq: 0 })
+    expect(w.selectOutOfBounds(PA)).toBe(1)
+    expect(w.selectedCount).toBe(1)
+    expect(w.selectOutOfBounds(PB)).toBe(0)
+  })
+})
+
 describe('scroll past the end', () => {
   const pulls = (w: Writer) => {
     const out: string[] = []

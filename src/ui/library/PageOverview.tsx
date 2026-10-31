@@ -11,6 +11,30 @@ export type PanelSide = 'left' | 'right'
 export const DEFAULT_PANEL_SIDE: PanelSide = 'right'
 /** Below this window width the panel overlays the canvas instead of taking room from it. */
 export const OVERLAY_BELOW_PX = 840
+const BACKGROUNDS = ['plain', 'lined', 'grid', 'dot'] as const
+/** The next / previous enabled item of a menu, wrapping; Home and End jump. */
+function menuKey(e: ReactKeyEvent, root: HTMLElement | null): boolean {
+  const items = [...(root?.querySelectorAll<HTMLElement>('[role^="menuitem"]:not([aria-disabled="true"])') ?? [])]
+  const at = items.indexOf(document.activeElement as HTMLElement)
+  const to = e.key === 'ArrowDown' ? (at + 1) % items.length : e.key === 'ArrowUp' ? (at - 1 + items.length) % items.length : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : -1
+  if (to < 0 || items.length === 0) return false
+  items[to]!.focus()
+  return true
+}
+
+/** The four backgrounds as radio items, the current one checked. */
+function BackgroundItems({ value, onPick }: { value: string | null; onPick: (b: string) => void }) {
+  const { t } = useI18n()
+  return (
+    <>
+      {BACKGROUNDS.map((b) => (
+        <button key={b} type="button" role="menuitemradio" aria-checked={value === b} className="editor-menu-item" onClick={() => onPick(b)}>
+          {t(`library.background.${b}`)}
+        </button>
+      ))}
+    </>
+  )
+}
 /** A drag this close to the top or bottom of the list scrolls it (SCROLL_PX per dragover). */
 const EDGE_PX = 40
 const SCROLL_PX = 14
@@ -57,18 +81,19 @@ function Thumb({ page }: { page: Page }) {
   return <canvas ref={ref} className="po-canvas" aria-hidden="true" />
 }
 
-type ItemProps = { page: Page; index: number; total: number; current: boolean; picked: boolean; drop: 'before' | 'after' | null; conflict: boolean; focusable: boolean; readOnly: boolean; onGo: (e: ReactMouseEvent) => void; onDragStart: (e: ReactDragEvent) => void; onDragEnd: () => void; onDuplicate: () => void; onDelete: () => void }
+type ItemProps = { page: Page; index: number; total: number; current: boolean; picked: boolean; drop: 'before' | 'after' | null; conflict: boolean; focusable: boolean; readOnly: boolean; onGo: (e: ReactMouseEvent) => void; onDragStart: (e: ReactDragEvent) => void; onDragEnd: () => void; onDuplicate: () => void; onDelete: () => void; onBackground: (b: string) => void; onOrientation: (o: 'portrait' | 'landscape') => void; onOutOfBounds: () => void }
 
-function Item({ page, index, total, current, picked, drop, conflict, focusable, readOnly, onGo, onDragStart, onDragEnd, onDuplicate, onDelete }: ItemProps) {
+function Item({ page, index, total, current, picked, drop, conflict, focusable, readOnly, onGo, onDragStart, onDragEnd, onDuplicate, onDelete, onBackground, onOrientation, onOutOfBounds }: ItemProps) {
   const { t } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const visible = useVisible(box)
   const [open, setOpen] = useState(false)
+  const [sub, setSub] = useState(false) // the background choices instead of the main items
   const menu = useRef<HTMLDivElement>(null)
   const more = useRef<HTMLButtonElement>(null)
   useEffect(() => {
-    if (open) menu.current?.querySelector<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])')?.focus()
-  }, [open])
+    if (open) menu.current?.querySelector<HTMLElement>('[aria-checked="true"], [role^="menuitem"]:not([aria-disabled="true"])')?.focus()
+  }, [open, sub])
   // A press outside closes the menu.
   useEffect(() => {
     if (!open) return
@@ -81,19 +106,28 @@ function Item({ page, index, total, current, picked, drop, conflict, focusable, 
   }, [open])
   const pick = (f: () => void) => () => {
     setOpen(false)
+    setSub(false)
     f()
   }
+  const close = () => {
+    setOpen(false)
+    setSub(false)
+    more.current?.focus()
+  }
   const onMenuKey = (e: ReactKeyEvent) => {
-    if (e.key !== 'Escape') return
+    if (e.key === 'ArrowLeft' && sub) setSub(false)
+    else if (e.key === 'ArrowRight' && !sub && document.activeElement?.getAttribute('aria-haspopup')) setSub(true)
+    else if (e.key === 'Escape') close()
+    else if (!menuKey(e, menu.current)) return
     e.preventDefault()
     e.stopPropagation()
-    setOpen(false)
-    more.current?.focus()
   }
   const { width: w, height: h } = page
   const ratio = w > 0 && h > 0 ? Math.min(5, Math.max(0.2, w / h)) : 0.7
   const out = useMemo(() => pageOutOfBounds(w, h, page.elements as El[]).length, [w, h, page.elements])
-  const badges = [...(conflict ? [t('page.conflictBadge')] : []), ...(out > 0 ? [fmt(t('page.outOfBoundsBadge'), { n: out })] : [])]
+  const outText = out > 0 ? fmt(t('page.outOfBoundsBadge'), { n: out }) : ''
+  const badges = [...(conflict ? [t('page.conflictBadge')] : []), ...(out > 0 ? [outText] : [])]
+  const portrait = w <= h
   const label = [
     fmt(t('editor.page'), { n: index + 1, total, orientation: t(w > h ? 'library.orientation.landscape' : 'library.orientation.portrait') }),
     ...(current ? [t('page.current')] : []),
@@ -114,9 +148,9 @@ function Item({ page, index, total, current, picked, drop, conflict, focusable, 
       >
         <div ref={box} className="po-thumb" style={{ aspectRatio: String(ratio) }} aria-hidden="true">
           {visible && <Thumb page={page} />}
-          {badges.length > 0 && (
+          {conflict && (
             <span className="po-badges">
-              {badges.map((b) => (
+              {[t('page.conflictBadge')].map((b) => (
                 <span key={b} className="po-badge">
                   <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
                     <path d="M8 2l6.5 11.5h-13zM8 6.5v3.2M8 11v.1" stroke="currentColor" strokeWidth="1.5" fill="none" />
@@ -131,6 +165,14 @@ function Item({ page, index, total, current, picked, drop, conflict, focusable, 
           {current ? `${index + 1} · ${t('page.current')}` : index + 1}
         </span>
       </div>
+      {out > 0 && (
+        <button type="button" className="po-badge po-badge-btn" tabIndex={focusable ? 0 : -1} aria-label={fmt(t('page.selectOutOfBounds'), { n: out })} onClick={onOutOfBounds}>
+          <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 2l6.5 11.5h-13zM8 6.5v3.2M8 11v.1" stroke="currentColor" strokeWidth="1.5" fill="none" />
+          </svg>
+          {outText}
+        </button>
+      )}
       <button
         ref={more}
         type="button"
@@ -141,7 +183,10 @@ function Item({ page, index, total, current, picked, drop, conflict, focusable, 
         tabIndex={-1}
         aria-label={t('page.menu')}
         title={readOnly ? t('editor.readOnlyTip') : undefined}
-        onClick={() => !readOnly && setOpen((o) => !o)}
+        onClick={() => {
+          setSub(false)
+          if (!readOnly) setOpen((o) => !o)
+        }}
       >
         <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
           <circle cx="3" cy="8" r="1.4" fill="currentColor" />
@@ -151,12 +196,24 @@ function Item({ page, index, total, current, picked, drop, conflict, focusable, 
       </button>
       {open && (
         <div ref={menu} role="menu" aria-label={t('page.menu')} className="editor-menu po-menu" onKeyDown={onMenuKey}>
-          <button type="button" role="menuitem" className="editor-menu-item" onClick={pick(onDuplicate)}>
-            {t('page.duplicate')}
-          </button>
-          <button type="button" role="menuitem" className="editor-menu-item" aria-disabled={total < 2} onClick={pick(() => total > 1 && onDelete())}>
-            {t('page.delete')}
-          </button>
+          {sub ? (
+            <BackgroundItems value={BACKGROUNDS.includes(page.background as never) ? page.background : null} onPick={(b) => pick(() => onBackground(b))()} />
+          ) : (
+            <>
+              <button type="button" role="menuitem" className="editor-menu-item" onClick={pick(onDuplicate)}>
+                {t('page.duplicate')}
+              </button>
+              <button type="button" role="menuitem" className="editor-menu-item" aria-disabled={total < 2} onClick={pick(() => total > 1 && onDelete())}>
+                {t('page.delete')}
+              </button>
+              <button type="button" role="menuitem" className="editor-menu-item" aria-haspopup="menu" onClick={() => setSub(true)}>
+                {t('page.changeBackground')}
+              </button>
+              <button type="button" role="menuitem" className="editor-menu-item" aria-disabled={w === h} onClick={pick(() => w !== h && onOrientation(portrait ? 'landscape' : 'portrait'))}>
+                {t(portrait ? 'page.toLandscape' : 'page.toPortrait')}
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -179,9 +236,13 @@ type Props = {
   onDelete?: (pageIds: string[]) => void
   /** The pages (note order) go as one block to `index` of the pages that stay (movePages). */
   onMove?: (pageIds: string[], index: number) => void
+  onBackground?: (pageIds: string[], background: string) => void
+  onOrientation?: (pageId: string, orientation: 'portrait' | 'landscape') => void
+  /** The elements outside the page are selected (the badge). */
+  onSelectOutOfBounds?: (pageId: string) => void
 }
 
-export const PageOverview = forwardRef<HTMLElement, Props>(function PageOverview({ id, pages, current, conflicted, side, overlay, readOnly = false, onGo, onClose, onAdd, onDuplicate, onDelete, onMove }, ref) {
+export const PageOverview = forwardRef<HTMLElement, Props>(function PageOverview({ id, pages, current, conflicted, side, overlay, readOnly = false, onGo, onClose, onAdd, onDuplicate, onDelete, onMove, onBackground, onOrientation, onSelectOutOfBounds }, ref) {
   const { t } = useI18n()
   const list = useRef<HTMLDivElement>(null)
   // The current page stays in view as the canvas scrolls.
@@ -230,6 +291,23 @@ export const PageOverview = forwardRef<HTMLElement, Props>(function PageOverview
     const rest = order.filter((x) => !ids.includes(x))
     refocus.current = [...rest.slice(0, to), ...ids, ...rest.slice(to)].indexOf(order[at]!)
     onMove?.(ids, to)
+  }
+  // [배경] in the header of a pick: the four choices for every picked page.
+  const [bgMenu, setBgMenu] = useState(false)
+  const bgRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (bgMenu) bgRef.current?.querySelector<HTMLElement>('[role^="menuitem"]')?.focus()
+  }, [bgMenu])
+  useEffect(() => {
+    if (live.size === 0) setBgMenu(false)
+  }, [live.size])
+  const onBgKey = (e: ReactKeyEvent) => {
+    if (e.key === 'Escape') {
+      setBgMenu(false)
+      bgRef.current?.parentElement?.querySelector<HTMLElement>('[aria-haspopup]')?.focus()
+    } else if (!menuKey(e, bgRef.current)) return
+    e.preventDefault()
+    e.stopPropagation()
   }
   // Dragging: the block is the picked pages when the dragged one is among them.
   const [drop, setDrop] = useState<number | null>(null)
@@ -326,15 +404,25 @@ export const PageOverview = forwardRef<HTMLElement, Props>(function PageOverview
           <button type="button" className="po-action" aria-disabled={readOnly || live.size >= pages.length} onClick={() => doDelete(order.filter((x) => live.has(x)))}>
             {t('page.delete')}
           </button>
-          {/* The background menu arrives with Story 6.9. */}
-          <button type="button" className="po-action" aria-disabled="true">
+          <button type="button" className="po-action" aria-disabled={readOnly} aria-haspopup="menu" aria-expanded={bgMenu} onClick={() => !readOnly && setBgMenu((o) => !o)}>
             {t('page.background')}
           </button>
+          {bgMenu && (
+            <div ref={bgRef} role="menu" aria-label={t('page.background')} className="editor-menu po-bg-menu" onKeyDown={onBgKey}>
+              <BackgroundItems
+                value={null}
+                onPick={(b) => {
+                  setBgMenu(false)
+                  onBackground?.(order.filter((x) => live.has(x)), b)
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
       <div ref={list} role="listbox" aria-label={t('page.overview')} aria-orientation="vertical" className="po-list" onKeyDown={onKeyDown} onDragOver={onDragOver} onDrop={onDrop}>
         {pages.map((p, i) => (
-          <Item key={p.id} page={p} index={i} total={pages.length} current={i === current} picked={live.has(p.id)} drop={drop === i ? 'before' : drop === pages.length && i === pages.length - 1 ? 'after' : null} conflict={conflicted.has(p.id)} focusable={i === current} readOnly={readOnly} onGo={(e) => clickItem(i, e)} onDragStart={(e) => { drag.current = block(p.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id) }} onDragEnd={() => { drag.current = []; setDrop(null) }} onDuplicate={() => onDuplicate?.([p.id])} onDelete={() => doDelete([p.id])} />
+          <Item key={p.id} page={p} index={i} total={pages.length} current={i === current} picked={live.has(p.id)} drop={drop === i ? 'before' : drop === pages.length && i === pages.length - 1 ? 'after' : null} conflict={conflicted.has(p.id)} focusable={i === current} readOnly={readOnly} onGo={(e) => clickItem(i, e)} onDragStart={(e) => { drag.current = block(p.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id) }} onDragEnd={() => { drag.current = []; setDrop(null) }} onDuplicate={() => onDuplicate?.([p.id])} onDelete={() => doDelete([p.id])} onBackground={(b) => onBackground?.([p.id], b)} onOrientation={(o) => onOrientation?.(p.id, o)} onOutOfBounds={() => onSelectOutOfBounds?.(p.id)} />
         ))}
       </div>
     </aside>

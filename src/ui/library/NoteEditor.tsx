@@ -1278,6 +1278,26 @@ export function NoteEditor({
     if (ids.length > 1) setResultText(fmt(t('page.deletedMany'), { n: ids.length }))
     else pageSay('page.deleted', i + 1)
   }
+  const setBackgroundOf = (ids: string[], background: string) => {
+    const w = loaded?.writer
+    if (!w || w.pageEdit({ op: 'setPageBackground', items: ids.map((pageId) => ({ pageId, background })) })) return
+    setResultText(fmt(t('page.backgroundSet'), { name: t(`library.background.${background}` as 'library.background.plain') }))
+  }
+  const setOrientationOf = (pageId: string, orientation: 'portrait' | 'landscape') => {
+    const w = loaded?.writer
+    const i = pages.findIndex((p) => p.id === pageId)
+    if (!w || i < 0 || w.pageEdit({ op: 'setPageOrientation', pageId, orientation })) return
+    settleView(w, pages[at]?.id, false, 0)
+    setResultText(fmt(t('page.orientationSet'), { n: i + 1, orientation: t(`library.orientation.${orientation}`) }))
+  }
+  // The badge: go to the page, select what stands outside it, and hand the keys to the canvas (arrows move the selection).
+  const selectOutOfBoundsOf = (pageId: string) => {
+    const w = loaded?.writer
+    const i = pages.findIndex((p) => p.id === pageId)
+    if (!w || i < 0) return
+    w.goToPage(i)
+    if (w.selectOutOfBounds(pageId) > 0) canvas.current?.focus()
+  }
   const movePagesTo = (ids: string[], index: number) => {
     const w = loaded?.writer
     const keep = pages[at]?.id
@@ -1570,6 +1590,9 @@ export function NoteEditor({
               onDuplicate={duplicatePagesOf}
               onDelete={deletePagesOf}
               onMove={movePagesTo}
+              onBackground={setBackgroundOf}
+              onOrientation={setOrientationOf}
+              onSelectOutOfBounds={selectOutOfBoundsOf}
               onGo={(i) => loaded.writer.goToPage(i)}
               onClose={closePanel}
             />

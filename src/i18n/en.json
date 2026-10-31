@@ -362,5 +362,11 @@
   "page.moved": "Moved page {n} to position {to}",
   "page.movedMany": "Moved {n} pages",
   "page.deletedMany": "Deleted {n} pages",
-  "page.duplicatedMany": "Duplicated {n} pages"
+  "page.duplicatedMany": "Duplicated {n} pages",
+  "page.changeBackground": "Change background",
+  "page.toLandscape": "Make landscape",
+  "page.toPortrait": "Make portrait",
+  "page.backgroundSet": "Background changed: {name}",
+  "page.orientationSet": "Page {n} is now {orientation}",
+  "page.selectOutOfBounds": "Select {n} elements outside the page"
 }

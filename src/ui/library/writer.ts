@@ -2,6 +2,7 @@
 // History -> serial saves, and the canvas that shows the page (with its zoom
 // and pan view). No React here.
 import { newId } from '../../model/ids'
+import { pageOutOfBounds } from '../../model/pageBounds'
 import { elementClipboard } from '../../model/elementClipboard'
 import { isTextBox, selectLasso, selectRect, selectTap, selectionBounds, selectionFrame, type Bounds, type El } from '../../model/select'
 import { cpIndex, formatAt, formatRange, retextRuns, type TextFormat } from '../../model/textEdit'
@@ -790,6 +791,15 @@ export class Writer {
 
   get currentTool(): Tool {
     return this.tool
+  }
+
+  /** Story 6.9: selects the elements of page `pageId` that stand outside it; the count (0: none, or the page is unknown). */
+  selectOutOfBounds(pageId: string): number {
+    const page = this.history.note.pages.find((p) => p.id === pageId)
+    if (!page || this.busy()) return 0
+    const ids = pageOutOfBounds(page.width, page.height, page.elements as El[])
+    this.setSelection(ids.length > 0 ? pageId : '', ids)
+    return ids.length
   }
 
   /** Ctrl+A: every element of the current page. */
