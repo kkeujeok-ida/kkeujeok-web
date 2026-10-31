@@ -1,12 +1,15 @@
 // Edit operations (spec ops.md). Never mutate the input note.
 import { type Note, type Page, type Stroke, SUPPORTED_FORMAT_VERSION, isValidStroke, roundStroke } from '../model/note'
+import { addPage, deletePage, duplicatePage, insertPages, movePages, setPageBackground, setPageOrder, setPageOrientation } from './pageOps'
 import { normalizeTitle } from '../model/noteTitle'
 import { round2 } from '../model/number'
 import { IMAGE_SIZE_MIN, isAssetHash } from '../model/imageRules'
 import { isTextBox, selectionBounds, type El } from '../model/select'
 import { COLOR_DEFAULT, SIZE_DEFAULT, SIZE_MAX, SIZE_MIN, WIDTH_MIN, cpLen, isBlankText, normalizeNewlines, normalizeRuns, textHeight, validRuns } from '../model/textLayout'
 
-export type Ctx = { rev: string; now: string; editedBy: string; lastSeenRemoteSeq: number; /** New element ids for `paste`, one per pasted element. */ ids?: string[] }
+export type Ctx = { rev: string; now: string; editedBy: string; lastSeenRemoteSeq: number; /** New element ids for `paste`, one per pasted element. */ ids?: string[]
+  /** Page operations (spec ops.md "Page operations"): UUIDv7 lists the caller makes long enough. */
+  revs?: string[]; pageIds?: string[]; elementIds?: string[]; orderRev?: string }
 export type Op = { op: string; [k: string]: unknown }
 /** `inverse` is null only when a selection op changed nothing (no bounding box): it is not recorded in the history. */
 export type OpResult = { note: Note; inverse: Op | null } | { error: string }
@@ -85,6 +88,22 @@ export function applyOp(note: Note, op: Op, ctx: Ctx): OpResult {
     case 'editText':
     case 'setTextBoxWidth':
       return editText(note, op, ctx)
+    case 'addPage':
+      return addPage(note, op, ctx)
+    case 'deletePage':
+      return deletePage(note, op, ctx)
+    case 'insertPages':
+      return insertPages(note, op, ctx)
+    case 'duplicatePage':
+      return duplicatePage(note, op, ctx)
+    case 'movePages':
+      return movePages(note, op, ctx)
+    case 'setPageOrder':
+      return setPageOrder(note, op, ctx)
+    case 'setPageBackground':
+      return setPageBackground(note, op, ctx)
+    case 'setPageOrientation':
+      return setPageOrientation(note, op, ctx)
     default:
       return { error: 'unknownOp' }
   }

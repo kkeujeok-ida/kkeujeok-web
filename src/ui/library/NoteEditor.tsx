@@ -190,6 +190,9 @@ export function NoteEditor({
   const [viewMode, setViewMode] = useState<ViewMode>(() => viewModeStore.read())
   const [modeSay, setModeSay] = useState('')
   const [panelOpen, setPanelOpen] = useState(false)
+  // Scrolling past an end of the note (Story 6.5): the indicator, and what a full pull does (set once the page list is known).
+  const [pull, setPull] = useState<{ edge: 'start' | 'end'; ratio: number } | null>(null)
+  const pullAddRef = useRef<(edge: 'start' | 'end') => void>(() => {})
   const [narrow, setNarrow] = useState(() => globalThis.innerWidth < OVERLAY_BELOW_PX)
   const panel = useRef<HTMLElement>(null)
   const pageBtn = useRef<HTMLButtonElement>(null)
@@ -311,6 +314,8 @@ export function NoteEditor({
                 return { gap: g, extraBottom: !el || (!dockRef.current.floating && dockRef.current.pos.dock === 'top') || low ? el ? el.offsetHeight + g : g : 0 }
               }
               w.onView = (v) => live && setView(v)
+              w.onPull = (p) => live && setPull(p)
+              w.onPullAdd = (e) => live && pullAddRef.current(e)
               w.onBox = (b) => live && setBox(b)
               w.onErased = (i) => live && erasedRef.current(i)
               w.eraserMode = eraserRef.current.mode
@@ -1241,6 +1246,34 @@ export function NoteEditor({
       : undefined
   }
   const pageLabel = labelOf(at)
+  // Page operations of the panel and the end pull (Stories 6.5-6.9). The words go to the polite region.
+  const pageSay = (key: 'page.added' | 'page.deleted' | 'page.duplicated', n: number) => setResultText(fmt(t(key), { n }))
+  const addPageAt = (index: number) => {
+    const w = loaded?.writer
+    if (!w || w.pageEdit({ op: 'addPage', index })) return
+    w.goToPage(index)
+    pageSay('page.added', index + 1)
+  }
+  pullAddRef.current = (edge) => addPageAt(edge === 'end' ? total : 0)
+  const duplicatePageOf = (id: string) => {
+    const w = loaded?.writer
+    const i = pages.findIndex((p) => p.id === id)
+    if (!w || i < 0 || w.pageEdit({ op: 'duplicatePage', pageIds: [id] })) return
+    const now = w.history.note.pages.findIndex((p) => p.id === pages[at]?.id)
+    if (now !== at && now >= 0) w.goToPage(now) // the copy came before the page in view
+    pageSay('page.duplicated', i + 2)
+  }
+  const deletePageOf = (id: string) => {
+    const w = loaded?.writer
+    const i = pages.findIndex((p) => p.id === id)
+    const keep = pages[at]?.id
+    if (!w || i < 0 || w.pageEdit({ op: 'deletePage', pageIds: [id] })) return
+    const left = w.history.note.pages
+    // The page in view was deleted: the next one (the previous when it was the last) is shown.
+    const to = keep === id ? Math.min(i, left.length - 1) : left.findIndex((p) => p.id === keep)
+    if (to !== at && to >= 0) w.goToPage(to)
+    pageSay('page.deleted', i + 1)
+  }
   // The confirmed text boxes, readable by a screen reader.
   const textBoxes = pages.flatMap((p) => (p.elements as { id?: string; type?: string; text?: unknown }[]).filter((e) => e?.type === 'text' && typeof e.text === 'string').map((e) => ({ id: e.id as string, text: e.text as string })))
 
@@ -1434,6 +1467,15 @@ export function NoteEditor({
               aria-label={pageLabel}
               aria-describedby={descId}
             />
+            {pull && (
+              <div className="pull-indicator" data-edge={pull.edge} data-axis={viewMode === 'vertical' ? 'y' : 'x'} aria-hidden="true">
+                <svg className="pull-ring" viewBox="0 0 20 20">
+                  <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeOpacity="0.3" strokeWidth="2" />
+                  <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray={`${pull.ratio * 50.27} 50.27`} />
+                </svg>
+                <span>{t('page.pullMore')}</span>
+              </div>
+            )}
             {box && !readOnly && !loaded.writer.pageLocked && (
               <SelectionMenu
                 box={box}
@@ -1510,6 +1552,10 @@ export function NoteEditor({
               conflicted={new Set((conflicts ?? []).map((c) => c.pageId))}
               side={panelSide}
               overlay={narrow}
+              readOnly={readOnly}
+              onAdd={() => addPageAt(at + 1)}
+              onDuplicate={duplicatePageOf}
+              onDelete={deletePageOf}
               onGo={(i) => loaded.writer.goToPage(i)}
               onClose={closePanel}
             />

@@ -17,9 +17,9 @@ afterEach(() => {
   m = undefined
 })
 
-function mount(current: number, onGo: (i: number) => void, conflicted: string[] = []) {
+function mount(current: number, onGo: (i: number) => void, conflicted: string[] = [], extra: Record<string, unknown> = {}) {
   const pages = mkNote({ title: 'x', pages: { [PA]: 'a1', [PB]: 'b1' } }).pages
-  m = mountUi(createElement(PageOverview, { id: 'p', pages, current, conflicted: new Set(conflicted), side: 'right', overlay: false, onGo, onClose: () => {} }), 'ko')
+  m = mountUi(createElement(PageOverview, { id: 'p', pages, current, conflicted: new Set(conflicted), side: 'right', overlay: false, onGo, onClose: () => {}, ...extra }), 'ko')
   return m
 }
 const options = () => [...document.querySelectorAll<HTMLElement>('[role="option"]')]
@@ -56,5 +56,36 @@ describe('page overview panel', () => {
     expect(went).toEqual([1])
     key(o[1]!, 'ArrowUp')
     expect(document.activeElement).toBe(o[0])
+  })
+
+  test('[+], the menu and Delete call the page operations (Story 6.5)', () => {
+    const calls: string[] = []
+    mount(0, () => {}, [], { onAdd: () => calls.push('add'), onDuplicate: (id: string) => calls.push(`dup ${id}`), onDelete: (id: string) => calls.push(`del ${id}`) })
+    act(() => document.querySelector<HTMLElement>('.po-header button[aria-label="페이지 추가"]')!.click())
+    act(() => document.querySelectorAll<HTMLElement>('.po-more')[0]!.click())
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+    expect(document.activeElement?.textContent).toBe('복제')
+    act(() => (document.activeElement as HTMLElement).click())
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    options()[1]!.focus()
+    key(options()[1]!, 'Delete')
+    expect(calls).toEqual(['add', `dup ${PA}`, `del ${PB}`])
+  })
+
+  test('Esc closes the menu and returns focus to the button; read-only disables the edits', () => {
+    const calls: string[] = []
+    mount(0, () => {}, [], { onAdd: () => calls.push('add'), onDelete: () => calls.push('del') })
+    const more = document.querySelectorAll<HTMLElement>('.po-more')[0]!
+    act(() => more.click())
+    key(document.activeElement!, 'Escape')
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(document.activeElement).toBe(more)
+    m!.unmount()
+    mount(0, () => {}, [], { readOnly: true, onAdd: () => calls.push('add'), onDelete: () => calls.push('del') })
+    act(() => document.querySelector<HTMLElement>('.po-header button[aria-label="페이지 추가"]')!.click())
+    act(() => document.querySelectorAll<HTMLElement>('.po-more')[0]!.click())
+    key(options()[0]!, 'Delete')
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(calls).toEqual([])
   })
 })

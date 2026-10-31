@@ -2327,3 +2327,58 @@ h1 {
 .po-item:focus-within .po-more {
   opacity: 0.5;
 }
+
+.po-menu {
+  top: var(--components-page-thumbnail-menu-button);
+  z-index: 4;
+}
+
+.po-more[aria-disabled='true'] {
+  opacity: 0.3;
+}
+
+/* Scrolling past an end of the note: a ring that fills and the words (Story 6.5). */
+.pull-indicator {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  border-radius: var(--rounded-sm);
+  background: var(--components-snackbar-background);
+  color: var(--components-snackbar-text);
+  pointer-events: none;
+}
+
+.pull-indicator[data-edge='start'] {
+  top: var(--spacing-3);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.pull-indicator[data-edge='end'] {
+  bottom: var(--spacing-3);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.pull-indicator[data-axis='x'][data-edge='start'] {
+  top: 50%;
+  left: var(--spacing-3);
+  transform: translateY(-50%);
+}
+
+.pull-indicator[data-axis='x'][data-edge='end'] {
+  top: 50%;
+  right: var(--spacing-3);
+  bottom: auto;
+  left: auto;
+  transform: translateY(-50%);
+}
+
+.pull-ring {
+  width: 20px;
+  height: 20px;
+  transform: rotate(-90deg);
+}

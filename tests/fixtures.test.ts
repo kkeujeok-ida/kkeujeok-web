@@ -95,6 +95,14 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'ops.textBox': opRunner,
   'ops.image': opRunner,
   'ops.insertImage': opRunner,
+  'ops.addPage': opRunner,
+  'ops.deletePage': opRunner,
+  'ops.insertPages': opRunner,
+  'ops.duplicatePage': opRunner,
+  'ops.movePages': opRunner,
+  'ops.setPageOrder': opRunner,
+  'ops.setPageBackground': opRunner,
+  'ops.setPageOrientation': opRunner,
   'select.image': ({ input, expected }) => {
     const i = input as { fn: 'lasso' | 'tap' | 'rect'; elements: El[]; polygon?: P[]; point?: P; tolerance?: number; rect?: [number, number, number, number] }
     const got = i.fn === 'lasso' ? selectLasso(i.elements, i.polygon!) : i.fn === 'tap' ? selectTap(i.elements, i.point!, i.tolerance) : selectRect(i.elements, i.rect!)
@@ -298,17 +306,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Sync rules (Story 3.2) arrive with the web sync stories (3.4, 3.6, 3.10, ...);
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
-// Page operations (Story 6.1) arrive with the web stories 6.5, 6.7, 6.9.
-const PENDING: string[] = [
-  'ops.addPage',
-  'ops.deletePage',
-  'ops.insertPages',
-  'ops.duplicatePage',
-  'ops.movePages',
-  'ops.setPageOrder',
-  'ops.setPageBackground',
-  'ops.setPageOrientation',
-]
+const PENDING: string[] = []
 
 function mergeRunner({ input, expected }: Case) {
   const i = input as { base: Note | null; local: Note; remote: Note; ctx: MergeCtx }

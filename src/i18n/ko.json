@@ -347,5 +347,11 @@
   "page.menu": "페이지 메뉴",
   "page.current": "현재",
   "page.conflictBadge": "충돌",
-  "page.outOfBoundsBadge": "페이지 밖 요소 {n}개"
+  "page.outOfBoundsBadge": "페이지 밖 요소 {n}개",
+  "page.added": "{n}페이지를 추가했어요",
+  "page.deleted": "{n}페이지를 지웠어요",
+  "page.duplicated": "{n}페이지를 복제했어요",
+  "page.duplicate": "복제",
+  "page.delete": "삭제",
+  "page.pullMore": "더 스크롤하면 페이지 추가"
 }

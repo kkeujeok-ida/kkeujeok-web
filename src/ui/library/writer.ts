@@ -62,6 +62,9 @@ const ANIMATION_MS = 150
 const WHEEL_ZOOM = 0.002
 export const ZOOM_STEP = 1.25
 export const ARROW_STEP = 40
+/** Scrolling this far past an end adds a page (Story 6.5, tune by use). */
+export const PULL_PX = 240
+const PULL_IDLE_MS = 200
 export { PAGE_GAP }
 
 export type FitMode = 'width' | 'page' | 'free'
@@ -358,6 +361,7 @@ export class Writer {
       fonts?.removeEventListener?.('loadingdone', repaint)
       offs.forEach((off) => off())
       canvas.removeEventListener('wheel', onWheel)
+      if (this.pull.timer) clearTimeout(this.pull.timer)
       this.stopAnim()
       ro?.disconnect()
       globalThis.removeEventListener?.('resize', relayout)
@@ -636,8 +640,46 @@ export class Writer {
       dx = dx || dy
       dy = 0
     }
+    const before = this.viewport
     this.scroll(dx, dy)
+    this.pullCheck(before, this.viewMode !== 'vertical' && this.info().y === null ? dx + dy : dy)
   }
+
+  /**
+   * Scrolling past the first / last page (Story 6.5): only a wheel run that began at that edge counts, so inertia that
+   * rolls into the edge adds nothing. PULL_PX of one run adds a page; a pause ends the run.
+   */
+  private pull = { edge: null as 'start' | 'end' | null, sum: 0, last: 0, timer: 0 as ReturnType<typeof setTimeout> | 0, fresh: true }
+  private pullCheck(before: PageViewport, amount: number): void {
+    const p = this.pull
+    const now = globalThis.performance?.now() ?? Date.now()
+    if (now - p.last > PULL_IDLE_MS) Object.assign(p, { edge: null, sum: 0, fresh: true })
+    p.last = now
+    const blocked = amount !== 0 && before.offsetX === this.viewport.offsetX && before.offsetY === this.viewport.offsetY
+    const dir = amount > 0 ? 'end' : 'start'
+    if (p.fresh) p.edge = blocked && !this.readOnly ? dir : null
+    p.fresh = false
+    if (p.edge && blocked && p.edge === dir) p.sum += Math.abs(amount)
+    else Object.assign(p, { edge: null, sum: 0 })
+    if (p.timer) clearTimeout(p.timer)
+    p.timer = setTimeout(() => this.pullEnd(), PULL_IDLE_MS)
+    if (p.edge && p.sum >= PULL_PX) {
+      const edge = p.edge
+      Object.assign(p, { edge: null, sum: 0 }) // one page per run
+      this.onPull(null)
+      this.onPullAdd(edge)
+      return
+    }
+    this.onPull(p.edge && p.sum > 0 ? { edge: p.edge, ratio: Math.min(1, p.sum / PULL_PX) } : null)
+  }
+  private pullEnd(): void {
+    Object.assign(this.pull, { edge: null, sum: 0, timer: 0 })
+    this.onPull(null)
+  }
+  /** The pull indicator: how far the person has scrolled past an end (null: none). */
+  onPull: (p: { edge: 'start' | 'end'; ratio: number } | null) => void = () => {}
+  /** The pull reached its amount: add a page at that end. */
+  onPullAdd: (edge: 'start' | 'end') => void = () => {}
 
   redraw(): void {
     const c = this.canvas
@@ -1864,8 +1906,44 @@ export class Writer {
     this.releaseStrokeWaiters(err ? null : d.pageId)
   }
 
-  private ctx() {
-    return { rev: newId(), now: new Date().toISOString(), editedBy: this.editedBy(), lastSeenRemoteSeq: 0 }
+  private ctx(pages = false) {
+    const base = { rev: newId(), now: new Date().toISOString(), editedBy: this.editedBy(), lastSeenRemoteSeq: 0 }
+    if (!pages) return base
+    // Page operations (spec ops.md): enough ids for any of them; undo and redo of a page operation use them too.
+    const ids = () => Array.from({ length: this.history.note.pages.length + 1 }, newId)
+    return { ...base, revs: ids(), pageIds: ids(), orderRev: newId() }
+  }
+
+  /**
+   * Applies one page operation (Stories 6.5-6.9): one undo step, joins the save queue. Returns the error code or null.
+   * A page with an unresolved conflict is never named by one.
+   */
+  pageEdit(op: Op): string | null {
+    if (this.readOnly || this.leaving || this.busy()) return 'notApplied'
+    this.commitEdit()
+    this.clearNudge()
+    this.lastDot = null
+    const named = [...((op.pageIds as string[] | undefined) ?? []), ...((op.items as { pageId?: string; page?: { id: string } }[] | undefined) ?? []).map((i) => i.pageId ?? i.page?.id), op.pageId]
+    if (named.some((id) => typeof id === 'string' && this.history.isLocked(id))) {
+      this.onBlocked()
+      return 'pageReadOnly'
+    }
+    const note = this.history.note
+    const elementIds = op.op === 'duplicatePage' ? note.pages.filter((p) => (op.pageIds as string[]).includes(p.id)).flatMap((p) => p.elements.map(() => newId())) : undefined
+    const key = this.docKey()
+    const err = this.history.doOp(op, { ...this.ctx(true), ...(elementIds ? { elementIds } : {}) })
+    if (err) {
+      this.message('historyNotApplied')
+      return err
+    }
+    try {
+      this.docChanged(key)
+    } catch {
+      // the next layout repaints
+    }
+    this.queue.commit(this.history.note)
+    this.onChange()
+    return null
   }
 
   get canUndo() {
@@ -1894,14 +1972,15 @@ export class Writer {
       return false
     }
     if (this.readOnly || this.leaving || this.drawing || this.touches.size > 0 || this.mode !== 'none' || depth === 0) return false
-    const err = this.history[kind](this.ctx())
+    const key = this.docKey()
+    const err = this.history[kind](this.ctx(true))
     if (err) {
       this.message('historyNotApplied')
       return false
     }
     // The history has advanced: the save must happen even if drawing throws.
     try {
-      this.redraw()
+      this.docChanged(key)
     } catch {
       // the next layout repaints
     }

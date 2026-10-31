@@ -1,0 +1,81 @@
+// @vitest-environment jsdom
+// Story 6.5: the writer's page edits (one undo step each, locked pages refused) and the scroll-past-end pull.
+import 'fake-indexeddb/auto'
+import { describe, expect, test } from 'vitest'
+import { History } from '../src/ops/history'
+import { PULL_PX, Writer } from '../src/ui/library/writer'
+import { PA, PB, mkNote } from './uploadHarness'
+
+const mk = (readOnly = false) => {
+  const h = new History(mkNote({ title: 'x', pages: { [PA]: 'a1', [PB]: 'b1' } }))
+  const w = new Writer(h, { writeNote: async () => {}, close: () => {} } as never, () => ({}) as never, () => {}, () => 'C')
+  w.readOnly = readOnly
+  return { h, w }
+}
+const ids = (h: History) => h.note.pages.map((p) => p.id)
+
+describe('page edits', () => {
+  test('add, duplicate and delete are one undo step each; redo repeats them', () => {
+    const { h, w } = mk()
+    expect(w.pageEdit({ op: 'addPage', index: 1 })).toBeNull()
+    expect(h.note.pages).toHaveLength(3)
+    expect(w.pageEdit({ op: 'duplicatePage', pageIds: [PA] })).toBeNull()
+    expect(h.note.pages).toHaveLength(4)
+    expect(w.pageEdit({ op: 'deletePage', pageIds: [PB] })).toBeNull()
+    expect(ids(h)).not.toContain(PB)
+    expect(w.undo()).toBe(true)
+    expect(ids(h)).toContain(PB)
+    expect(h.note.pages).toHaveLength(4)
+    expect(w.undo()).toBe(true)
+    expect(w.undo()).toBe(true)
+    expect(ids(h)).toEqual([PA, PB])
+    expect(w.redo()).toBe(true)
+    expect(h.note.pages).toHaveLength(3)
+  })
+
+  test('the last page cannot be deleted; a read-only writer and a locked page refuse', () => {
+    const { h, w } = mk()
+    expect(w.pageEdit({ op: 'deletePage', pageIds: [PA, PB] })).toBe('lastPage')
+    h.setLocked([PA])
+    expect(w.pageEdit({ op: 'deletePage', pageIds: [PA] })).toBe('pageReadOnly')
+    expect(ids(h)).toEqual([PA, PB])
+    expect(mk(true).w.pageEdit({ op: 'addPage', index: 0 })).toBe('notApplied')
+  })
+})
+
+describe('scroll past the end', () => {
+  const pulls = (w: Writer) => {
+    const out: string[] = []
+    w.onPullAdd = (e) => out.push(e)
+    const vp = (w as unknown as { viewport: unknown }).viewport
+    const step = (amount: number, gap = 0) => {
+      if (gap) (w as unknown as { pull: { last: number } }).pull.last -= gap
+      ;(w as unknown as { pullCheck(b: unknown, a: number): void }).pullCheck(vp, amount)
+    }
+    return { out, step }
+  }
+
+  test('a run that starts at the edge adds a page at PULL_PX, once', () => {
+    const { w } = mk()
+    const { out, step } = pulls(w)
+    for (let i = 0; i < 10; i++) step(PULL_PX / 8)
+    expect(out).toEqual(['end'])
+  })
+
+  test('inertia rolling into the edge adds nothing; a pause resets the amount', () => {
+    const { w } = mk()
+    const { out, step } = pulls(w)
+    const view = (w as unknown as { viewport: object }).viewport
+    // the first event of the run moves the view (not at the edge yet)
+    ;(w as unknown as { pullCheck(b: unknown, a: number): void }).pullCheck({ ...view, offsetY: 99 }, 100)
+    for (let i = 0; i < 10; i++) step(100)
+    expect(out).toEqual([])
+    step(100, 1000) // a new run at the edge...
+    step(PULL_PX / 2)
+    step(1, 1000) // ...paused: back to zero
+    step(PULL_PX / 2)
+    expect(out).toEqual([])
+    step(-PULL_PX, 1000)
+    expect(out).toEqual(['start'])
+  })
+})

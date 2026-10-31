@@ -347,5 +347,11 @@
   "page.menu": "Page menu",
   "page.current": "Current",
   "page.conflictBadge": "Conflict",
-  "page.outOfBoundsBadge": "{n} elements outside the page"
+  "page.outOfBoundsBadge": "{n} elements outside the page",
+  "page.added": "Added page {n}",
+  "page.deleted": "Deleted page {n}",
+  "page.duplicated": "Duplicated page {n}",
+  "page.duplicate": "Duplicate",
+  "page.delete": "Delete",
+  "page.pullMore": "Keep scrolling to add a page"
 }
