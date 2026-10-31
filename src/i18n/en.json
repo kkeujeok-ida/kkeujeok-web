@@ -341,5 +341,11 @@
   "library.noteDelete": "Delete",
   "library.noteDeleteBody": "Delete this note? It moves to the Drive trash. You can restore it from Drive.",
   "library.noteDeleteConfirm": "Delete",
-  "library.cancel": "Cancel"
+  "library.cancel": "Cancel",
+  "page.overview": "Pages",
+  "page.add": "Add page",
+  "page.menu": "Page menu",
+  "page.current": "Current",
+  "page.conflictBadge": "Conflict",
+  "page.outOfBoundsBadge": "{n} elements outside the page"
 }

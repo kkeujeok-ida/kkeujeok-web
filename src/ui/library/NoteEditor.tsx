@@ -31,6 +31,7 @@ import { sharedViewMode, VIEW_MODES, type ViewMode, type ViewModeStore } from '.
 import { sharedPenDetected, type PenDetectedStore } from '../../storage/penDetected'
 import { revealShift } from './toolbarDock'
 import { useToolbarDock } from './useToolbarDock'
+import { DEFAULT_PANEL_SIDE, OVERLAY_BELOW_PX, PageOverview, type PanelSide } from './PageOverview'
 import { SelectionMenu } from './SelectionMenu'
 import { TextEditOverlay } from './TextEditOverlay'
 import { VersionHistory } from './VersionHistory'
@@ -122,6 +123,7 @@ export function NoteEditor({
   receiver,
   images,
   lockWaitMs = LOCK_WAIT_MS,
+  panelSide = DEFAULT_PANEL_SIDE,
 }: {
   noteId: string
   openStore?: () => NoteStore
@@ -143,6 +145,8 @@ export function NoteEditor({
   images?: ImageHost
   /** How long a held note lock is waited for before the note opens read-only (decision: 3 s). */
   lockWaitMs?: number
+  /** The side the page overview panel opens on: one value, so the left-handed setting (Epic 10) only changes this. */
+  panelSide?: PanelSide
 }) {
   const { t } = useI18n()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -185,6 +189,11 @@ export function NoteEditor({
   const [menuOpen, setMenuOpen] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>(() => viewModeStore.read())
   const [modeSay, setModeSay] = useState('')
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [narrow, setNarrow] = useState(() => globalThis.innerWidth < OVERLAY_BELOW_PX)
+  const panel = useRef<HTMLElement>(null)
+  const pageBtn = useRef<HTMLButtonElement>(null)
+  const panelId = useId()
   // The note is being received before it opens, for over a second.
   const [slow, setSlow] = useState(false)
   // Writes refused on a conflict page (Story 3.20): the banner is emphasized, "읽기 전용 페이지예요" is announced.
@@ -564,7 +573,7 @@ export function NoteEditor({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Tab' || e.key === 'F6') delete toolbar.current?.dataset.pointerFocus
       if (e.ctrlKey || e.altKey || e.metaKey || popoverOpen.current) return
-      const regions = [section.current?.querySelector<HTMLElement>('[data-banner]'), back.current?.parentElement, toolbar.current, canvas.current].filter((r): r is HTMLElement => !!r)
+      const regions = [section.current?.querySelector<HTMLElement>('[data-banner]'), back.current?.parentElement, toolbar.current, canvas.current, panel.current].filter((r): r is HTMLElement => !!r)
       const active = document.activeElement
       if (e.key === 'F6') {
         const at = regions.findIndex((r) => r.contains(active))
@@ -574,6 +583,7 @@ export function NoteEditor({
         const to = regions[next]
         if (to === toolbar.current) toolbar.current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus()
         else if (to === canvas.current) canvas.current?.focus()
+        else if (to === panel.current) panel.current?.querySelector<HTMLElement>('[role="option"][tabindex="0"]')?.focus()
         else if (to?.hasAttribute('data-banner')) (to.querySelector<HTMLElement>('button, a') ?? to).focus()
         else back.current?.focus()
       } else if (/^Digit[1-9]$/.test(e.code) || /^[1-9]$/.test(e.key) || e.code === 'KeyP' || e.code === 'KeyH' || /^[ph]$/i.test(e.key)) {
@@ -1184,6 +1194,25 @@ export function NoteEditor({
     const id = setTimeout(() => setBadge(false), ZOOM_BADGE_MS)
     return () => clearTimeout(id)
   }, [percent, menuOpen, levelText])
+  useEffect(() => {
+    const on = () => setNarrow(globalThis.innerWidth < OVERLAY_BELOW_PX)
+    globalThis.addEventListener('resize', on)
+    return () => globalThis.removeEventListener('resize', on)
+  }, [])
+  // An overlaid panel closes on a press outside it (the page button toggles by itself).
+  useEffect(() => {
+    if (!panelOpen || !narrow) return
+    const on = (e: PointerEvent) => {
+      const el = e.target as Node
+      if (!panel.current?.contains(el) && !pageBtn.current?.contains(el)) setPanelOpen(false)
+    }
+    document.addEventListener('pointerdown', on)
+    return () => document.removeEventListener('pointerdown', on)
+  }, [panelOpen, narrow])
+  const closePanel = () => {
+    setPanelOpen(false)
+    pageBtn.current?.focus()
+  }
   const modeName = (m: ViewMode) => t({ vertical: 'editor.viewVertical', horizontal: 'editor.viewHorizontal', twoPage: 'editor.viewTwoPage' }[m] as 'editor.viewVertical')
   const pickMode = (m: ViewMode) => {
     setViewMode(viewModeStore.write(m))
@@ -1299,6 +1328,20 @@ export function NoteEditor({
                     <circle cx="13" cy="8" r="1.4" fill="currentColor" />
                   </svg>
                 </button>
+                <button
+                  ref={pageBtn}
+                  type="button"
+                  className="btn editor-back"
+                  aria-label={t('page.overview')}
+                  title={t('page.overview')}
+                  aria-expanded={panelOpen}
+                  aria-controls={panelOpen ? panelId : undefined}
+                  onClick={() => setPanelOpen((o) => !o)}
+                >
+                  <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M2.5 2.5h4.5v4.5h-4.5zM9 2.5h4.5v4.5h-4.5zM2.5 9h4.5v4.5h-4.5zM9 9h4.5v4.5h-4.5z" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                  </svg>
+                </button>
               </div>
               {badge && !menuOpen && (
                 <span className="editor-zoom-badge" data-testid="zoom-badge" aria-hidden="true">
@@ -1367,6 +1410,7 @@ export function NoteEditor({
               )}
             </div>
           </div>
+          <div className="editor-body" data-side={panelSide}>
           <div ref={pageArea} className="editor-page-area" role="group" aria-label={`${t('editor.canvas')}: ${pageLabel ?? ''}`}>
             <input
               ref={picker}
@@ -1456,6 +1500,20 @@ export function NoteEditor({
                 <span style={{ left: `${view.x.start * 100}%`, width: `${view.x.size * 100}%` }} />
               </span>
             )}
+          </div>
+          {panelOpen && (
+            <PageOverview
+              ref={panel}
+              id={panelId}
+              pages={pages}
+              current={at}
+              conflicted={new Set((conflicts ?? []).map((c) => c.pageId))}
+              side={panelSide}
+              overlay={narrow}
+              onGo={(i) => loaded.writer.goToPage(i)}
+              onClose={closePanel}
+            />
+          )}
           </div>
           <div role="status" className="snackbar">
             {message ? t(MESSAGE_KEY[message.key]) : ''}

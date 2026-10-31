@@ -2163,3 +2163,167 @@ h1 {
 .palette-editor-actions .btn {
   min-height: var(--spacing-hit-min-web);
 }
+
+/* Page overview panel (Story 6.3): beside the canvas, or over it in a narrow window. */
+.editor-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.editor-body[data-side='left'] {
+  flex-direction: row-reverse;
+}
+
+.editor-body > .editor-page-area {
+  min-width: 0;
+}
+
+.po-panel {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 200px;
+  min-height: 0;
+  background: var(--color-surface-base);
+  border-left: 1px solid var(--color-border-hairline);
+}
+
+.po-panel[data-side='left'] {
+  border-left: 0;
+  border-right: 1px solid var(--color-border-hairline);
+}
+
+.po-panel[data-overlay] {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  z-index: 3;
+  box-shadow: var(--components-popover-shadow);
+}
+
+.po-panel[data-overlay][data-side='left'] {
+  right: auto;
+  left: 0;
+}
+
+.po-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: var(--spacing-2) var(--spacing-2) var(--spacing-2) var(--spacing-3);
+}
+
+.po-title {
+  flex: 1;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.po-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  min-height: 0;
+  padding: var(--spacing-2) var(--spacing-3) var(--spacing-3);
+  overflow-y: auto;
+}
+
+.po-item {
+  position: relative;
+  flex: none;
+}
+
+.po-option {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-1);
+  cursor: pointer;
+}
+
+.po-option:focus-visible {
+  outline: 2px solid var(--color-accent-text);
+  outline-offset: 2px;
+}
+
+.po-thumb {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--components-page-thumbnail-border);
+  border-radius: var(--components-page-thumbnail-rounded);
+  background: var(--color-surface-raised);
+  overflow: hidden;
+}
+
+.po-option.is-current .po-thumb {
+  border: 3px solid var(--components-page-thumbnail-current-ring);
+}
+
+.po-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.po-number {
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--color-ink-secondary, inherit);
+}
+
+.po-badges {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.po-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--color-surface-raised);
+  color: var(--color-status-warning-text);
+  font-size: 0.6875rem;
+}
+
+.po-badge .icon {
+  width: 12px;
+  height: 12px;
+}
+
+/* A placeholder until the page operations: shown on hover and while the thumbnail has focus. */
+.po-more {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--components-page-thumbnail-menu-button);
+  height: var(--components-page-thumbnail-menu-button);
+  padding: 0;
+  border: 0;
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-primary);
+  opacity: 0;
+  cursor: default;
+}
+
+.po-item:hover .po-more,
+.po-item:focus-within .po-more {
+  opacity: 0.5;
+}

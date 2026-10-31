@@ -15,6 +15,7 @@ import { resources } from '../src/i18n'
 import { highlighterOutline } from '../src/render/highlighterOutline'
 import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
+import { pageOutOfBounds } from '../src/model/pageBounds'
 import { selectLasso, selectRect, selectTap, type El, type P } from '../src/model/select'
 import { dockAtPointer } from '../src/ui/library/toolbarDock'
 import { placeBubble } from '../src/ui/library/bubblePlace'
@@ -270,6 +271,10 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     const i = input as { elements: El[]; rect: [number, number, number, number] }
     expect(selectRect(i.elements, i.rect)).toEqual(expected)
   },
+  'page.outOfBounds': ({ input, expected }) => {
+    const i = input as { width: number; height: number; elements: El[] }
+    expect({ ids: pageOutOfBounds(i.width, i.height, i.elements) }).toEqual(expected)
+  },
   'toolbar.snap': ({ input, expected }) => {
     const i = input as { pointer: { x: number; y: number }; bar: { w: number; h: number }; win: { w: number; h: number } }
     expect(dockAtPointer(i.pointer, i.bar, i.win)).toBe(expected)
@@ -303,7 +308,6 @@ const PENDING: string[] = [
   'ops.setPageOrder',
   'ops.setPageBackground',
   'ops.setPageOrientation',
-  'page.outOfBounds',
 ]
 
 function mergeRunner({ input, expected }: Case) {
