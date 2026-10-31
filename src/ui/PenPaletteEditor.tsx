@@ -12,7 +12,7 @@ export function PenPaletteEditor() {
   const [lists, setLists] = useState(() => ({ pen: sharedPenPalette().read('pen'), highlighter: sharedPenPalette().read('highlighter') }))
   const [adding, setAdding] = useState<PenTool | null>(null)
   const [sel, setSel] = useState<string | null>(null) // swatch whose remove button shows
-  const drag = useRef<number | null>(null)
+  const [drag, setDrag] = useState<{ tool: PenTool; hex: string; over: number } | null>(null) // a swatch being dragged and the slot it would take
   const picked = useRef('#000000')
   const save = (tool: PenTool, next: string[]) => setLists((l) => ({ ...l, [tool]: sharedPenPalette().write(tool, next) }))
   const name = (hex: string) => (colorNameKey(hex) === 'editor.colorCustom' ? hex : t(colorNameKey(hex)))
@@ -22,6 +22,9 @@ export function PenPaletteEditor() {
       {TOOLS.map((tool) => {
         const list = lists[tool]
         const full = list.length >= PALETTE_MAX
+        // While dragging, the others make room where the held color would land.
+        const held = drag?.tool === tool ? list.indexOf(drag.hex) : -1
+        const shown = held < 0 ? list : (() => { const n = [...list]; n.splice(drag!.over, 0, n.splice(held, 1)[0]!); return n })()
         const move = (from: number, to: number) => {
           if (from === to || to < 0 || to >= list.length) return
           const next = [...list]
@@ -36,17 +39,21 @@ export function PenPaletteEditor() {
           <div key={tool} role="group" aria-label={t(`editor.tool.${tool}`)} className="palette-editor">
             <strong>{t(`editor.tool.${tool}`)}</strong>
             <ul className="palette-editor-list">
-              {list.map((hex, i) => (
+              {shown.map((hex, i) => (
                 <li
                   key={hex}
-                  className="palette-editor-item"
+                  className={'palette-editor-item' + (held >= 0 && hex === drag!.hex ? ' palette-editor-held' : '')}
                   draggable
-                  onDragStart={() => void (drag.current = i)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => {
-                    if (drag.current !== null) move(drag.current, i)
-                    drag.current = null
+                  onDragStart={() => setDrag({ tool, hex, over: i })}
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    if (held >= 0 && drag!.over !== i) setDrag({ tool, hex: drag!.hex, over: i })
                   }}
+                  onDrop={() => {
+                    if (held >= 0) move(held, drag!.over)
+                    setDrag(null)
+                  }}
+                  onDragEnd={() => setDrag(null)}
                 >
                   <button
                     type="button"

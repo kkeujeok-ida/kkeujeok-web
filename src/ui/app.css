@@ -2130,6 +2130,11 @@ h1 {
   cursor: grab;
 }
 
+.palette-editor-held .palette-editor-swatch {
+  outline: 3px solid var(--color-ink-primary);
+  outline-offset: 2px;
+}
+
 .palette-editor-swatch {
   padding: 0;
   cursor: inherit;
