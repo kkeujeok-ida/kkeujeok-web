@@ -2382,3 +2382,65 @@ h1 {
   height: 20px;
   transform: rotate(-90deg);
 }
+
+/* Reordering and picking pages (Story 6.7). */
+.po-item[data-drop]::before,
+.po-item[data-drop]::after {
+  content: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-accent-text);
+  pointer-events: none;
+}
+
+.po-item[data-drop='before']::before {
+  content: '';
+  top: calc(var(--spacing-3) / -2 - 2px);
+}
+
+.po-item[data-drop='after']::after {
+  content: '';
+  bottom: calc(var(--spacing-3) / -2 - 2px);
+}
+
+.po-option[data-picked] .po-thumb {
+  outline: 3px solid var(--color-accent-text);
+  outline-offset: 1px;
+}
+
+.po-actions {
+  display: flex;
+  gap: var(--spacing-1);
+  padding: 0 var(--spacing-3) var(--spacing-2);
+}
+
+.po-action {
+  flex: 1;
+  min-height: var(--spacing-hit-min-web);
+  padding: 0 var(--spacing-2);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: var(--rounded-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.po-action[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Pages change places at once; nothing in the panel moves by itself. */
+@media (prefers-reduced-motion: reduce) {
+  .po-panel *,
+  .po-panel *::before,
+  .po-panel *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

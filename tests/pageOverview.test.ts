@@ -88,4 +88,46 @@ describe('page overview panel', () => {
     expect(document.querySelector('[role="menu"]')).toBeNull()
     expect(calls).toEqual([])
   })
+
+  test('Ctrl+click picks pages, the header offers duplicate / delete / background; Esc clears (Story 6.7)', () => {
+    const calls: string[] = []
+    mount(0, () => calls.push('go'), [], { onDuplicate: (ids: string[]) => calls.push(`dup ${ids.length}`), onDelete: (ids: string[]) => calls.push(`del ${ids.length}`) })
+    const ctrl = (el: Element) => act(() => void el.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })))
+    ctrl(options()[0]!)
+    expect(document.querySelector('.po-title')!.textContent).toBe('1장 선택')
+    ctrl(options()[1]!)
+    const btns = [...document.querySelectorAll<HTMLElement>('.po-action')]
+    expect(btns.map((b) => b.textContent)).toEqual(['복제', '삭제', '배경'])
+    expect(btns[1]!.getAttribute('aria-disabled')).toBe('true') // every page picked
+    act(() => btns[0]!.click())
+    act(() => btns[1]!.click())
+    expect(calls).toEqual(['dup 2'])
+    key(options()[0]!, 'Escape')
+    expect(document.querySelector('.po-actions')).toBeNull()
+  })
+
+  test('Shift+Down extends the pick, Ctrl+Space toggles', () => {
+    mount(0, () => {})
+    options()[0]!.focus()
+    act(() => void options()[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', shiftKey: true, bubbles: true })))
+    expect(document.querySelector('.po-title')!.textContent).toBe('2장 선택')
+    act(() => void options()[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', ctrlKey: true, bubbles: true })))
+    expect(document.querySelector('.po-title')!.textContent).toBe('1장 선택')
+  })
+
+  test('Alt+Down moves one step and a drop moves the block', () => {
+    const moves: string[] = []
+    mount(0, () => {}, [], { onMove: (ids: string[], i: number) => moves.push(`${ids.length}@${i}`) })
+    act(() => void options()[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true })))
+    expect(moves).toEqual(['1@1'])
+    const item = document.querySelector<HTMLElement>('.po-item')!
+    const dt = { setData() {}, effectAllowed: '' }
+    const fire = (el: Element, type: string, extra: object = {}) => act(() => void el.dispatchEvent(Object.assign(new Event(type, { bubbles: true, cancelable: true }), { dataTransfer: dt, clientY: 10 }, extra)))
+    fire(item, 'dragstart')
+    fire(document.querySelector('.po-list')!, 'dragover')
+    expect(document.querySelectorAll('.po-item')[1]!.getAttribute('data-drop')).toBe('after')
+    fire(document.querySelector('.po-list')!, 'drop')
+    expect(moves).toEqual(['1@1', '1@1'])
+    expect(document.querySelector('[data-drop]')).toBeNull()
+  })
 })

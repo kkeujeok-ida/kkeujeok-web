@@ -1255,24 +1255,37 @@ export function NoteEditor({
     pageSay('page.added', index + 1)
   }
   pullAddRef.current = (edge) => addPageAt(edge === 'end' ? total : 0)
-  const duplicatePageOf = (id: string) => {
-    const w = loaded?.writer
-    const i = pages.findIndex((p) => p.id === id)
-    if (!w || i < 0 || w.pageEdit({ op: 'duplicatePage', pageIds: [id] })) return
-    const now = w.history.note.pages.findIndex((p) => p.id === pages[at]?.id)
-    if (now !== at && now >= 0) w.goToPage(now) // the copy came before the page in view
-    pageSay('page.duplicated', i + 2)
-  }
-  const deletePageOf = (id: string) => {
-    const w = loaded?.writer
-    const i = pages.findIndex((p) => p.id === id)
-    const keep = pages[at]?.id
-    if (!w || i < 0 || w.pageEdit({ op: 'deletePage', pageIds: [id] })) return
+  // Keeps the page in view in view after the pages moved or came and went (`gone`: it was deleted, the next one is shown).
+  const settleView = (w: Writer, keep: string | undefined, gone: boolean, nearest: number) => {
     const left = w.history.note.pages
-    // The page in view was deleted: the next one (the previous when it was the last) is shown.
-    const to = keep === id ? Math.min(i, left.length - 1) : left.findIndex((p) => p.id === keep)
+    const to = gone ? Math.min(nearest, left.length - 1) : left.findIndex((p) => p.id === keep)
     if (to !== at && to >= 0) w.goToPage(to)
-    pageSay('page.deleted', i + 1)
+  }
+  const duplicatePagesOf = (ids: string[]) => {
+    const w = loaded?.writer
+    const i = pages.findIndex((p) => p.id === ids[0])
+    if (!w || i < 0 || w.pageEdit({ op: 'duplicatePage', pageIds: ids })) return
+    settleView(w, pages[at]?.id, false, 0)
+    if (ids.length > 1) setResultText(fmt(t('page.duplicatedMany'), { n: ids.length }))
+    else pageSay('page.duplicated', i + 2)
+  }
+  const deletePagesOf = (ids: string[]) => {
+    const w = loaded?.writer
+    const i = pages.findIndex((p) => p.id === ids[0])
+    const keep = pages[at]?.id
+    if (!w || i < 0 || w.pageEdit({ op: 'deletePage', pageIds: ids })) return
+    settleView(w, keep, keep !== undefined && ids.includes(keep), i)
+    if (ids.length > 1) setResultText(fmt(t('page.deletedMany'), { n: ids.length }))
+    else pageSay('page.deleted', i + 1)
+  }
+  const movePagesTo = (ids: string[], index: number) => {
+    const w = loaded?.writer
+    const keep = pages[at]?.id
+    const from = pages.findIndex((p) => p.id === ids[0])
+    if (!w || from < 0 || w.pageEdit({ op: 'movePages', pageIds: ids, index })) return
+    settleView(w, keep, false, 0)
+    const to = w.history.note.pages.findIndex((p) => p.id === ids[0]) + 1
+    setResultText(ids.length > 1 ? fmt(t('page.movedMany'), { n: ids.length }) : fmt(t('page.moved'), { n: from + 1, to }))
   }
   // The confirmed text boxes, readable by a screen reader.
   const textBoxes = pages.flatMap((p) => (p.elements as { id?: string; type?: string; text?: unknown }[]).filter((e) => e?.type === 'text' && typeof e.text === 'string').map((e) => ({ id: e.id as string, text: e.text as string })))
@@ -1554,8 +1567,9 @@ export function NoteEditor({
               overlay={narrow}
               readOnly={readOnly}
               onAdd={() => addPageAt(at + 1)}
-              onDuplicate={duplicatePageOf}
-              onDelete={deletePageOf}
+              onDuplicate={duplicatePagesOf}
+              onDelete={deletePagesOf}
+              onMove={movePagesTo}
               onGo={(i) => loaded.writer.goToPage(i)}
               onClose={closePanel}
             />

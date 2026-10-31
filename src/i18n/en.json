@@ -353,5 +353,14 @@
   "page.duplicated": "Duplicated page {n}",
   "page.duplicate": "Duplicate",
   "page.delete": "Delete",
-  "page.pullMore": "Keep scrolling to add a page"
+  "page.pullMore": "Keep scrolling to add a page",
+  "page.picked": "selected",
+  "page.selectedCount": "{n} selected",
+  "page.clearSelection": "Clear selection",
+  "page.selectedActions": "Selected pages",
+  "page.background": "Background",
+  "page.moved": "Moved page {n} to position {to}",
+  "page.movedMany": "Moved {n} pages",
+  "page.deletedMany": "Deleted {n} pages",
+  "page.duplicatedMany": "Duplicated {n} pages"
 }

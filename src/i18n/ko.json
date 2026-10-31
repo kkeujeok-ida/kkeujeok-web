@@ -353,5 +353,14 @@
   "page.duplicated": "{n}페이지를 복제했어요",
   "page.duplicate": "복제",
   "page.delete": "삭제",
-  "page.pullMore": "더 스크롤하면 페이지 추가"
+  "page.pullMore": "더 스크롤하면 페이지 추가",
+  "page.picked": "선택됨",
+  "page.selectedCount": "{n}장 선택",
+  "page.clearSelection": "선택 해제",
+  "page.selectedActions": "선택한 페이지",
+  "page.background": "배경",
+  "page.moved": "{n}페이지를 {to}번째로 옮겼어요",
+  "page.movedMany": "{n}장을 옮겼어요",
+  "page.deletedMany": "{n}장을 지웠어요",
+  "page.duplicatedMany": "{n}장을 복제했어요"
 }
