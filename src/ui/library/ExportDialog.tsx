@@ -24,13 +24,16 @@ const ERROR_KEY: Record<RangeError, Key> = {
 }
 
 type Props = {
+  /** 'print' (Story 8.4) builds the same PDF but opens the browser's print dialog instead of downloading. */
+  mode?: 'export' | 'print'
   note: PdfJob['note']
   /** 1-based number of the page on screen. */
   current: number
   onClose: () => void
 }
 
-export function ExportDialog({ note, current, onClose }: Props) {
+export function ExportDialog({ mode: purpose = 'export', note, current, onClose }: Props) {
+  const printing = purpose === 'print'
   const { t } = useI18n()
   const [mode, setMode] = useState<Mode>('all')
   const [text, setText] = useState('')
@@ -63,7 +66,8 @@ export function ExportDialog({ note, current, onClose }: Props) {
         onProgress: (done, total) => setPhase({ kind: 'making', done, total }),
       })
       if (!r.ok) return setPhase({ kind: 'failed', missing: r.error === 'assetMissing' })
-      downloadBlob(r.fileName, r.blob, 'application/pdf')
+      if (printing) await (await import('../../export/printPdf')).printBlob(r.blob)
+      else downloadBlob(r.fileName, r.blob, 'application/pdf')
       onClose()
     } catch (e) {
       if (cancelled && e instanceof cancelled) onClose()
@@ -108,7 +112,7 @@ export function ExportDialog({ note, current, onClose }: Props) {
     <div className="dialog-scrim" onMouseDown={(e) => e.target === e.currentTarget && phase.kind !== 'making' && onClose()}>
       <div ref={box} className="dialog" role="dialog" aria-modal="true" aria-labelledby={ids.head}>
         <h2 id={ids.head} className="dialog-title">
-          {t('export.title')}
+          {t(printing ? 'print.title' : 'export.title')}
         </h2>
         {phase.kind === 'choose' && (
           <>
@@ -163,7 +167,7 @@ export function ExportDialog({ note, current, onClose }: Props) {
         </p>
         {phase.kind === 'failed' && (
           <p className="dialog-error" role="alert">
-            {t('export.failed')} {phase.missing && t('export.assetMissing')}
+            {t(printing ? 'print.failed' : 'export.failed')} {phase.missing && t('export.assetMissing')}
           </p>
         )}
         <div className="dialog-actions">
@@ -177,7 +181,7 @@ export function ExportDialog({ note, current, onClose }: Props) {
           )}
           {phase.kind === 'choose' && (
             <button type="button" className="btn btn-primary" aria-disabled={!canStart} onClick={() => void start()}>
-              {t('export.start')}
+              {t(printing ? 'print.start' : 'export.start')}
             </button>
           )}
         </div>

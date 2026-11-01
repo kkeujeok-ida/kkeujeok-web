@@ -229,7 +229,7 @@ export function NoteEditor({
   const wantResolve = useRef(false)
   // The version history dialog (Story 3.25).
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [exportOpen, setExportOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState<false | 'export' | 'print'>(false)
   const receiving = useNoteReceiving(noteId)
   const receivingRef = useRef(receiving)
   receivingRef.current = receiving
@@ -716,6 +716,21 @@ export function NoteEditor({
       if (writer.readOnly) return
       const redo = k === 'y' || e.shiftKey
       if (redo ? writer.redo() : writer.undo()) e.preventDefault()
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [loaded])
+
+  // Ctrl/Cmd+P opens our print flow instead of the browser's (which would print the app), even from a text field.
+  useEffect(() => {
+    if (!loaded) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || e.isComposing || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
+      if (e.code !== 'KeyP' && e.key.toLowerCase() !== 'p') return
+      e.preventDefault()
+      if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return
+      setMenuOpen(false)
+      setExportOpen('print')
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
@@ -1483,10 +1498,22 @@ export function NoteEditor({
                     className="editor-menu-item"
                     onClick={() => {
                       setMenuOpen(false)
-                      setExportOpen(true)
+                      setExportOpen('export')
                     }}
                   >
                     {t('editor.export')}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="editor-menu-item"
+                    aria-keyshortcuts="Control+P Meta+P"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setExportOpen('print')
+                    }}
+                  >
+                    {t('editor.print')}
                   </button>
                   {ui?.versions && (
                     <button
@@ -1664,6 +1691,7 @@ export function NoteEditor({
           </div>
           {exportOpen && (
             <ExportDialog
+              mode={exportOpen}
               note={loaded.writer.history.note}
               current={at + 1}
               onClose={() => {

@@ -1210,15 +1210,16 @@ describe('zoom and pan', () => {
       'Horizontal scroll',
       'Two pages',
       'Export as PDF',
+      'Print',
     ])
     expect(q('[role="status"][aria-live="polite"]')!.textContent).toBe(`Zoom ${Math.round(fit() * 100)}%`)
     expect(document.activeElement).toBe(items[0])
     key(items[0]!, 'ArrowUp')
-    expect(document.activeElement).toBe(items[7])
-    key(items[7]!, 'ArrowDown')
+    expect(document.activeElement).toBe(items[8])
+    key(items[8]!, 'ArrowDown')
     expect(document.activeElement).toBe(items[0])
     key(items[0]!, 'End')
-    expect(document.activeElement).toBe(items[7])
+    expect(document.activeElement).toBe(items[8])
     key(items[6]!, 'Home')
     expect(document.activeElement).toBe(items[0])
 
@@ -2875,6 +2876,21 @@ describe('toolbar move and snap (story 5.10)', () => {
     pan.mockRestore()
     const css = readFileSync('src/ui/app.css', 'utf8')
     expect(css).toMatch(/prefers-reduced-motion: reduce\) \{\s*\.pen-toolbar\.is-floating \{\s*transition: none/)
+  })
+})
+
+describe('print (Story 8.4)', () => {
+  test('Ctrl+P opens the print dialog instead of the browser print; ignored while a dialog is open', async () => {
+    await mountEditor()
+    const e = new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true, cancelable: true })
+    act(() => void document.dispatchEvent(e))
+    expect(e.defaultPrevented).toBe(true)
+    await flush()
+    expect(q('[role="dialog"] .dialog-title')!.textContent).toBe('인쇄')
+    const again = new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', ctrlKey: true, bubbles: true, cancelable: true })
+    act(() => void document.dispatchEvent(again))
+    expect(again.defaultPrevented).toBe(true)
+    expect(qa('[role="dialog"]').length).toBe(1)
   })
 })
 
