@@ -26,6 +26,7 @@ import { FolderPicker } from './FolderPicker'
 import { NOTE_DRAG } from './FolderTree'
 import { CoverArt, CoverDialog, coverUrl } from './CoverArt'
 import { NameDialog } from './NameDialog'
+import { librarySearch } from '../../library/libraryRules'
 import { LIBRARY_SORTS, sortBy, useLibrary, type LibraryItem, type LibrarySort } from './useLibrary'
 
 // One per page session, so what was created last wins over a failed save.
@@ -69,6 +70,19 @@ function formatDate(ms: number | null, locale: string): string {
     return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(ms))
   } catch {
     return ''
+  }
+}
+
+const SORT_KEY = 'kkeujeok.librarySort'
+const DEFAULT_SORT: LibrarySort = 'editedDesc'
+const asSort = (v: string | null | undefined): LibrarySort | null => (LIBRARY_SORTS as readonly string[]).includes(v ?? '') ? (v as LibrarySort) : null
+function readSort(): LibrarySort {
+  const fromUrl = asSort(new URLSearchParams(globalThis.location?.search).get('sort'))
+  if (fromUrl) return fromUrl
+  try {
+    return asSort(localStorage.getItem(SORT_KEY)) ?? DEFAULT_SORT
+  } catch {
+    return DEFAULT_SORT
   }
 }
 
@@ -166,14 +180,57 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     wasAsking.current = asking
   }, [asking])
 
-  const [sort, setSort] = useState<LibrarySort>('nameAsc') // by name at every start
+  // The search and the sort live in the address (?q=&sort=); a sort in the address beats the one kept on this device.
+  const [sort, setSort] = useState<LibrarySort>(() => readSort())
+  const [query, setQuery] = useState(() => new URLSearchParams(globalThis.location?.search).get('q') ?? '')
+  const searchInput = useRef<HTMLInputElement>(null)
+  const pickSort = (v: LibrarySort) => {
+    setSort(v)
+    try {
+      localStorage.setItem(SORT_KEY, v)
+    } catch {
+      /* not stored; the choice holds for this visit */
+    }
+  }
+  useEffect(() => {
+    const u = new URL(globalThis.location.href)
+    if (query) u.searchParams.set('q', query)
+    else u.searchParams.delete('q')
+    if (sort === DEFAULT_SORT) u.searchParams.delete('sort')
+    else u.searchParams.set('sort', sort)
+    if (u.href !== globalThis.location.href) history.replaceState(history.state, '', u)
+  }, [query, sort])
+  // '/' goes to the search box unless the person is typing (or composing with an IME).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.isComposing || e.keyCode === 229 || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return
+      const el = e.target as HTMLElement | null
+      if (el?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return
+      e.preventDefault()
+      searchInput.current?.focus()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
   const [view, setView] = useState<LibraryView>(() => viewStore.read())
   const pickView = (v: LibraryView) => {
     setView(v)
     viewStore.write(v)
   }
   const viewName = (v: LibraryView) => `${t(`library.view.${v.size}`)} ${t(`library.view.${v.layout}`)}`
-  const items = useMemo(() => sortBy(folderId ? lib.items.filter((i) => i.folderId === folderId) : lib.items, sort), [lib.items, sort, folderId])
+  const q = query.trim()
+  // Folder scope (with its subfolders while searching), then the search, then the sort.
+  const items = useMemo(() => {
+    let list = lib.items
+    if (folderId) list = list.filter((i) => (q && folderView ? i.folderId != null && folderView.isInside(i.folderId, folderId) : i.folderId === folderId))
+    if (q) {
+      // Cards not downloaded yet have no title to search: hidden while searching.
+      const readable = list.filter((i) => i.title !== null && !i.remote)
+      const hit = new Set(librarySearch({ query: q, titles: readable.map((i) => ({ noteId: i.noteId, title: i.title! })) }).noteIds)
+      list = readable.filter((i) => hit.has(i.noteId))
+    }
+    return sortBy(list, sort)
+  }, [lib.items, sort, folderId, q, folderView])
   const { status } = lib
   const offline = useOffline()
   type Target = { noteId: string; title: string; from: HTMLElement | null }
@@ -224,13 +281,36 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             )),
           )}
         </select>
-        <select className="field-input library-sort" aria-label={t('library.sort')} value={sort} onChange={(e) => setSort(e.target.value as LibrarySort)}>
+        <select className="field-input library-sort" aria-label={t('library.sort')} value={sort} onChange={(e) => pickSort(e.target.value as LibrarySort)}>
           {LIBRARY_SORTS.map((s) => (
             <option key={s} value={s}>
               {t(`library.sort.${s}`)}
             </option>
           ))}
         </select>
+      </div>
+      <div className="library-search" role="search">
+        <input
+          ref={searchInput}
+          type="search"
+          className="field-input"
+          aria-label={t('library.searchHint')}
+          placeholder={t('library.searchHint')}
+          aria-keyshortcuts="/"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && query && !e.nativeEvent.isComposing) {
+              e.preventDefault()
+              setQuery('')
+            }
+          }}
+        />
+        {query && (
+          <button type="button" className="btn" onClick={() => { setQuery(''); searchInput.current?.focus() }}>
+            {t('library.searchClear')}
+          </button>
+        )}
       </div>
       {unsaved && (
         <p role="status" className="cover-status">
@@ -286,12 +366,17 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             ))}
           </>
         )}
-        {status === 'ready' && items.length === 0 && !scanning && folderId && (
+        {status === 'ready' && items.length === 0 && !scanning && folderId && !q && (
           <li className="cover-status" role="status">
             {t('folder.empty')}
           </li>
         )}
-        {status === 'ready' && items.length === 0 && !scanning && (
+        {status === 'ready' && items.length === 0 && !scanning && q && (
+          <li className="cover-status" role="status">
+            {fmt(t('library.searchNoResults'), { q })}
+          </li>
+        )}
+        {status === 'ready' && items.length === 0 && !scanning && !q && (
           <li>
             <button type="button" className="cover-card" onClick={(e) => openSheet(e.currentTarget)}>
               <span className="cover-thumb cover-thumb-new" aria-hidden="true">
@@ -407,6 +492,9 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
         </div>
       )}
       <LibrarySyncing />
+      <span className="sr-only" aria-live="polite">
+        {q && status === 'ready' ? fmt(t('library.searchResultCount'), { n: String(items.length) }) : ''}
+      </span>
     </section>
   )
 }

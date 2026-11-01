@@ -212,3 +212,71 @@ function trash(i: TrashInput, folder: boolean): TrashResult | RuleError {
 }
 export const trashNoteRule = (i: TrashInput) => trash(i, false)
 export const trashFolderRule = (i: TrashInput) => trash(i, true)
+
+/** `library.normalize` key: NFC, then each code point lower-cased on its own (no final-sigma context). */
+export const libraryKey = (text: string): string => [...text.normalize('NFC')].map((c) => c.toLowerCase()).join('')
+export const libraryNormalize = (i: { text: string }) => ({ key: libraryKey(i.text) })
+
+const inRanges = (c: number, r: number[]) => r.some((lo, k) => k % 2 === 0 && c >= lo && c <= r[k + 1]!)
+const SYMBOLS = [0, 0x2f, 0x3a, 0x40, 0x5b, 0x60, 0x7b, 0xbf, 0x2000, 0x206f, 0x3000, 0x303f]
+const HANGUL = [0x1100, 0x11ff, 0x3130, 0x318f, 0xa960, 0xa97f, 0xac00, 0xd7ff]
+const charClass = (c: number) =>
+  c >= 0x30 && c <= 0x39 ? 1 : inRanges(c, SYMBOLS) ? 0 : inRanges(c, [0x61, 0x7a, 0xc0, 0x24f]) ? 2 : inRanges(c, HANGUL) ? 3 : 4
+
+/** Token by token: digit runs by value, other code points by class then code point; a prefix comes first. */
+function keyCompare(a: string, b: string): number {
+  const x = [...a].map((s) => s.codePointAt(0)!)
+  const y = [...b].map((s) => s.codePointAt(0)!)
+  let i = 0
+  let j = 0
+  while (i < x.length && j < y.length) {
+    const ca = charClass(x[i]!)
+    const cb = charClass(y[j]!)
+    if (ca !== cb) return ca - cb
+    if (ca === 1) {
+      let ie = i
+      let je = j
+      while (ie < x.length && charClass(x[ie]!) === 1) ie++
+      while (je < y.length && charClass(y[je]!) === 1) je++
+      const da = String.fromCodePoint(...x.slice(i, ie)).replace(/^0+/, '')
+      const db = String.fromCodePoint(...y.slice(j, je)).replace(/^0+/, '')
+      if (da.length !== db.length) return da.length - db.length
+      const c = cmp(da, db)
+      if (c) return c
+      i = ie
+      j = je
+    } else {
+      if (x[i] !== y[j]) return x[i]! - y[j]!
+      i++
+      j++
+    }
+  }
+  return x.length - i - (y.length - j)
+}
+
+/** Name order of two notes (`library.sort`); `desc` reverses only the key comparison. */
+export function libraryNameCompare(a: { noteId: string; title: string }, b: { noteId: string; title: string }, desc = false): number {
+  const k = keyCompare(libraryKey(a.title), libraryKey(b.title))
+  return k ? (desc ? -k : k) : cmp(a.title, b.title) || cmp(a.noteId, b.noteId)
+}
+
+type SortInput = { by: string; items: { noteId: string; title: string; editedAt: string | null }[] }
+/** `library.sort` */
+export function librarySort({ by, items }: SortInput): { noteIds: string[] } {
+  const created = (id: string) => {
+    const h = id.replaceAll('-', '').slice(0, 12)
+    return /^[0-9a-fA-F]{12}$/.test(h) ? parseInt(h, 16) : null
+  }
+  const desc = by.endsWith('Desc')
+  const dated = <T extends string | number>(a: T | null, b: T | null) => (a === null || b === null ? (a === b ? 0 : a === null ? 1 : -1) : desc ? (b < a ? -1 : b > a ? 1 : 0) : a < b ? -1 : a > b ? 1 : 0)
+  const c = (a: SortInput['items'][number], b: SortInput['items'][number]) =>
+    by.startsWith('name') ? libraryNameCompare(a, b, desc)
+    : (by.startsWith('edited') ? dated(a.editedAt, b.editedAt) : dated(created(a.noteId), created(b.noteId))) || cmp(a.noteId, b.noteId)
+  return { noteIds: [...items].sort(c).map((i) => i.noteId) }
+}
+
+/** `library.search`: titles whose key contains the key of the trimmed query, in input order. */
+export function librarySearch({ query, titles }: { query: string; titles: { noteId: string; title: string }[] }): { noteIds: string[] } {
+  const q = libraryKey(trimTitle(query))
+  return { noteIds: titles.filter((t) => libraryKey(t.title).includes(q)).map((t) => t.noteId) }
+}

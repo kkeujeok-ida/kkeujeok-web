@@ -11,7 +11,7 @@ import { savesSettled } from '../../storage/saveQueue'
 import { PENDING_TRASH, isTrashMark } from '../../sync/noteUploader'
 import { postToTabs } from '../../sync/tabChannel'
 import { acquireNoteLock } from '../../storage/noteLock'
-import { libraryRenameNote, librarySetCover } from '../../library/libraryRules'
+import { libraryNameCompare, libraryRenameNote, librarySetCover } from '../../library/libraryRules'
 import type { NoteReceiver } from '../../sync/noteReceiver'
 import type { FolderService } from '../../library/folderService'
 
@@ -82,12 +82,10 @@ export function createdMs(noteId: string): number | null {
 export function sortBy(items: LibraryItem[], by: LibrarySort): LibraryItem[] {
   const time = (a: number | null, b: number | null, desc: boolean) =>
     a === null || b === null ? (a === b ? 0 : a === null ? 1 : -1) : desc ? b - a : a - b
-  const name = (i: LibraryItem) => (i.title ?? '').toLowerCase()
   const cmp = (a: LibraryItem, b: LibraryItem) => {
     if ((a.title === null) !== (b.title === null)) return a.title === null ? 1 : -1
     const c =
-      by === 'nameAsc' ? (name(a) < name(b) ? -1 : name(a) > name(b) ? 1 : 0)
-      : by === 'nameDesc' ? (name(a) < name(b) ? 1 : name(a) > name(b) ? -1 : 0)
+      by === 'nameAsc' || by === 'nameDesc' ? libraryNameCompare({ noteId: a.noteId, title: a.title ?? '' }, { noteId: b.noteId, title: b.title ?? '' }, by === 'nameDesc')
       : by === 'createdDesc' ? time(createdMs(a.noteId), createdMs(b.noteId), true)
       : by === 'createdAsc' ? time(createdMs(a.noteId), createdMs(b.noteId), false)
       : by === 'editedDesc' ? time(a.editedMs, b.editedMs, true)

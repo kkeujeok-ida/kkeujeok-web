@@ -410,6 +410,19 @@ h1 {
   min-height: var(--spacing-hit-min-web);
 }
 
+.library-search {
+  display: flex;
+  flex: 1 1 12rem;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+.library-search .field-input {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--spacing-hit-min-web);
+}
+
 .cover-grid {
   display: grid;
   --cover-col: var(--spacing-cover-column-min);
