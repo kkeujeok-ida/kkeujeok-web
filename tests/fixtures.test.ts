@@ -306,7 +306,21 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Sync rules (Story 3.2) arrive with the web sync stories (3.4, 3.6, 3.10, ...);
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
-const PENDING: string[] = []
+const PENDING: string[] = [
+  // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
+  'library.renameNote',
+  'library.setCover',
+  'library.moveNote',
+  'library.folderName',
+  'library.createFolder',
+  'library.renameFolder',
+  'library.moveFolder',
+  'library.tree',
+  'library.coverResolve',
+  'library.normalize',
+  'library.sort',
+  'library.search',
+]
 
 function mergeRunner({ input, expected }: Case) {
   const i = input as { base: Note | null; local: Note; remote: Note; ctx: MergeCtx }
