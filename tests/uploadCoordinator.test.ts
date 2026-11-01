@@ -17,8 +17,8 @@ afterEach(async () => {
 
 const OTHER = '01926f3a-0000-7000-8000-0000000000a2'
 
-async function setup(o: { open?: string[]; locks?: LockManager | undefined; flush?: () => Promise<void>; tokenOk?: () => boolean; merge?: Env['deps']['merge'] } = {}) {
-  const e = (env = await makeEnv(o.merge ? { merge: o.merge } : {}))
+async function setup(o: { open?: string[]; locks?: LockManager | undefined; flush?: () => Promise<void>; tokenOk?: () => boolean; merge?: Env['deps']['merge']; forgetNote?: Env['deps']['forgetNote'] } = {}) {
+  const e = (env = await makeEnv({ ...(o.merge && { merge: o.merge }), ...(o.forgetNote && { forgetNote: o.forgetNote }) }))
   const coordinator = (locks = o.locks) =>
     createUploadCoordinator({
       store: e.store,
@@ -367,27 +367,42 @@ describe('retry policy of the web display (Story 3.16)', () => {
   })
 })
 
-describe('delete (Story 7.8)', () => {
-  test('a deleted note is sent, trashed on Drive and removed locally', async () => {
+describe('delete (Story 7.8, trash.trashNote)', () => {
+  const trashbinOf = (e: Env) => [...e.drive.items.values()].find((i) => i.appProperties.kkeujeokId === 'trashbin')!
+
+  test('a deleted note is sent, moved into .trashbin (trashedFrom, trashedAt) and removed locally', async () => {
     const { e, coordinator } = await setup({ locks: undefined })
     await unsentNote(e)
     await coordinator(undefined).deleteNote(NID)
-    expect(driveCount(e)).toBe(1)
-    expect(e.drive.calls.at(-1)).toContain('"trashed":true')
+    const file = e.drive.byKkeujeokId(NID)[0]!
+    expect(file.parents).toEqual([trashbinOf(e).id])
+    expect(file.trashed).toBeFalsy()
+    expect(file.appProperties.trashedFrom).toBe('root')
+    expect(typeof file.appProperties.trashedAt).toBe('string')
     expect(await e.store.loadNote(NID)).toBeNull()
   })
 
-  test('a note deleted offline is hidden by its mark and trashed when connected', async () => {
+  test('a note deleted offline is hidden by its mark and moved when connected; the old `true` mark is migrated', async () => {
     const { e, coordinator } = await setup({ locks: undefined })
     await unsentNote(e)
     e.flags.online = false
     const c = coordinator(undefined)
     await c.deleteNote(NID)
-    expect((await e.sync()).info.extra.pendingTrash).toBe(true)
     expect(await e.store.loadNote(NID)).not.toBeNull()
+    expect((await e.sync()).info.extra.pendingTrash).toMatchObject({ from: 'root' })
+    await e.store.updateSync(NID, (cur) => ({ ...cur, extra: { ...cur.extra, pendingTrash: true } })) // an earlier build's mark
     e.flags.online = true
     await c.unsent()
     expect(await e.store.loadNote(NID)).toBeNull()
+    expect(e.drive.byKkeujeokId(NID)[0]!.parents).toEqual([trashbinOf(e).id])
+  })
+
+  test('forgetNote runs once before the device copy goes', async () => {
+    const order: string[] = []
+    const { e, coordinator } = await setup({ locks: undefined, forgetNote: async () => void order.push('forget') })
+    await unsentNote(e)
+    await coordinator(undefined).deleteNote(NID)
+    expect(order).toEqual(['forget'])
+    expect(await e.store.loadNote(NID)).toBeNull()
   })
 })
-

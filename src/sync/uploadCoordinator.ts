@@ -11,7 +11,7 @@
 import type { DriveError } from '../drive/driveClient'
 import type { NoteStore } from '../storage/noteStore'
 import type { SyncInfo } from '../storage/syncInfo'
-import { PENDING_TRASH, type NoteUploader } from './noteUploader'
+import { PENDING_TRASH, isTrashMark, type NoteUploader } from './noteUploader'
 import { openNoteIds } from './openNotes'
 import type { SyncLog } from './syncLog'
 import { transition } from './syncRules'
@@ -38,6 +38,8 @@ export type CoordinatorDeps = {
   openIds?: () => string[]
   /** False while the token is known to be expired (a 401): `reauth` notes are not retried by a trigger then. */
   tokenOk?: () => boolean
+  /** Story 7.8: a delete was marked; the other tabs hear it (an open note shows the deleted banner). */
+  notifyTrashed?: (noteId: string) => void
   /** `navigator.locks`; without it the tab uploads without exclusivity. */
   locks?: LockManager | undefined
 }
@@ -118,7 +120,7 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
 
   async function one(noteId: string, o: { recover?: boolean; openHere?: boolean } = {}): Promise<void> {
     try {
-      const trash = (await d.store.readSync(noteId)).info.extra[PENDING_TRASH] === true
+      const trash = isTrashMark((await d.store.readSync(noteId)).info.extra[PENDING_TRASH])
       const { upload, mark } = await needs(noteId)
       if (!trash && !upload && !mark) return
       if ((trash || upload) && (!d.allowed() || !d.online())) return // stays pending; the next trigger picks it up
@@ -198,7 +200,10 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
     /** Story 7.8: the note is hidden at once; unsent changes go up, then the Drive file is trashed (offline: when connected). */
     async deleteNote(noteId: string): Promise<void> {
       try {
-        if (await d.uploader.markTrash?.(noteId)) await one(noteId, { openHere: openIds().includes(noteId) })
+        if (await d.uploader.markTrash?.(noteId)) {
+          d.notifyTrashed?.(noteId)
+          await one(noteId, { openHere: openIds().includes(noteId) })
+        }
       } catch {
         // the mark stays; the next trigger repeats the step
       }

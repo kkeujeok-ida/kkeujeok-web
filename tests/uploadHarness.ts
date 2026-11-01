@@ -99,6 +99,11 @@ export async function makeEnv(o: Partial<UploaderDeps> & { rootFolderId?: string
     online: () => flags.online,
     sleep: async (ms) => void sleeps.push(ms),
     jitter: () => 0.5,
+    // `.trashbin` (Story 7.8): found or made in the fake Drive.
+    trashbinFileId: async () => {
+      const have = [...drive.items.values()].find((i) => i.appProperties.kkeujeokId === 'trashbin')
+      return have?.id ?? (await drive.create({ name: '.trashbin', mimeType: 'application/vnd.google-apps.folder', parents: [], appProperties: { kkeujeokId: 'trashbin' } })).id
+    },
     ...o,
   }
   const uploader = createNoteUploader(deps)

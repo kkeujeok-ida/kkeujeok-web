@@ -412,6 +412,47 @@ describe('guards of the deletion', () => {
   })
 })
 
+describe('a note deleted or renamed in the library of another tab (Story 7.8)', () => {
+  const mark = (e: RxEnv) => e.store.updateSync(NID, (c) => ({ ...c, extra: { ...c.extra, pendingTrash: { trashedAt: '2026-11-01T09:00:00.000Z', from: 'root' } } }))
+
+  test('an open note shows the deleted banner; [다시 살리기] drops the delete mark', async () => {
+    const e = await make()
+    await synced(e)
+    await mark(e)
+    const off = openEditor(two())
+    await e.receiver.onMessage({ t: 'trashedHere', noteId: NID })
+    expect((await e.store.readSync(NID)).info.lastError).toMatchObject({ class: 'deleted' })
+    await e.receiver.revive(NID)
+    const info = (await e.store.readSync(NID)).info
+    off()
+    expect(info.lastError).toBeNull()
+    expect(info.extra.pendingTrash).toBeUndefined()
+  })
+
+  test('a note with unsent changes shows no banner: it goes up first, then it is trashed', async () => {
+    const e = await make()
+    await synced(e)
+    await edit(e)
+    await mark(e)
+    const off = openEditor(two())
+    await e.receiver.onMessage({ t: 'trashedHere', noteId: NID })
+    off()
+    expect((await e.store.readSync(NID)).info.lastError).toBeNull()
+  })
+
+  test('rename: the open note takes the new title and a new metaRev', async () => {
+    const e = await make()
+    await synced(e)
+    const h = sessionHistory(two())
+    const off = registerOpenNote(NID, { flush: async () => true, current: () => h.note, applyMerge: (a) => commitMerge(h, a) })
+    const before = h.note.metaRev
+    await e.receiver.onMessage({ t: 'rename', noteId: NID, title: '새 이름' })
+    off()
+    expect(h.note.meta.title).toBe('새 이름')
+    expect(h.note.metaRev).not.toBe(before)
+  })
+})
+
 describe('the status store', () => {
   test('a removed note leaves the snapshot and no longer counts as unsent (the tab-close warning)', async () => {
     const e = await make()

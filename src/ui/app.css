@@ -2592,6 +2592,13 @@ h1 {
   white-space: nowrap;
 }
 
+.cover-confirm {
+  max-width: 240px;
+  margin: 0;
+  padding: var(--spacing-2) var(--spacing-3);
+  white-space: normal;
+}
+
 .tree-confirm {
   margin: 0;
   padding: var(--spacing-2) var(--spacing-3);

@@ -16,6 +16,7 @@ import {
 import { driveRemoteTitleRule, listSummaryRule } from '../drive/noteSummary'
 import { applyMergeToSession } from '../ops/sessionHistories'
 import { decodeKkj } from '../model/kkjCodec'
+import { newId } from '../model/ids'
 import type { Note } from '../model/note'
 import { NoteSaveError } from '../storage/noteDb'
 import type { NoteStore } from '../storage/noteStore'
@@ -32,6 +33,8 @@ import { backoffReason, logWhy } from './syncLogEntry'
 import { hasUnsentRule } from './hasUnsent'
 import { backoffRule, transition } from './syncRules'
 import { noteLockName } from './uploadCoordinator'
+import { PENDING_TRASH, isTrashMark } from './noteUploader'
+import { libraryRenameNote } from '../library/libraryRules'
 
 export const KKJ_MIME = 'application/vnd.kkeujeok.kkj'
 /** `files.list` of the rescan: every live note file (folders hold no state of their own yet). */
@@ -984,6 +987,15 @@ export function createNoteReceiver(d: ReceiverDeps) {
         const info = (await store.readSync(noteId)).info
         const kind = goneKind(info)
         const fileId = info.fileId
+        // Deleted in this browser's library while open here (Story 7.8): the delete mark goes, nothing is on Drive yet.
+        if (kind !== null && isTrashMark(info.extra[PENDING_TRASH])) {
+          await chained(noteId, async () => {
+            await move(noteId, 'retry', { edit: (c) => ({ ...c, lastError: null, extra: Object.fromEntries(Object.entries(c.extra).filter(([k]) => k !== PENDING_TRASH)) }) })
+            await settle(noteId)
+            bump()
+          })
+          return
+        }
         if (kind === null || fileId === null) return
         await chained(noteId, async () => {
           g.ensure()
@@ -997,6 +1009,27 @@ export function createNoteReceiver(d: ReceiverDeps) {
     async onMessage(m: unknown): Promise<void> {
       const msg = m as { t?: unknown; noteId?: unknown; fileId?: unknown; head?: unknown; kind?: unknown } | null
       if (msg?.t === 'changed') return bump(false)
+      // Story 7.8: the library of another tab deleted or renamed a note that is open here.
+      if (msg?.t === 'trashedHere' && typeof msg.noteId === 'string') {
+        const noteId = msg.noteId
+        if (!openIds().includes(noteId)) return
+        await getOpenNote(noteId)?.flush().catch(() => false)
+        await chained(noteId, async () => {
+          const s = await store.readSync(noteId)
+          // Unsent changes go up first, then it is trashed: no banner. Otherwise the open note says so.
+          if (!isTrashMark(s.info.extra[PENDING_TRASH]) || s.hasUnsent || goneKind(s.info) !== null) return
+          await markGone(noteId, 'trashed')
+        })
+        return
+      }
+      if (msg?.t === 'rename' && typeof msg.noteId === 'string' && typeof (msg as { title?: unknown }).title === 'string') {
+        const open = getOpenNote(msg.noteId)
+        if (!open) return
+        const cur = open.current()
+        const r = libraryRenameNote({ note: cur, op: { title: (msg as { title: string }).title }, existingTitles: [], ctx: { rev: newId(), lastSeenRemoteSeq: 0 } })
+        if ('note' in r && r.inverse) await d.merge.merge({ noteId: msg.noteId, base: cur, remote: r.note })
+        return
+      }
       if (msg?.t === 'deleted' && typeof msg.noteId === 'string' && typeof msg.fileId === 'string' && (msg.kind === 'trashed' || msg.kind === 'removed')) {
         if (!openIds().includes(msg.noteId) || !usable()) return
         const g = guard()

@@ -4,7 +4,7 @@ import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, test } from 'vitest'
 import { createFolderService } from '../src/library/folderService'
 import { deleteNoteDatabase } from '../src/storage/noteDb'
-import { type Env, NID, makeEnv, mkNote } from './uploadHarness'
+import { type Env, NID, PA, makeEnv, mkNote, withStroke } from './uploadHarness'
 
 const FOLDER = 'application/vnd.google-apps.folder'
 let env: Env | undefined
@@ -195,5 +195,43 @@ describe('reading Drive', () => {
     await mk(e, 'cccc', [tb.id])
     await svc.refresh()
     expect((await svc.view()).has('cccc')).toBe(false)
+  })
+
+  describe('a note another device moved into .trashbin (trash.remoteTrashed)', () => {
+    async function trashedElsewhere() {
+      const { e, svc } = await setup()
+      await e.store.writeNote(mkNote())
+      await e.uploader.upload(NID)
+      const tb = await mk(e, 'trashbin', ['ROOT'], '.trashbin')
+      const file = e.drive.byKkeujeokId(NID)[0]!
+      e.drive.move(file.id, tb.id)
+      file.appProperties.trashedFrom = 'root'
+      return { e, svc, file }
+    }
+
+    test('nothing unsent: the device copy is removed', async () => {
+      const { e, svc } = await trashedElsewhere()
+      await svc.refresh()
+      expect(await e.store.loadNote(NID)).toBeNull()
+      expect(await svc.takeRevived()).toBe(0)
+    })
+
+    test('unsent changes: the note goes back to its folder, the copy stays and the notice counts once', async () => {
+      const { e, svc, file } = await trashedElsewhere()
+      await e.store.writeNote(withStroke(mkNote(), PA, 'a2'))
+      await svc.refresh()
+      expect(file.parents).toEqual([(await e.device.read()).rootFolderId])
+      expect(await e.store.loadNote(NID)).not.toBeNull()
+      expect((await svc.view()).hiddenNotes.has(NID)).toBe(false)
+      expect(await svc.takeRevived()).toBe(1)
+      expect(await svc.takeRevived()).toBe(0)
+    })
+
+    test('an editor that has the note open keeps its copy until the next refresh', async () => {
+      const { e } = await trashedElsewhere()
+      const open = createFolderService({ drive: e.drive, device: e.device, store: e.store, allowed: () => true, online: () => true, upload: async () => {}, isOpen: async () => true })
+      await open.refresh()
+      expect(await e.store.loadNote(NID)).not.toBeNull()
+    })
   })
 })

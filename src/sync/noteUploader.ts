@@ -16,6 +16,7 @@ import {
 } from '../drive/driveClient'
 import { driveDuplicatesRule } from '../drive/duplicates'
 import { listSummaryRule } from '../drive/noteSummary'
+import { trashNoteRule } from '../library/libraryRules'
 import { decodeKkj, encodeKkj } from '../model/kkjCodec'
 import type { Note, Page } from '../model/note'
 import { NoteSaveError } from '../storage/noteDb'
@@ -35,8 +36,10 @@ import type { SyncLog } from './syncLog'
 import { backoffReason, logWhy } from './syncLogEntry'
 import { backoffRule, transition, uploadKindRule, verifyPlanRule } from './syncRules'
 
-/** The `sync.json` key of a deleted note that still waits to be trashed (an unknown key, kept by every commit). */
+/** The `sync.json` key of a deleted note that still waits to be trashed (an unknown key, kept by every commit): `{trashedAt, from}` (spec trash); the earlier `true` is migrated. */
 export const PENDING_TRASH = 'pendingTrash'
+/** A delete mark of either form: the official `{trashedAt, from}` or the earlier `true`. */
+export const isTrashMark = (v: unknown): boolean => v === true || (typeof v === 'object' && v !== null)
 
 export type UploadOutcome = 'uploaded' | 'skipped' | 'failed'
 
@@ -77,6 +80,12 @@ export type UploaderDeps = {
   onAssetConfirmed?: (hash: string) => void
   /** Story 7.6: the Drive folder a new note is created in (null = the root). */
   parentFileId?: (noteId: string) => Promise<string | null>
+  /** Story 7.8: the Drive id of `.trashbin`, created when missing; null while the root is not known. */
+  trashbinFileId?: () => Promise<string | null>
+  /** Story 7.8: the `kkeujeokId` of the folder the note is in (`root` = top level). */
+  parentIdOf?: (noteId: string) => Promise<string>
+  /** Story 7.8: the note's device copy is about to go: its parent entry and queued moves are dropped first. */
+  forgetNote?: (noteId: string) => Promise<void>
   /** Resumable chunk size (a multiple of 262,144); the spec value by default. */
   chunkSize?: number
   /** Milliseconds since the epoch, for the 30-day sidecar cleanup. */
@@ -834,10 +843,12 @@ export function createNoteUploader(d: UploaderDeps) {
     }
   }
 
-  /** Story 7.8: the person deleted the note; the library hides it and every trigger runs `trashNote` until it is done. */
+  /** Story 7.8: the person deleted the note: `pendingTrash` takes `{trashedAt, from}` (a mark already there keeps its date and origin); the library hides it and every trigger runs `trashNote` until it is done. */
   async function markTrash(noteId: string): Promise<boolean> {
     try {
-      await store.updateSync(noteId, (c) => ({ ...c, extra: { ...c.extra, [PENDING_TRASH]: true } }))
+      const from = (await d.parentIdOf?.(noteId)) ?? 'root'
+      const trashedAt = new Date((d.now ?? Date.now)()).toISOString()
+      await store.updateSync(noteId, (c) => (typeof c.extra[PENDING_TRASH] === 'object' && c.extra[PENDING_TRASH] !== null ? c : { ...c, extra: { ...c.extra, [PENDING_TRASH]: { trashedAt, from } } }))
       return true
     } catch (e) {
       if (e instanceof NoteSaveError) return false
@@ -845,24 +856,51 @@ export function createNoteUploader(d: UploaderDeps) {
     }
   }
 
-  /** Sends what is unsent, trashes the Drive file, removes the local note. False while it must wait; the mark stays. */
+  /** Sends what is unsent, moves the Drive file into `.trashbin` (never `trashed=true`; spec trash.trashNote), removes the local note. False while it must wait; the mark stays. */
   async function trashNote(noteId: string): Promise<boolean> {
     try {
       let s = await store.readSync(noteId)
+      let mark = s.info.extra[PENDING_TRASH] as { trashedAt: string; from: string | null } | true | undefined
+      if (typeof mark !== 'object' || mark === null) {
+        // The earlier `true`: migrated to the official field; `from` null = the parent at the time of the move.
+        const migrated = { trashedAt: new Date((d.now ?? Date.now)()).toISOString(), from: null }
+        mark = migrated
+        await store.updateSync(noteId, (c) => ({ ...c, extra: { ...c.extra, [PENDING_TRASH]: migrated } }))
+      }
       if (s.hasUnsent || s.info.pendingVerify !== null) {
         if ((await run(noteId, false)) !== 'uploaded') return false
         s = await store.readSync(noteId)
-        if (s.hasUnsent || s.info.pendingVerify !== null) return false
       }
+      if (s.hasUnsent || s.info.pendingVerify !== null || s.info.state === 'conflict') return false // nothing is lost: the device copy stays
       const { fileId } = s.info
       if (fileId !== null) {
         if (!d.allowed() || !d.online()) return false
+        const trashbin = await d.trashbinFileId?.()
+        if (!trashbin) return false
         try {
-          await call(noteId, () => drive.update(fileId, { trashed: true }), { pass: (e) => e.status === 404 })
+          const cur = await call(noteId, () => drive.get(fileId, { fields: 'id,parents' }), { pass: (e) => e.status === 404 })
+          if (!cur.parents.includes(trashbin)) {
+            const r = trashNoteRule({
+              noteId,
+              fileId,
+              parentId: (await d.parentIdOf?.(noteId)) ?? 'root',
+              parentFileId: cur.parents.join(','),
+              trashbinFileId: trashbin,
+              now: mark.trashedAt,
+              unsent: false,
+              online: true,
+              pending: { trashedAt: mark.trashedAt, from: mark.from },
+            })
+            if ('error' in r || !r.request) return false
+            const q = r.request
+            await call(noteId, () => drive.update(fileId, { addParents: q.addParents, removeParents: q.removeParents, appProperties: q.appProperties }), { pass: (e) => e.status === 404 })
+          }
         } catch (e) {
           if (!(e instanceof DriveError)) throw e // 404: already gone
         }
       }
+      // The queue forgets the note first: a left-over move must never pull the trashed file back out of `.trashbin`.
+      await d.forgetNote?.(noteId)
       const note = await workingNote(noteId)
       return !note || (await store.removeNote(noteId, note))
     } catch (e) {

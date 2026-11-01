@@ -44,7 +44,7 @@ const memStorage = () => {
   return { m, getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
 }
 
-async function mountLibrary(o: { lang?: string; viewStore?: { read(): LibraryView; write(v: LibraryView): void }; afterPut?: NonNullable<Opts>['afterPut']; storage?: ReturnType<typeof memStorage> } = {}) {
+async function mountLibrary(o: { lang?: string; viewStore?: { read(): LibraryView; write(v: LibraryView): void }; afterPut?: NonNullable<Opts>['afterPut']; storage?: ReturnType<typeof memStorage>; uploads?: { deleteNote(id: string): Promise<void> } } = {}) {
   const storage = o.storage ?? memStorage()
   const defaults = createNewNoteDefaults(storage)
   const openStore = makeOpen({ afterPut: o.afterPut })
@@ -53,7 +53,7 @@ async function mountLibrary(o: { lang?: string; viewStore?: { read(): LibraryVie
       createElement(
         I18nContext.Provider,
         { value: i18nFor(o.lang ?? 'ko-KR') },
-        createElement(Library, { openStore, defaults, editedBy: 'Chrome, Windows', viewStore: o.viewStore }),
+        createElement(Library, { openStore, defaults, editedBy: 'Chrome, Windows', viewStore: o.viewStore, ...(o.uploads && { uploads: o.uploads }) }),
       ),
     ),
   )
@@ -400,7 +400,7 @@ describe('list', () => {
     await putRaw('bad', new Uint8Array([1, 2, 3]))
     await mountLibrary({ lang: 'en-US' })
 
-    const cards = qa('.cover-grid > li > *')
+    const cards = qa('.cover-grid > li > .cover-card')
     expect(cards.map((c) => c.querySelector('.cover-title')!.textContent)).toEqual([
       '날짜 이상',
       '오래된 노트',
@@ -719,5 +719,67 @@ describe('library view modes', () => {
     expect(q('.cover-grid')!.getAttribute('data-size')).toBe('small')
     expect(saved).toEqual({ layout: 'grid', size: 'small' })
     expect(q<HTMLSelectElement>('select.library-view')!.selectedOptions[0]!.textContent).toBe('Small grid')
+  })
+})
+
+describe('card menu (Story 7.8)', () => {
+  const menuItems = () => qa('[role="menuitem"]').map((m) => m.textContent)
+
+  test('⋯ is a sibling of the card link with [이름 변경] and [삭제]; delete confirms in place and Esc steps back', async () => {
+    await seed([mk('a', '노트 하나', '2026-01-02T00:00:00.000Z')])
+    const deleted: string[] = []
+    await mountLibrary({ uploads: { deleteNote: async (id) => void deleted.push(id) } })
+    const button = q<HTMLButtonElement>('.cover-menu-button')!
+    expect(button.closest('a')).toBeNull()
+    click(button)
+    expect(menuItems()).toEqual(['이름 변경', '삭제']) // no folders wired: no [이동]
+    click(qa('[role="menuitem"]')[1]!)
+    expect(q('[role="alert"]')!.textContent).toContain('휴지통')
+    expect(menuItems()).toEqual(['지우기', '취소'])
+    expect(document.activeElement!.textContent).toBe('취소')
+    key(document.activeElement!, 'Escape') // back to the menu, focus on [삭제]
+    expect(menuItems()).toEqual(['이름 변경', '삭제'])
+    expect(deleted).toEqual([])
+    key(document.activeElement!, 'Escape') // closes, focus on ⋯
+    expect(q('[role="menu"]')).toBeNull()
+    expect(document.activeElement).toBe(button)
+  })
+
+  test('Delete on the focused card starts the confirmation; [지우기] deletes; Esc returns focus to the card', async () => {
+    await seed([mk('a', '노트 하나', '2026-01-02T00:00:00.000Z')])
+    const deleted: string[] = []
+    await mountLibrary({ uploads: { deleteNote: async (id) => void deleted.push(id) } })
+    const link = q<HTMLAnchorElement>('a.cover-card')!
+    link.focus()
+    key(link, 'Delete')
+    expect(menuItems()).toEqual(['지우기', '취소'])
+    key(document.activeElement!, 'Escape')
+    expect(document.activeElement).toBe(link)
+    key(link, 'Delete')
+    click(qa('[role="menuitem"]')[0]!)
+    await flush()
+    expect(deleted).toEqual(['a'])
+  })
+
+  test('F2 renames: the title is saved with a new metaRev and metaSeq; an empty name cannot be saved', async () => {
+    await seed([mk('a', '노트 하나', '2026-01-02T00:00:00.000Z')])
+    await mountLibrary()
+    key(q('a.cover-card')!, 'F2')
+    expect(dialog()).not.toBeNull()
+    const input = q<HTMLInputElement>('[role="dialog"] input')!
+    typeInto(input, '   ')
+    click(q('[role="dialog"] button[type="submit"]')!)
+    await flush()
+    expect(dialog()).not.toBeNull()
+    typeInto(input, ' 새 이름 ')
+    click(q('[role="dialog"] button[type="submit"]')!)
+    await flush()
+    expect(dialog()).toBeNull()
+    expect(q('a.cover-card .cover-title')!.textContent).toBe('새 이름')
+    const s = openNoteStore()
+    stores.push(s)
+    const n = (await s.loadNote('a'))!.note!
+    expect(n.meta.title).toBe('새 이름')
+    expect(n.metaSeq).toBeGreaterThan(1)
   })
 })

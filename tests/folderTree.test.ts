@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { I18nContext, createI18n } from '../src/i18n'
 import { FolderView, type FolderService } from '../src/library/folderService'
-import { FolderTree } from '../src/ui/library/FolderTree'
+import { FolderTree, NOTE_DRAG } from '../src/ui/library/FolderTree'
 import { parseFolderRoute, folderHref } from '../src/ui/library/useFolders'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -98,5 +98,21 @@ describe('folder tree', () => {
     expect(parseFolderRoute(folderHref('x y'))).toBe('x y')
     expect(parseFolderRoute('#/')).toBeNull()
     expect(parseFolderRoute('#/notes/abc')).toBeNull()
+  })
+
+  test('a note card dropped on a folder moves the note there, with an undo snackbar (Story 7.8)', async () => {
+    const moveNote = vi.fn(async () => ({ inverse: { op: 'moveNote', noteId: 'n1', targetParentId: 'root' } }))
+    const i18n = createI18n({ navigatorLanguage: 'ko-KR' })
+    const service = { moveNote } as unknown as FolderService
+    act(() => root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(FolderTree, { view, service, current: null, onSelect: vi.fn() }))))
+    const row = host.querySelectorAll<HTMLElement>('.tree-row')[2]! // C
+    const data = { types: [NOTE_DRAG], getData: () => JSON.stringify({ noteId: 'n1', title: '내 노트' }) }
+    const ev = (type: string) => Object.assign(new Event(type, { bubbles: true, cancelable: true }), { dataTransfer: data })
+    const over = ev('dragover')
+    act(() => void row.dispatchEvent(over))
+    expect(over.defaultPrevented).toBe(true)
+    await act(async () => void row.dispatchEvent(ev('drop')))
+    expect(moveNote).toHaveBeenCalledWith('n1', 'c')
+    expect(host.querySelector('.snackbar')!.textContent).toContain('"C" 폴더로 옮겼어요')
   })
 })

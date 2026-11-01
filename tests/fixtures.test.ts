@@ -36,7 +36,7 @@ import { backoffRule, staleHeadRule, stateMachineRule, uploadKindRule, verifyPla
 import { driveFileNameRule, driveRemoteTitleRule, listSummaryRule } from '../src/drive/noteSummary'
 import { restoreNote, restorePage } from '../src/ops/restore'
 import { keepForeverRule, versionListRule } from '../src/sync/versionList'
-import { libraryCreateFolder, libraryFolderName, libraryMoveFolder, libraryMoveNote, libraryRenameFolder, libraryTree, trashFolderRule, trashNoteRule } from '../src/library/libraryRules'
+import { libraryCreateFolder, libraryFolderName, libraryMoveFolder, libraryMoveNote, libraryRenameFolder, libraryRenameNote, libraryTree, trashFolderRule, trashNoteRule } from '../src/library/libraryRules'
 
 // `tolerance` is the fixture file's top-level value, copied onto each case.
 type Case = { name: string; input: unknown; expected: unknown; tolerance?: number }
@@ -302,6 +302,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'library.renameFolder': ({ input, expected }) => void expect(libraryRenameFolder(input as Parameters<typeof libraryRenameFolder>[0])).toEqual(expected),
   'library.moveFolder': ({ input, expected }) => void expect(libraryMoveFolder(input as Parameters<typeof libraryMoveFolder>[0])).toEqual(expected),
   'library.moveNote': ({ input, expected }) => void expect(libraryMoveNote(input as Parameters<typeof libraryMoveNote>[0])).toEqual(expected),
+  'library.renameNote': ({ input, expected }) => void expect(libraryRenameNote(input as Parameters<typeof libraryRenameNote>[0])).toEqual(expected),
   'library.tree': ({ input, expected }) => void expect(libraryTree(input as Parameters<typeof libraryTree>[0])).toEqual(expected),
   'trash.trashNote': ({ input, expected }) => void expect(trashNoteRule(input as Parameters<typeof trashNoteRule>[0])).toEqual(expected),
   'trash.trashFolder': ({ input, expected }) => void expect(trashFolderRule(input as Parameters<typeof trashFolderRule>[0])).toEqual(expected),
@@ -326,7 +327,6 @@ const PENDING: string[] = [
   'trash.remoteTrashed',
   'drive.trashbinFolder',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
-  'library.renameNote',
   'library.setCover',
   'library.coverResolve',
   'library.normalize',

@@ -87,7 +87,14 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
   const images = useMemo(() => (rootProp ? undefined : defaultImageHost(auth, root)), [rootProp, auth, root])
   // The folders (Story 7.6): real Drive only with the default root, like uploads.
   const folderService = useMemo(() => foldersProp ?? (rootProp ? undefined : defaultFolderService(auth, root)), [foldersProp, rootProp, auth, root])
-  const { view, loaded } = useFolders(folderService, root, receiver)
+  const { view, loaded, revived } = useFolders(folderService, root, receiver)
+  const [reviveShown, setReviveShown] = useState(false)
+  useEffect(() => {
+    if (revived === 0) return
+    setReviveShown(true)
+    const id = setTimeout(() => setReviveShown(false), 4000)
+    return () => clearTimeout(id)
+  }, [revived])
   const { t } = useI18n()
   const expanded = useSidebarExpanded()
   const hash = useHash()
@@ -181,11 +188,16 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
         ) : noteId ? (
           <NoteEditor key={noteId} noteId={noteId} uploads={uploads} receiver={receiver} images={images} />
         ) : (
-          <Library root={root} signOut={auth.signOut} receiver={receiver} uploads={uploads} folders={folderService} folderId={folderId} />
+          <Library root={root} signOut={auth.signOut} receiver={receiver} uploads={uploads} folders={folderService} folderView={view} folderId={folderId} />
         )}
       </main>
     </div>
     <ReviveSnackbar />
+    {reviveShown && (
+      <div role="status" className="snackbar revive-snackbar">
+        {t('sync.revived')}
+      </div>
+    )}
     </SyncUiProvider>
   )
 }

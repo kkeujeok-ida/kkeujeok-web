@@ -13,7 +13,8 @@ import { openNoteStore } from '../storage/noteStore'
 import { createSyncDeviceStore } from '../storage/syncDevice'
 import { detectEditedBy } from '../ui/library/useLibrary'
 import { createMergeIo } from './mergeIo'
-import { type Channel, type NoteReceiver, createNoteReceiver } from './noteReceiver'
+import { type NoteReceiver, createNoteReceiver } from './noteReceiver'
+import { browserChannel } from './tabChannel'
 import { syncLog } from './syncLog'
 import { defaultUploadCoordinator } from './uploadWiring'
 
@@ -22,25 +23,6 @@ export const POLL_MS = 20_000
 export const KICK_THROTTLE_MS = 5_000
 export const RECEIVE_LOCK = 'kkeujeok-receive'
 export const POLL_LOCK = 'kkeujeok-poll'
-const CHANNEL = 'kkeujeok-receive'
-
-function browserChannel(): Channel | null {
-  try {
-    if (typeof BroadcastChannel !== 'function') return null
-    const bc = new BroadcastChannel(CHANNEL)
-    return {
-      post: (m) => bc.postMessage(m),
-      subscribe(fn) {
-        const on = (e: MessageEvent) => fn(e.data)
-        bc.addEventListener('message', on)
-        return () => bc.removeEventListener('message', on)
-      },
-    }
-  } catch {
-    return null
-  }
-}
-
 const receivers = new WeakMap<RootFolderStore, NoteReceiver>()
 
 /** The one receiver of this page session for `root`, wired to the real Drive, IndexedDB and log. */

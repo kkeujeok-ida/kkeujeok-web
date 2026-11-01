@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { fmt, useI18n } from '../../i18n'
 import type { FolderResult, FolderService, FolderView } from '../../library/folderService'
-import { libraryFolderName } from '../../library/libraryRules'
 import { FolderPicker } from './FolderPicker'
+import { NameDialog } from './NameDialog'
 
 const ALL = 'root'
 const UNDO_MS = 5000
+/** The drag type of a note card (Story 7.8); its data is `{noteId, title}` as JSON. */
+export const NOTE_DRAG = 'application/x-kkeujeok-note'
 
 type Dialog = { kind: 'new'; parentId: string } | { kind: 'rename'; id: string } | { kind: 'move'; id: string }
 
@@ -117,6 +119,14 @@ export function FolderTree({
     if (target !== ALL) toggle(target, true)
   }
 
+  /** A note card dropped on `target` (Story 7.8). */
+  async function moveNote(noteId: string, title: string, target: string) {
+    const r = await service.moveNote(noteId, target)
+    if (r.error) return setNote({ text: t('folder.failed') })
+    if (r.inverse) setNote({ text: fmt(t(target === ALL ? 'folder.noteMovedTop' : 'folder.noteMoved'), { name: title, folder: view.folder(target)?.name ?? '' }), inverse: r.inverse })
+    if (target !== ALL) toggle(target, true)
+  }
+
   function onKeyDown(e: KeyboardEvent) {
     const el = e.target as HTMLElement
     if (el.closest('[role="menu"]') || el.closest('.tree-menu') || !(el.getAttribute('role') === 'treeitem')) return
@@ -183,13 +193,24 @@ export function FolderTree({
           }}
           onDragEnd={() => (setDragId(null), setOver(null))}
           onDragOver={(e) => {
-            if (!canDrop) return
+            if (!canDrop && !(dragId === null && e.dataTransfer.types.includes(NOTE_DRAG))) return
             e.preventDefault()
             setOver(id)
           }}
           onDragLeave={() => setOver((o) => (o === id ? null : o))}
           onDrop={(e) => {
             e.preventDefault()
+            const raw = dragId === null ? e.dataTransfer.getData(NOTE_DRAG) : ''
+            if (raw) {
+              setOver(null)
+              try {
+                const n = JSON.parse(raw) as { noteId: string; title: string }
+                void moveNote(n.noteId, n.title, id)
+              } catch {
+                // not one of ours
+              }
+              return
+            }
             const from = dragId
             setDragId(null)
             setOver(null)
@@ -379,57 +400,6 @@ export function FolderTree({
           )}
         </div>
       )}
-    </div>
-  )
-}
-
-/** A folder name: [저장] stays off while the name is empty; a too long name is refused with a message. */
-function NameDialog({ title, initial, onSave, onClose }: { title: string; initial: string; onSave: (name: string) => Promise<string | undefined>; onClose: () => void }) {
-  const { t } = useI18n()
-  const [value, setValue] = useState(initial)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const input = useRef<HTMLInputElement>(null)
-  useEffect(() => input.current?.select(), [])
-  const check = libraryFolderName({ name: value })
-  const submit = async () => {
-    if (busy) return
-    if (!check.ok) return setError(check.reason === 'nameTooLong' ? t('folder.nameTooLong') : null)
-    setBusy(true)
-    const code = await onSave(check.name)
-    setBusy(false)
-    if (code) setError(t('folder.failed'))
-    else onClose()
-  }
-  return (
-    <div
-      className="dialog-scrim"
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.preventDefault()
-          e.stopPropagation()
-          onClose()
-        }
-      }}
-    >
-      <form className="dialog" role="dialog" aria-modal="true" aria-label={title} onSubmit={(e) => (e.preventDefault(), void submit())}>
-        <h2 className="dialog-title">{title}</h2>
-        <label className="field">
-          <span>{t('folder.nameLabel')}</span>
-          <input ref={input} className="field-input" value={value} autoComplete="off" onChange={(e) => (setValue(e.target.value), setError(null))} />
-        </label>
-        <div aria-live="polite" className="dialog-error">
-          {error}
-        </div>
-        <div className="dialog-actions">
-          <button type="button" className="btn" onClick={onClose}>
-            {t('library.cancel')}
-          </button>
-          <button type="submit" className="btn btn-primary" aria-disabled={!check.ok || busy}>
-            {t('folder.save')}
-          </button>
-        </div>
-      </form>
     </div>
   )
 }

@@ -23,8 +23,10 @@ export function useFolders(
   service: FolderService | undefined,
   root?: Pick<RootFolderStore, 'getState' | 'subscribe'>,
   receiver?: Pick<NoteReceiver, 'subscribe' | 'getState'>,
-): { view: FolderView; loaded: boolean } {
+): { view: FolderView; loaded: boolean; revived: number } {
   const [state, setState] = useState({ view: EMPTY, loaded: false })
+  // Notes another device deleted that had unsent changes here and were brought back (Story 7.8): counts up.
+  const [revived, setRevived] = useState(0)
   useEffect(() => {
     if (!service) return
     let live = true
@@ -33,7 +35,11 @@ export function useFolders(
     const show = () => void service.view().then((view) => live && setState({ view, loaded: settled }), () => {})
     const unsub = service.subscribe(show)
     show()
-    const refresh = () => void service.refresh().catch(() => {}).finally(() => ((settled = true), show()))
+    const refresh = () => void service.refresh().catch(() => {}).finally(() => {
+        settled = true
+        show()
+        void Promise.resolve().then(() => service.takeRevived()).then((n) => live && n > 0 && setRevived((c) => c + n), () => {})
+      })
     refresh()
     window.addEventListener('online', refresh)
     let ready = root ? uploadsAllowed(root) : false
@@ -55,5 +61,5 @@ export function useFolders(
       window.removeEventListener('online', refresh)
     }
   }, [service, root, receiver])
-  return state
+  return { ...state, revived }
 }

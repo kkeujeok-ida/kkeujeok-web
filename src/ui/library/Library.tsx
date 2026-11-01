@@ -3,7 +3,7 @@ import type { NoteReceiver, ReceiveState } from '../../sync/noteReceiver'
 import type { Page } from '../../model/note'
 import { StrokePathCache, fitViewport, paintPage } from '../../render/pagePainter'
 import { savesSettled, takeUnsaved } from '../../storage/saveQueue'
-import { useI18n } from '../../i18n'
+import { fmt, useI18n } from '../../i18n'
 import { createNewNoteDefaults, type Background, type NewNoteDefaults, type Orientation } from '../../storage/newNoteDefaults'
 import { auth } from '../../drive/auth'
 import type { RootFolderStore, RootState } from '../../drive/rootFolderStore'
@@ -16,13 +16,15 @@ import { LibrarySyncing, SyncBadge, useCardStatus, BADGE_KEY } from '../sync/Syn
 import { useNoteConflicts, useNoteIssue, useOffline } from '../sync/syncUi'
 import { useDisplayLabel } from '../sync/useDisplayLabel'
 import type { UploadCoordinator } from '../../sync/uploadCoordinator'
-import { ConfirmDialog } from '../ConfirmDialog'
 import { LIBRARY_LAYOUTS, LIBRARY_SIZES, sharedLibraryView, type LibraryView } from '../../storage/libraryView'
 import { LibraryFab } from './LibraryFab'
 import { NewNoteDialog } from './NewNoteDialog'
 import { noteHref } from './NoteEditor'
 import { requestResolve } from './resolveRequest'
-import type { FolderService } from '../../library/folderService'
+import type { FolderResult, FolderService, FolderView } from '../../library/folderService'
+import { FolderPicker } from './FolderPicker'
+import { NOTE_DRAG } from './FolderTree'
+import { NameDialog } from './NameDialog'
 import { LIBRARY_SORTS, sortBy, useLibrary, type LibraryItem, type LibrarySort } from './useLibrary'
 
 // One per page session, so what was created last wins over a failed save.
@@ -41,11 +43,13 @@ type Props = {
   /** Remote changes (Story 3.14): cards of notes not downloaded yet, the ↓ badge, the scan placeholder. */
   receiver?: Pick<NoteReceiver, 'subscribe' | 'getState'>
   /** Story 7.8: deleting a note sends what is unsent, then trashes it on Drive. Without it no delete is offered. */
-  uploads?: Pick<UploadCoordinator, 'deleteNote'>
+  uploads?: Pick<UploadCoordinator, 'deleteNote'> & Partial<Pick<UploadCoordinator, 'noteClosed'>>
   /** The list's layout and size, a device setting. */
   viewStore?: { read(): LibraryView; write(v: LibraryView): void }
   /** Story 7.6: the folders. Without it the library has no folders. */
   folders?: FolderService
+  /** The folders the library shows, for [이동]. */
+  folderView?: FolderView
   /** The folder being looked at; null or unset = all notes. */
   folderId?: string | null
 }
@@ -67,7 +71,7 @@ function formatDate(ms: number | null, locale: string): string {
   }
 }
 
-export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver, uploads, viewStore = sharedLibraryView(), folders, folderId = null }: Props) {
+export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver, uploads, viewStore = sharedLibraryView(), folders, folderView, folderId = null }: Props) {
   const { t, locale } = useI18n()
   const lib = useLibrary(openStore, defaults, editedBy, receiver, folders)
   const rx = receiver ?? NO_RECEIVER
@@ -171,13 +175,30 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   const items = useMemo(() => sortBy(folderId ? lib.items.filter((i) => i.folderId === folderId) : lib.items, sort), [lib.items, sort, folderId])
   const { status } = lib
   const offline = useOffline()
-  const [deleting, setDeleting] = useState<{ noteId: string; from: HTMLElement | null } | null>(null)
-  async function confirmDelete() {
-    const target = deleting
-    setDeleting(null)
-    if (!target || !uploads) return
-    await uploads.deleteNote(target.noteId)
-    if (mounted.current) void lib.reload()
+  type Target = { noteId: string; title: string; from: HTMLElement | null }
+  const [renaming, setRenaming] = useState<Target | null>(null)
+  const [moving, setMoving] = useState<Target | null>(null)
+  const [undo, setUndo] = useState<{ text: string; inverse?: FolderResult['inverse'] } | null>(null)
+  useEffect(() => {
+    if (!undo) return
+    const id = setTimeout(() => setUndo(null), 5000)
+    return () => clearTimeout(id)
+  }, [undo])
+  // Focus goes back to the control that started a dialog; a card that moved away leaves it on the first card.
+  const refocus = (from: HTMLElement | null) =>
+    requestAnimationFrame(() => (from?.isConnected ? from : section.current?.querySelector<HTMLElement>('a.cover-card, .fab-button'))?.focus())
+  async function confirmDelete(noteId: string) {
+    if (!uploads) return
+    await uploads.deleteNote(noteId)
+    if (!mounted.current) return
+    await lib.reload()
+    refocus(null)
+  }
+  async function moveTo(t0: Target, target: string) {
+    if (!folders) return
+    const r = await folders.moveNote(t0.noteId, target)
+    if (r.error) return setUndo({ text: t('library.noteMoveFailed') })
+    if (r.inverse) setUndo({ text: fmt(t(target === 'root' ? 'folder.noteMovedTop' : 'folder.noteMoved'), { name: t0.title, folder: folderView?.folder(target)?.name ?? '' }), inverse: r.inverse })
   }
   return (
     <section ref={section} className="library" aria-label={t('library.label')} aria-busy={status === 'loading'}>
@@ -288,7 +309,9 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             blocked={() => entering.current}
             receiving={receive.receiving.has(item.noteId)}
             offline={offline}
-            onDelete={uploads ? (from) => setDeleting({ noteId: item.noteId, from }) : undefined}
+            onDelete={uploads ? () => void confirmDelete(item.noteId) : undefined}
+            onRename={(from) => setRenaming({ noteId: item.noteId, title: item.title ?? '', from })}
+            onMove={folders && folderView ? (from) => setMoving({ noteId: item.noteId, title: item.title ?? '', from }) : undefined}
             exportCopy={async () => {
               const f = await lib.exportCopy(item.noteId)
               downloadBlob(f.name, f.bytes as BlobPart, 'application/octet-stream')
@@ -309,18 +332,60 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           }}
         />
       )}
-      {deleting && (
-        <ConfirmDialog
-          destructive
-          body={t('library.noteDeleteBody')}
-          confirmLabel={t('library.noteDeleteConfirm')}
-          cancelLabel={t('library.cancel')}
-          onConfirm={() => void confirmDelete()}
-          onCancel={() => {
-            setDeleting(null)
-            deleting.from?.focus()
+      {renaming && (
+        <NameDialog
+          title={t('library.noteRenameTitle')}
+          label={t('library.noteNameLabel')}
+          tooLong={t('library.noteNameTooLong')}
+          failed={t('library.noteRenameFailed')}
+          initial={renaming.title}
+          onClose={() => {
+            const from = renaming.from
+            setRenaming(null)
+            refocus(from)
+          }}
+          onSave={async (name) => {
+            if (!(await lib.rename(renaming.noteId, name))) return 'failed'
+            void uploads?.noteClosed?.(renaming.noteId) // the new name goes up now
+            return undefined
           }}
         />
+      )}
+      {moving && folderView && (
+        <FolderPicker
+          name={moving.title}
+          view={folderView}
+          selected={folderView.noteFolder[moving.noteId] ?? 'root'}
+          onClose={() => {
+            const from = moving.from
+            setMoving(null)
+            refocus(from)
+          }}
+          onPick={(target) => {
+            const m = moving
+            setMoving(null)
+            refocus(m.from)
+            void moveTo(m, target)
+          }}
+        />
+      )}
+      {undo && (
+        <div role="status" className="snackbar snackbar-action">
+          <span>{undo.text}</span>
+          {undo.inverse && (
+            <button
+              type="button"
+              className="snackbar-button"
+              onClick={() => {
+                const inverse = undo.inverse!
+                setUndo(null)
+                void folders?.undo(inverse)
+              }}
+            >
+              {t('folder.undo')}
+            </button>
+          )}
+        </div>
       )}
       <LibrarySyncing />
     </section>
@@ -395,6 +460,8 @@ function Card({
   receiving,
   offline,
   onDelete,
+  onRename,
+  onMove,
   exportCopy,
 }: {
   item: LibraryItem
@@ -402,7 +469,9 @@ function Card({
   blocked: () => boolean
   receiving: boolean
   offline: boolean
-  onDelete?: (from: HTMLElement | null) => void
+  onDelete?: () => void
+  onRename: (from: HTMLElement | null) => void
+  onMove?: (from: HTMLElement | null) => void
   exportCopy: () => Promise<void>
 }) {
   const { t } = useI18n()
@@ -412,6 +481,10 @@ function Card({
   const statusId = useId()
   const sync = useCardStatus(item.noteId).label
   const conflicted = (useNoteConflicts(item.noteId)?.length ?? 0) > 0
+  const link = useRef<HTMLAnchorElement>(null)
+  // The ⋯ menu: open or in its delete confirmation; `opener` gets focus back when it closes.
+  const [menu, setMenu] = useState<{ confirm: boolean } | null>(null)
+  const opener = useRef<HTMLElement | null>(null)
   // The badge of a short sync is held (see useDisplayLabel); `saved` has none.
   const held = useDisplayLabel(receiving ? 'receiving' : sync ?? 'saved')
   if (item.blocked) return <BlockedCard fileId={item.blocked.fileId} hasUnsent={false} exportCopy={exportCopy} />
@@ -452,12 +525,23 @@ function Card({
   return (
     <li className="cover-item">
       <a
+        ref={link}
         className="cover-card"
         href={noteHref(item.noteId)}
+        aria-keyshortcuts="F2 Delete"
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData(NOTE_DRAG, JSON.stringify({ noteId: item.noteId, title: item.title }))
+          e.dataTransfer.effectAllowed = 'move'
+        }}
         onKeyDown={(e) => {
-          if (e.key === 'Delete' && onDelete) {
+          if (e.key === 'F2') {
             e.preventDefault()
-            onDelete(e.currentTarget)
+            onRename(e.currentTarget)
+          } else if (e.key === 'Delete' && onDelete) {
+            e.preventDefault()
+            opener.current = e.currentTarget
+            setMenu({ confirm: true })
           }
         }}
         aria-labelledby={titleId}
@@ -486,35 +570,138 @@ function Card({
         </span>
         {status}
       </a>
-      {onDelete && <NoteMenu onDelete={onDelete} />}
+      <NoteMenu
+        menu={menu}
+        setMenu={setMenu}
+        opener={opener}
+        onRename={onRename}
+        {...(onMove && { onMove })}
+        {...(onDelete && { onDelete })}
+      />
     </li>
   )
 }
 
-/** The ⋯ button of a card, a sibling of the card link (UX-DR83): [삭제] for now. */
-function NoteMenu({ onDelete }: { onDelete: (from: HTMLElement | null) => void }) {
+/**
+ * The ⋯ button of a card, a sibling of the card link (UX-DR83): [이름 변경] [이동] [삭제]. [표지 변경] is Story 7.4.
+ * [삭제] turns the menu into its confirmation in place; Esc goes back one step and focus returns to where it started.
+ */
+function NoteMenu({
+  menu,
+  setMenu,
+  opener,
+  onRename,
+  onMove,
+  onDelete,
+}: {
+  menu: { confirm: boolean } | null
+  setMenu: (m: { confirm: boolean } | null) => void
+  opener: { current: HTMLElement | null }
+  onRename: (from: HTMLElement | null) => void
+  onMove?: (from: HTMLElement | null) => void
+  onDelete?: () => void
+}) {
   const { t } = useI18n()
-  const [open, setOpen] = useState(false)
   const button = useRef<HTMLButtonElement>(null)
+  const list = useRef<HTMLDivElement>(null)
+  const del = useRef<HTMLButtonElement>(null)
+  const confirm = menu?.confirm === true
+  // The menu starts on its first item, the confirmation on [취소].
+  useEffect(() => {
+    if (menu) list.current?.querySelector<HTMLElement>(confirm ? '[data-cancel]' : '[role="menuitem"]')?.focus()
+  }, [menu !== null, confirm]) // eslint-disable-line react-hooks/exhaustive-deps
+  // The pointer goes elsewhere: the menu closes.
+  useEffect(() => {
+    if (!menu) return
+    const away = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('.cover-menu')) setMenu(null)
+    }
+    document.addEventListener('mousedown', away)
+    return () => document.removeEventListener('mousedown', away)
+  }, [menu !== null]) // eslint-disable-line react-hooks/exhaustive-deps
+  const close = () => {
+    setMenu(null)
+    const back = opener.current?.isConnected ? opener.current : button.current
+    opener.current = null
+    back?.focus()
+  }
+  const act = (fn: (from: HTMLElement | null) => void) => () => {
+    const from = opener.current ?? button.current
+    opener.current = null
+    setMenu(null)
+    fn(from)
+  }
   return (
-    <div className="cover-menu" onKeyDown={(e) => e.key === 'Escape' && open && (setOpen(false), button.current?.focus())}>
-      <button ref={button} type="button" className="btn cover-menu-button" aria-label={t('library.noteMenu')} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+    <div
+      className="cover-menu"
+      onKeyDown={(e) => {
+        if (!menu) return
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          e.stopPropagation()
+          if (confirm && opener.current === null) {
+            setMenu({ confirm: false })
+            requestAnimationFrame(() => del.current?.focus())
+          } else close()
+        } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault()
+          const items = [...list.current!.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+          const at = items.indexOf(document.activeElement as HTMLElement)
+          items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
+        }
+      }}
+    >
+      <button
+        ref={button}
+        type="button"
+        className="btn cover-menu-button"
+        aria-label={t('library.noteMenu')}
+        aria-haspopup="menu"
+        aria-expanded={menu !== null}
+        onClick={() => (menu ? setMenu(null) : (setMenu({ confirm: false }), void (opener.current = null)))}
+      >
         ⋯
       </button>
-      {open && (
-        <div role="menu" className="cover-menu-list">
-          <button
-            type="button"
-            role="menuitem"
-            className="btn"
-            autoFocus
-            onClick={() => {
-              setOpen(false)
-              onDelete(button.current)
-            }}
-          >
-            {t('library.noteDelete')}
-          </button>
+      {menu && (
+        <div ref={list} role="menu" className="cover-menu-list">
+          {confirm ? (
+            <>
+              <p role="alert" className="cover-confirm">
+                {t('library.noteDeleteBody')}
+              </p>
+              <button
+                type="button"
+                role="menuitem"
+                className="btn btn-destructive"
+                onClick={() => {
+                  setMenu(null)
+                  opener.current = null
+                  onDelete?.()
+                }}
+              >
+                {t('library.noteDeleteConfirm')}
+              </button>
+              <button type="button" role="menuitem" className="btn" data-cancel onClick={close}>
+                {t('library.cancel')}
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" role="menuitem" className="btn" aria-keyshortcuts="F2" onClick={act(onRename)}>
+                {t('library.noteRename')}
+              </button>
+              {onMove && (
+                <button type="button" role="menuitem" className="btn" onClick={act(onMove)}>
+                  {t('library.noteMove')}
+                </button>
+              )}
+              {onDelete && (
+                <button ref={del} type="button" role="menuitem" className="btn" aria-keyshortcuts="Delete" onClick={() => setMenu({ confirm: true })}>
+                  {t('library.noteDelete')}
+                </button>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

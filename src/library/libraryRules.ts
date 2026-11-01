@@ -1,6 +1,8 @@
 // Spec `library` (folders, tree, moveNote) and `trash` (trashNote, trashFolder): pure rules,
 // output equal to the fixture JSON. Operations never change their input.
-import { MAX_TITLE_LENGTH, trimTitle } from '../model/noteTitle'
+import { driveFileNameRule } from '../drive/noteSummary'
+import type { Note } from '../model/note'
+import { MAX_TITLE_LENGTH, normalizeTitle, trimTitle } from '../model/noteTitle'
 
 export type Folder = { id: string; name: string; parentId: string }
 export type DriveOp = Record<string, unknown>
@@ -15,6 +17,19 @@ export function libraryFolderName({ name }: { name: string }): { ok: true; name:
   if (t === '') return { ok: false, reason: 'emptyName' }
   if ([...t].length > MAX_TITLE_LENGTH) return { ok: false, reason: 'nameTooLong' }
   return { ok: true, name: t }
+}
+
+/** `library.renameNote`: the note's title, `metaRev` and `metaSeq` renewed (spec library "renameNote"); `name` is the Drive file name. */
+export function libraryRenameNote(i: { note: Note; op: { title: string }; existingTitles: string[]; ctx: { rev: string; lastSeenRemoteSeq: number } }) {
+  const title = normalizeTitle(i.op.title, i.existingTitles)
+  if (title === null) return { error: 'titleTooLong' } as RuleError
+  const name = (driveFileNameRule({ title }) as { name: string }).name
+  if (title === i.note.meta.title) return { note: i.note, inverse: null, name }
+  return {
+    note: { ...i.note, meta: { ...i.note.meta, title }, metaRev: i.ctx.rev, metaSeq: Math.max(i.note.metaSeq, i.ctx.lastSeenRemoteSeq) + 1 },
+    inverse: { op: 'renameNote', title: i.note.meta.title },
+    name,
+  }
 }
 
 export function libraryMoveNote(i: { folders: Folder[]; note: { noteId: string; parentId: string }; targetParentId: string }) {

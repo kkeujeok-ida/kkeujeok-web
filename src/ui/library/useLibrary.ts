@@ -8,7 +8,10 @@ import { createNote } from '../../ops/ops'
 import type { Background, NewNoteDefaults, Orientation } from '../../storage/newNoteDefaults'
 import type { NoteStore } from '../../storage/noteStore'
 import { savesSettled } from '../../storage/saveQueue'
-import { PENDING_TRASH } from '../../sync/noteUploader'
+import { PENDING_TRASH, isTrashMark } from '../../sync/noteUploader'
+import { postToTabs } from '../../sync/tabChannel'
+import { acquireNoteLock } from '../../storage/noteLock'
+import { libraryRenameNote } from '../../library/libraryRules'
 import type { NoteReceiver } from '../../sync/noteReceiver'
 import type { FolderService } from '../../library/folderService'
 
@@ -160,7 +163,7 @@ export function useLibrary(
       const fv = await folders?.view().catch(() => undefined)
       const hidden = new Set<string>(fv?.hiddenNotes)
       const withFolder = (i: LibraryItem): LibraryItem => (fv ? { ...i, folderId: fv.noteFolder[i.noteId] ?? null } : i)
-      for (const e of list) if ((await s.readSync(e.noteId)).info.extra[PENDING_TRASH] === true) hidden.add(e.noteId)
+      for (const e of list) if (isTrashMark((await s.readSync(e.noteId)).info.extra[PENDING_TRASH])) hidden.add(e.noteId)
       const remote: LibraryItem[] = cards
         .filter((c) => !here.has(c.noteId))
         .map((c) => ({
@@ -262,6 +265,41 @@ export function useLibrary(
     [defaults, editedBy, folders],
   )
 
+  /**
+   * Story 7.8: the note takes a new title (rule `library.renameNote`: `metaRev`, `metaSeq`); the next upload renames the Drive
+   * file. A note open in another tab is told to rename itself. False when nothing was changed.
+   */
+  const rename = useCallback(
+    async (noteId: string, title: string): Promise<boolean> => {
+      const s = storeRef.current
+      if (!s) return false
+      const lock = await acquireNoteLock(noteId)
+      try {
+        // A lock held only for a moment (an upload, a receive) is waited for; an editor tab keeps it and is told.
+        if (lock.state === 'waiting') await Promise.race([lock.whenHeld, new Promise((r) => setTimeout(r, 1500))])
+        if (lock.state === 'waiting') {
+          postToTabs({ t: 'rename', noteId, title })
+          setState((p) => ({ ...p, items: p.items.map((i) => (i.noteId === noteId ? { ...i, title: title.trim() } : i)) }))
+          return true
+        }
+        let r = await s.loadNote(noteId)
+        if (r?.result !== 'ok' && receiver?.beforeOpen) {
+          await receiver.beforeOpen(noteId) // a card not downloaded yet
+          r = await s.loadNote(noteId)
+        }
+        if (r?.result !== 'ok' || !r.note || !r.writable) return false
+        const out = libraryRenameNote({ note: r.note, op: { title }, existingTitles: [], ctx: { rev: newId(), lastSeenRemoteSeq: 0 } })
+        if ('error' in out) return false
+        if (out.inverse && !(await s.commitMerge(noteId, r.note, out.note, { conflicts: [], sidecars: [] }))) return false
+        return true
+      } finally {
+        await lock.release()
+        void load()
+      }
+    },
+    [receiver, load],
+  )
+
   /** The device copy of a note as `.kkj` bytes, for [파일로 내려받기] of the "열 수 없음" sheet. */
   const exportCopy = useCallback(async (noteId: string): Promise<{ name: string; bytes: Uint8Array }> => {
     const s = storeRef.current
@@ -271,5 +309,5 @@ export function useLibrary(
     return { name: `${r.note.meta.title}-${noteId.slice(0, 8)}.kkj`, bytes: await encodeKkj(r.note) }
   }, [])
 
-  return { status: state.status, items: state.items, failed: state.failed, reload: load, create, exportCopy }
+  return { status: state.status, items: state.items, failed: state.failed, reload: load, create, exportCopy, rename }
 }

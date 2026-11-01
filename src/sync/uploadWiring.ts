@@ -17,10 +17,11 @@ import { createNoteUploader } from './noteUploader'
 import { createOtherTime } from './otherTime'
 import { getOpenNote, openNoteIds } from './openNotes'
 import { syncLog } from './syncLog'
-import { type UploadCoordinator, createUploadCoordinator } from './uploadCoordinator'
+import { type UploadCoordinator, createUploadCoordinator, noteLockName } from './uploadCoordinator'
 import { type Versions, createVersionRestorer, createVersionSource } from './versionHistory'
 import { connectivity } from '../drive/connectivity'
 import { type FolderService, createFolderService } from '../library/folderService'
+import { postToTabs } from './tabChannel'
 
 const coordinators = new WeakMap<RootFolderStore, UploadCoordinator>()
 const folderServices = new WeakMap<RootFolderStore, FolderService>()
@@ -36,6 +37,15 @@ export function defaultFolderService(auth: Auth, root: RootFolderStore): FolderS
       allowed: () => uploadsAllowed(root),
       online: () => globalThis.navigator?.onLine !== false,
       upload: (noteId) => defaultUploadCoordinator(auth, root).syncNow(noteId),
+      isOpen: async (noteId) => {
+        if (openNoteIds().includes(noteId)) return true
+        try {
+          const held = await globalThis.navigator?.locks?.query()
+          return !!held?.held?.some((l) => l.name === noteLockName(noteId))
+        } catch {
+          return false
+        }
+      },
     })
     folderServices.set(root, f)
   }
@@ -66,6 +76,10 @@ export function defaultUploadCoordinator(auth: Auth, root: RootFolderStore): Upl
       onAssetConfirmed: (hash) => defaultImageHost(auth, root).markConfirmed(hash),
       // A note created in a folder is uploaded into it (Story 7.6).
       parentFileId: (noteId) => defaultFolderService(auth, root).parentFileId(noteId),
+      // Delete (Story 7.8): the note goes to `.trashbin`, the folder service forgets it first.
+      trashbinFileId: () => defaultFolderService(auth, root).trashbinFileId(),
+      parentIdOf: (noteId) => defaultFolderService(auth, root).parentIdOf(noteId),
+      forgetNote: (noteId) => defaultFolderService(auth, root).forgetNote(noteId),
     })
     c = createUploadCoordinator({
       store,
@@ -74,6 +88,7 @@ export function defaultUploadCoordinator(auth: Auth, root: RootFolderStore): Upl
       allowed: () => uploadsAllowed(root),
       online: () => globalThis.navigator?.onLine !== false,
       tokenOk: () => !auth.getState().expired,
+      notifyTrashed: (noteId) => postToTabs({ t: 'trashedHere', noteId }),
       flushOpen: async () => void (await Promise.all(openNoteIds().map((id) => getOpenNote(id)?.flush()))),
     })
     coordinators.set(root, c)

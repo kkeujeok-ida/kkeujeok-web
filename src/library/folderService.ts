@@ -13,6 +13,7 @@ import type { NoteStore } from '../storage/noteStore'
 import { NoteSaveError } from '../storage/noteDb'
 import type { SyncDevice, SyncDeviceStore } from '../storage/syncDevice'
 import { NOTE_FILES_QUERY } from '../sync/noteReceiver'
+import { isTrashMark } from '../sync/noteUploader'
 import {
   type DriveOp,
   type Folder,
@@ -29,6 +30,7 @@ const FOLDER_MIME = 'application/vnd.google-apps.folder'
 const FOLDERS_QUERY = `trashed=false and mimeType='${FOLDER_MIME}'`
 const SYSTEM_IDS = new Set(['root', 'assets', 'conflicts', 'trashbin'])
 
+type DriveFileLike = { id: string; parents: string[]; appProperties: Record<string, string> }
 type CacheFolder = Folder & { fileId: string | null }
 type State = { folders: CacheFolder[]; noteParents: Record<string, string>; ops: DriveOp[] }
 
@@ -75,6 +77,8 @@ export type FolderServiceDeps = {
   online: () => boolean
   /** Uploads one note; the service checks afterwards whether anything is left unsent. */
   upload: (noteId: string) => Promise<void>
+  /** Story 7.8: a note is open in an editor (any tab): its device copy is not removed under it. */
+  isOpen?: (noteId: string) => Promise<boolean>
   now?: () => Date
   newFolderId?: () => string
 }
@@ -306,6 +310,38 @@ export function createFolderService(deps: FolderServiceDeps) {
     return true
   }
 
+  /**
+   * `trash.remoteTrashed`: another device moved a note this device has into `.trashbin`. Nothing unsent: the device
+   * copy goes (not while an editor has it open: the next refresh). Unsent changes: the note is moved back to
+   * `trashedFrom` (else the top level) and the revive notice is counted. This device's own pending delete wins.
+   */
+  async function remoteTrashed(hidden: string[], hiddenFolders: Set<string>, local: Set<string>, files: Map<string, DriveFileLike>, folders: Map<string, DriveFileLike>, root: string): Promise<Map<string, string>> {
+    const revived = new Map<string, string>() // note id -> its folder's kkeujeokId again
+    for (const id of hidden) {
+      const file = files.get(id)
+      if (!local.has(id) || !file) continue
+      if (isTrashMark((await store.readSync(id)).info.extra.pendingTrash)) continue
+      try {
+        if (!(await unsent(id))) {
+          if (await deps.isOpen?.(id)) continue // next refresh
+          await api.forgetNote(id)
+          await removeLocal(id)
+          continue
+        }
+        const from = file.appProperties.trashedFrom
+        const origin = from === undefined ? undefined : folders.get(from)
+        // An origin that is itself in the trash is no destination.
+        const target = !origin || hiddenFolders.has(from!) ? root : origin.id
+        await drive.update(file.id, { addParents: target, removeParents: file.parents.join(',') })
+        revived.set(id, target === root ? 'root' : from!)
+        await device.update((d) => ({ ...d, extra: { ...d.extra, revivedCount: (typeof d.extra.revivedCount === 'number' ? d.extra.revivedCount : 0) + 1 } }))
+      } catch (e) {
+        if (!(e instanceof DriveError)) throw e // the next refresh repeats it
+      }
+    }
+    return revived
+  }
+
   /** True when the entry is done and may leave the queue. */
   async function send(op: DriveOp, root: string): Promise<boolean> {
     try {
@@ -415,6 +451,25 @@ export function createFolderService(deps: FolderServiceDeps) {
       if (parentId === 'root') return
       await mutate((s) => void (folderOf(s, parentId) && (s.noteParents[noteId] = parentId)))
     },
+    /** The `kkeujeokId` of the folder the note is in (`root` = top level). */
+    async parentIdOf(noteId: string): Promise<string> {
+      return (await load()).noteParents[noteId] ?? 'root'
+    },
+    /** The Drive id of `.trashbin`, created when missing (Story 14.1); null while the root is not known. */
+    async trashbinFileId(): Promise<string | null> {
+      const root = (await device.read()).rootFolderId
+      return root ? ensureItem('trashbin', '.trashbin', root) : null
+    },
+    /** How many notes another device deleted although this one had unsent changes, revived since the last call (the notice). */
+    async takeRevived(): Promise<number> {
+      let n = 0
+      await device.update((d) => {
+        const v = d.extra.revivedCount
+        n = typeof v === 'number' ? v : 0
+        return n === 0 ? d : { ...d, extra: { ...d.extra, revivedCount: 0 } }
+      })
+      return n
+    },
     /** A deleted note's device copy is gone: its parent entry and any queued change of it are dropped. */
     forgetNote: (noteId: string) =>
       mutate((s) => {
@@ -516,6 +571,7 @@ export function createFolderService(deps: FolderServiceDeps) {
             }
           }
           const local = new Set(await store.listIds())
+          const revived = await remoteTrashed(t.hidden.notes, new Set(t.hidden.folders), local, new Map(noteFiles.filter((n) => n.appProperties.kkeujeokId).map((n) => [n.appProperties.kkeujeokId!, n])), byKid, root)
           await mutate((s) => {
             const old = new Map(s.folders.map((f) => [f.id, f]))
             const folders: CacheFolder[] = [
@@ -524,7 +580,7 @@ export function createFolderService(deps: FolderServiceDeps) {
               ...s.folders.filter((f) => f.fileId === null && !byKid.has(f.id)),
             ]
             const notes: Record<string, string> = Object.fromEntries(t.notes.map((n) => [n.noteId, n.folderId ?? 'root']))
-            for (const n of t.hidden.notes) notes[n] = 'trashbin'
+            for (const n of t.hidden.notes) notes[n] = revived.get(n) ?? 'trashbin'
             // a note Drive does not have yet keeps its parent
             for (const [id, p] of Object.entries(s.noteParents)) if (local.has(id) && !noteParentDrive.has(id)) notes[id] = p
             // Drive-only changes not sent yet win over what Drive says.
