@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "covers": [
+    { "id": "linen", "name": { "ko": "리넨", "en": "Linen" }, "file": "linen.svg" },
+    { "id": "midnight", "name": { "ko": "미드나잇", "en": "Midnight" }, "file": "midnight.svg" },
+    { "id": "sage", "name": { "ko": "세이지", "en": "Sage" }, "file": "sage.svg" }
+  ]
+}
