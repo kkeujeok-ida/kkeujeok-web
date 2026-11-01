@@ -5,9 +5,12 @@ export const MAX_TITLE_LENGTH = 100
 const WS = '\\t-\\r \\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff'
 const TRIM = new RegExp(`^[${WS}]+|[${WS}]+$`, 'g')
 
+/** Trims with the exact title trim set (folder names use it too). */
+export const trimTitle = (s: string) => s.replace(TRIM, '')
+
 /** The normalized title, or null when longer than 100 code points. */
 export function normalizeTitle(title: string, existingTitles: Iterable<string>): string | null {
-  const t = title.replace(TRIM, '')
+  const t = trimTitle(title)
   if ([...t].length > MAX_TITLE_LENGTH) return null
   if (t) return t
   const taken = new Set(existingTitles)

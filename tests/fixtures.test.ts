@@ -36,6 +36,7 @@ import { backoffRule, staleHeadRule, stateMachineRule, uploadKindRule, verifyPla
 import { driveFileNameRule, driveRemoteTitleRule, listSummaryRule } from '../src/drive/noteSummary'
 import { restoreNote, restorePage } from '../src/ops/restore'
 import { keepForeverRule, versionListRule } from '../src/sync/versionList'
+import { libraryCreateFolder, libraryFolderName, libraryMoveFolder, libraryMoveNote, libraryRenameFolder, libraryTree, trashFolderRule, trashNoteRule } from '../src/library/libraryRules'
 
 // `tolerance` is the fixture file's top-level value, copied onto each case.
 type Case = { name: string; input: unknown; expected: unknown; tolerance?: number }
@@ -296,6 +297,14 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     // `left`/`top` are only in cases where Android's 8 dp and web's 12 px window margin cannot differ.
     expect(Object.fromEntries(Object.keys(e).map((k) => [k, p[k as keyof typeof p]]))).toEqual(e)
   },
+  'library.folderName': ({ input, expected }) => void expect(libraryFolderName(input as Parameters<typeof libraryFolderName>[0])).toEqual(expected),
+  'library.createFolder': ({ input, expected }) => void expect(libraryCreateFolder(input as Parameters<typeof libraryCreateFolder>[0])).toEqual(expected),
+  'library.renameFolder': ({ input, expected }) => void expect(libraryRenameFolder(input as Parameters<typeof libraryRenameFolder>[0])).toEqual(expected),
+  'library.moveFolder': ({ input, expected }) => void expect(libraryMoveFolder(input as Parameters<typeof libraryMoveFolder>[0])).toEqual(expected),
+  'library.moveNote': ({ input, expected }) => void expect(libraryMoveNote(input as Parameters<typeof libraryMoveNote>[0])).toEqual(expected),
+  'library.tree': ({ input, expected }) => void expect(libraryTree(input as Parameters<typeof libraryTree>[0])).toEqual(expected),
+  'trash.trashNote': ({ input, expected }) => void expect(trashNoteRule(input as Parameters<typeof trashNoteRule>[0])).toEqual(expected),
+  'trash.trashFolder': ({ input, expected }) => void expect(trashFolderRule(input as Parameters<typeof trashFolderRule>[0])).toEqual(expected),
   'zoom.snap': ({ input, expected }) => {
     const i = input as { scale: number; fitScale: number }
     expect(snapScale(i.scale, i.fitScale)).toBe(expected)
@@ -308,8 +317,6 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
   // Trash rules (Story 14.1) arrive with the web stories 14.3, 7.8.
-  'trash.trashNote',
-  'trash.trashFolder',
   'trash.restoreNote',
   'trash.restoreFolder',
   'trash.purgeItem',
@@ -321,12 +328,6 @@ const PENDING: string[] = [
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
   'library.renameNote',
   'library.setCover',
-  'library.moveNote',
-  'library.folderName',
-  'library.createFolder',
-  'library.renameFolder',
-  'library.moveFolder',
-  'library.tree',
   'library.coverResolve',
   'library.normalize',
   'library.sort',

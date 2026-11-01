@@ -10,6 +10,7 @@ import type { NoteStore } from '../../storage/noteStore'
 import { savesSettled } from '../../storage/saveQueue'
 import { PENDING_TRASH } from '../../sync/noteUploader'
 import type { NoteReceiver } from '../../sync/noteReceiver'
+import type { FolderService } from '../../library/folderService'
 
 /**
  * `title` is null for a note this client cannot open. `editedMs` is null when
@@ -21,6 +22,8 @@ export type LibraryItem = {
   editedMs: number | null
   page?: Page
   remote?: true
+  /** Story 7.6: the folder the note is in (null = top level); unset when no folder service is wired. */
+  folderId?: string | null
   /** A remote-only note whose file was downloaded and cannot be read or is of a newer format (Story 3.18). */
   blocked?: { reason: 'unreadable' | 'unsupportedVersion'; fileId: string }
 }
@@ -116,13 +119,14 @@ export function detectEditedBy(nav: Nav | undefined = globalThis.navigator as Na
   return os ? `${browser}, ${os}` : browser
 }
 
-export type CreateInput = { title: string; background: Background; orientation: Orientation }
+export type CreateInput = { title: string; background: Background; orientation: Orientation; /** The folder the new note goes in; null or unset = top level. */ folderId?: string | null }
 
 export function useLibrary(
   openStore: () => NoteStore,
   defaults: { write(d: NewNoteDefaults): void },
   editedBy?: string,
   receiver?: Pick<NoteReceiver, 'subscribe' | 'getState'> & Partial<Pick<NoteReceiver, 'beforeOpen'>>,
+  folders?: Pick<FolderService, 'view' | 'assignNote' | 'subscribe'>,
 ) {
   // `failed`: a reload failed while a list was already shown; the old list stays.
   const [state, setState] = useState<{ status: 'loading' | 'ready' | 'error'; items: LibraryItem[]; failed: boolean }>({
@@ -152,7 +156,10 @@ export function useLibrary(
       if (mine !== seq.current || storeRef.current !== s) return
       const here = new Set(list.map((e) => e.noteId))
       // Story 7.8: a deleted note that still waits to be trashed is not shown.
-      const hidden = new Set<string>()
+      // Story 7.6: the one place the library list is filtered by `library.tree`: notes in the trash are not shown, the rest get their folder.
+      const fv = await folders?.view().catch(() => undefined)
+      const hidden = new Set<string>(fv?.hiddenNotes)
+      const withFolder = (i: LibraryItem): LibraryItem => (fv ? { ...i, folderId: fv.noteFolder[i.noteId] ?? null } : i)
       for (const e of list) if ((await s.readSync(e.noteId)).info.extra[PENDING_TRASH] === true) hidden.add(e.noteId)
       const remote: LibraryItem[] = cards
         .filter((c) => !here.has(c.noteId))
@@ -163,12 +170,12 @@ export function useLibrary(
           remote: true as const,
           ...(c.blocked && { blocked: { reason: c.blocked, fileId: c.fileId } }),
         }))
-      setState({ status: 'ready', items: sortItems([...list.filter((e) => !hidden.has(e.noteId)).map(toItem), ...remote]), failed: false })
+      setState({ status: 'ready', items: sortItems([...list.filter((e) => !hidden.has(e.noteId)).map(toItem), ...remote.filter((i) => !hidden.has(i.noteId))].map(withFolder)), failed: false })
     } catch {
       if (mine !== seq.current || storeRef.current !== s) return
       setState((p) => (p.status === 'ready' ? { ...p, failed: true } : { status: 'error', items: [], failed: false }))
     }
-  }, [receiver])
+  }, [receiver, folders])
 
   // The connection lives while the library is shown, so logout's DB delete is not blocked.
   useEffect(() => {
@@ -194,6 +201,9 @@ export function useLibrary(
       void load()
     })
   }, [receiver, load])
+
+  // A folder changed (here, or Drive was read): list again.
+  useEffect(() => folders?.subscribe(() => void load()), [folders, load])
 
   // Cards of notes that are only on Drive get their note downloaded, one after the other, so the thumbnails
   // fill in without the person opening each note. One try per note per library visit.
@@ -222,7 +232,7 @@ export function useLibrary(
 
   /** Resolves with the new noteId; rejects (nothing stored, defaults untouched) on any failure. */
   const create = useCallback(
-    async ({ title, background, orientation }: CreateInput): Promise<string> => {
+    async ({ title, background, orientation, folderId }: CreateInput): Promise<string> => {
       const s = storeRef.current
       // Titles are numbered from the loaded list, so only a loaded library may create.
       if (!s || statusRef.current !== 'ready') throw new Error('library not ready')
@@ -241,14 +251,15 @@ export function useLibrary(
         editedBy: editedBy ?? detectEditedBy(),
       })
       if ('error' in r) throw new Error(r.error)
+      if (folderId) await folders?.assignNote(noteId, folderId)
       await s.writeNote(r.note)
       seq.current++ // a load that started before this write must not replace the list
       defaults.write({ background, orientation })
-      const item = toItem({ noteId, result: { result: 'ok', writable: true, note: r.note } })
+      const item: LibraryItem = { ...toItem({ noteId, result: { result: 'ok', writable: true, note: r.note } }), ...(folders && { folderId: folderId ?? null }) }
       setState((p) => ({ ...p, items: sortItems([...p.items.filter((i) => i.noteId !== noteId), item]) }))
       return noteId
     },
-    [defaults, editedBy],
+    [defaults, editedBy, folders],
   )
 
   /** The device copy of a note as `.kkj` bytes, for [파일로 내려받기] of the "열 수 없음" sheet. */

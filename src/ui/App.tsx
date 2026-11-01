@@ -5,6 +5,9 @@ import { Settings } from './Settings'
 import { AccountGate, type GateDeps } from './AccountGate'
 import { SignIn } from './SignIn'
 import { Library } from './library/Library'
+import { FOLDER_ICON, FolderTree } from './library/FolderTree'
+import { folderHref, parseFolderRoute, useFolders } from './library/useFolders'
+import type { FolderService } from '../library/folderService'
 import { NoteEditor, parseNoteRoute } from './library/NoteEditor'
 import { auth as defaultAuth, type Auth } from '../drive/auth'
 import { defaultRootFolder, type RootFolderStore } from '../drive/rootFolderStore'
@@ -12,7 +15,7 @@ import type { UploadCoordinator } from '../sync/uploadCoordinator'
 import type { NoteReceiver } from '../sync/noteReceiver'
 import { defaultReceiver, useReceiveTriggers } from '../sync/receiveWiring'
 import { defaultImageHost } from '../sync/imageWiring'
-import { defaultOtherTime, defaultUploadCoordinator, defaultVersions, useUploadTriggers } from '../sync/uploadWiring'
+import { defaultFolderService, defaultOtherTime, defaultUploadCoordinator, defaultVersions, useUploadTriggers } from '../sync/uploadWiring'
 import { requestResolve } from './library/resolveRequest'
 import { ReviveSnackbar } from './sync/ReviveSnackbar'
 import { SyncUiProvider } from './sync/syncUi'
@@ -45,7 +48,7 @@ function useHash(): string {
 // No router library: the path alone picks the static policy page or the shell.
 export type SyncUiProps = Pick<ComponentProps<typeof SyncUiProvider>, 'status' | 'net' | 'exportLog' | 'versions'>
 
-export function App({ auth = defaultAuth, root, uploads, receiver, gate, unsentIds, syncUi }: { auth?: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; gate?: GateDeps; unsentIds?: () => Promise<string[] | null>; syncUi?: SyncUiProps }) {
+export function App({ auth = defaultAuth, root, uploads, receiver, gate, unsentIds, syncUi, folders }: { auth?: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; gate?: GateDeps; unsentIds?: () => Promise<string[] | null>; syncUi?: SyncUiProps; folders?: FolderService }) {
   const { token, notice, busy, expired, restoring } = useSyncExternalStore(auth.subscribe, auth.getState, auth.getState)
   // Story 11.8: a reload signs in again silently; test stand-ins of Auth may not have `restore`.
   useEffect(() => void auth.restore?.(), [auth])
@@ -55,14 +58,14 @@ export function App({ auth = defaultAuth, root, uploads, receiver, gate, unsentI
   // No token but expired: the silent sign-in failed; the shell opens (local notes) with the [다시 로그인] banner.
   return (token || expired) && !busy ? (
     <AccountGate auth={auth} {...(gate && { deps: gate })}>
-      <Shell auth={auth} root={root} uploads={uploads} receiver={receiver} {...(unsentIds && { unsentIds })} {...(syncUi && { syncUi })} />
+      <Shell auth={auth} root={root} uploads={uploads} receiver={receiver} folders={folders} {...(unsentIds && { unsentIds })} {...(syncUi && { syncUi })} />
     </AccountGate>
   ) : (
     <SignIn auth={auth} notice={notice} />
   )
 }
 
-function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverProp, unsentIds, syncUi }: { auth: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; unsentIds?: () => Promise<string[] | null>; syncUi?: SyncUiProps }) {
+function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverProp, folders: foldersProp, unsentIds, syncUi }: { auth: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; folders?: FolderService; unsentIds?: () => Promise<string[] | null>; syncUi?: SyncUiProps }) {
   const root = useMemo(() => rootProp ?? defaultRootFolder(auth), [rootProp, auth])
   // Uploads run on the real Drive only with the default root; a given root (tests) needs a given coordinator.
   const uploads = useMemo(
@@ -82,9 +85,31 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
   useReceiveTriggers(receiver, root)
   // The images of the notes (Story 4.13): real Drive only with the default root, like uploads.
   const images = useMemo(() => (rootProp ? undefined : defaultImageHost(auth, root)), [rootProp, auth, root])
+  // The folders (Story 7.6): real Drive only with the default root, like uploads.
+  const folderService = useMemo(() => foldersProp ?? (rootProp ? undefined : defaultFolderService(auth, root)), [foldersProp, rootProp, auth, root])
+  const { view, loaded } = useFolders(folderService, root, receiver)
   const { t } = useI18n()
   const expanded = useSidebarExpanded()
-  const noteId = parseNoteRoute(useHash())
+  const hash = useHash()
+  const noteId = parseNoteRoute(hash)
+  const routeFolder = parseFolderRoute(hash)
+  const folderId = routeFolder !== null && view.has(routeFolder) ? routeFolder : null
+  // The folder in the address is gone (or never was): back to all notes, address included.
+  useEffect(() => {
+    if (routeFolder !== null && loaded && !view.has(routeFolder)) window.location.replace(folderHref(null))
+  }, [routeFolder, loaded, view])
+  const [drawer, setDrawer] = useState(false)
+  const drawerButton = useRef<HTMLButtonElement>(null)
+  const drawerBox = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (drawer) drawerBox.current?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus()
+  }, [drawer])
+  const selectFolder = (id: string | null) => {
+    window.location.hash = folderHref(id)
+    setSettingsOpen(false)
+    setDrawer(false)
+  }
+  const tree = folderService && <FolderTree view={view} service={folderService} current={folderId} onSelect={selectFolder} />
   const [settingsOpen, setSettingsOpen] = useState(false)
   const settingsButton = useRef<HTMLButtonElement>(null)
   const wasOpen = useRef(false)
@@ -107,7 +132,36 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
         inert={noteId !== null && !settingsOpen}
       >
         <div className={hidden ? `brand ${hidden}` : 'brand'}>{t('app.name')}</div>
-        <div className="library-slot" />
+        <div className="library-slot">
+          {expanded ? (
+            tree
+          ) : (
+            folderService && (
+              <>
+                <button ref={drawerButton} type="button" className="btn side-item" aria-expanded={drawer} aria-haspopup="tree" onClick={() => setDrawer(!drawer)}>
+                  <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d={FOLDER_ICON} stroke="currentColor" strokeWidth="1.5" fill="none" />
+                  </svg>
+                  <span className="sr-only">{t('folder.open')}</span>
+                </button>
+                {drawer && (
+                  <div
+                    ref={drawerBox}
+                    className="folder-drawer"
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Escape') return
+                      e.preventDefault()
+                      setDrawer(false)
+                      drawerButton.current?.focus()
+                    }}
+                  >
+                    {tree}
+                  </div>
+                )}
+              </>
+            )
+          )}
+        </div>
         <button
           ref={settingsButton}
           type="button"
@@ -127,7 +181,7 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
         ) : noteId ? (
           <NoteEditor key={noteId} noteId={noteId} uploads={uploads} receiver={receiver} images={images} />
         ) : (
-          <Library root={root} signOut={auth.signOut} receiver={receiver} uploads={uploads} />
+          <Library root={root} signOut={auth.signOut} receiver={receiver} uploads={uploads} folders={folderService} folderId={folderId} />
         )}
       </main>
     </div>

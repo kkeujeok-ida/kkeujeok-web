@@ -22,6 +22,7 @@ import { LibraryFab } from './LibraryFab'
 import { NewNoteDialog } from './NewNoteDialog'
 import { noteHref } from './NoteEditor'
 import { requestResolve } from './resolveRequest'
+import type { FolderService } from '../../library/folderService'
 import { LIBRARY_SORTS, sortBy, useLibrary, type LibraryItem, type LibrarySort } from './useLibrary'
 
 // One per page session, so what was created last wins over a failed save.
@@ -43,6 +44,10 @@ type Props = {
   uploads?: Pick<UploadCoordinator, 'deleteNote'>
   /** The list's layout and size, a device setting. */
   viewStore?: { read(): LibraryView; write(v: LibraryView): void }
+  /** Story 7.6: the folders. Without it the library has no folders. */
+  folders?: FolderService
+  /** The folder being looked at; null or unset = all notes. */
+  folderId?: string | null
 }
 
 const NO_RECEIVE: ReceiveState = { version: 0, receiving: new Set(), scanning: false, revived: 0 }
@@ -62,9 +67,9 @@ function formatDate(ms: number | null, locale: string): string {
   }
 }
 
-export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver, uploads, viewStore = sharedLibraryView() }: Props) {
+export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver, uploads, viewStore = sharedLibraryView(), folders, folderId = null }: Props) {
   const { t, locale } = useI18n()
-  const lib = useLibrary(openStore, defaults, editedBy, receiver)
+  const lib = useLibrary(openStore, defaults, editedBy, receiver, folders)
   const rx = receiver ?? NO_RECEIVER
   const receive = useSyncExternalStore(rx.subscribe, rx.getState, () => NO_RECEIVE)
   // Grey cards while the first scan runs, only when it lasts over a second.
@@ -123,7 +128,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   async function create(v: { title: string; background: Background; orientation: Orientation }) {
     if (entering.current) return true
     try {
-      const noteId = await lib.create(v)
+      const noteId = await lib.create({ ...v, folderId })
       if (!mounted.current) return true // the library went away; the note is saved
       entering.current = true
       setSheet(null)
@@ -163,7 +168,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     viewStore.write(v)
   }
   const viewName = (v: LibraryView) => `${t(`library.view.${v.size}`)} ${t(`library.view.${v.layout}`)}`
-  const items = useMemo(() => sortBy(lib.items, sort), [lib.items, sort])
+  const items = useMemo(() => sortBy(folderId ? lib.items.filter((i) => i.folderId === folderId) : lib.items, sort), [lib.items, sort, folderId])
   const { status } = lib
   const offline = useOffline()
   const [deleting, setDeleting] = useState<{ noteId: string; from: HTMLElement | null } | null>(null)
@@ -257,6 +262,11 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
               </li>
             ))}
           </>
+        )}
+        {status === 'ready' && items.length === 0 && !scanning && folderId && (
+          <li className="cover-status" role="status">
+            {t('folder.empty')}
+          </li>
         )}
         {status === 'ready' && items.length === 0 && !scanning && (
           <li>

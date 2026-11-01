@@ -118,6 +118,7 @@ export function createFakeDrive(o: { pageSize?: number; changePageSize?: number 
       if (p.addParents) i.parents = [...i.parents.filter((x) => x !== p.removeParents), p.addParents]
       else if (p.removeParents) i.parents = i.parents.filter((x) => x !== p.removeParents)
       if (p.trashed !== undefined) i.trashed = p.trashed
+      if (p.name !== undefined) i.name = p.name
       for (const [k, v] of Object.entries(p.appProperties ?? {})) {
         if (v === null) delete i.appProperties[k]
         else i.appProperties[k] = v

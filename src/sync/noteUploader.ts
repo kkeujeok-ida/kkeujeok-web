@@ -75,6 +75,8 @@ export type UploaderDeps = {
   assets?: AssetStore
   /** Drive holds this image asset (checked or just uploaded). */
   onAssetConfirmed?: (hash: string) => void
+  /** Story 7.6: the Drive folder a new note is created in (null = the root). */
+  parentFileId?: (noteId: string) => Promise<string | null>
   /** Resumable chunk size (a multiple of 262,144); the spec value by default. */
   chunkSize?: number
   /** Milliseconds since the epoch, for the 30-day sidecar cleanup. */
@@ -388,7 +390,7 @@ export function createNoteUploader(d: UploaderDeps) {
             let intent = info.createIntent
             if (intent === null) {
               if (root === null) throw failure('fatal', { reason: 'rootMissing' })
-              const made: JsonMap = { kkeujeokId: noteId, parentId: root }
+              const made: JsonMap = { kkeujeokId: noteId, parentId: (d.parentFileId ? await call(noteId, () => d.parentFileId!(noteId)) : null) ?? root }
               intent = made
               info = await commit(noteId, (c) => ({ ...c, createIntent: made }))
             }

@@ -31,7 +31,7 @@ const setWidth = (w: number) =>
     Object.defineProperty(window, 'innerWidth', { value: w, configurable: true })
     window.dispatchEvent(new Event('resize'))
   })
-const settingsButton = () => host.querySelector<HTMLButtonElement>('nav button')!
+const settingsButton = () => host.querySelector<HTMLButtonElement>('nav > button')!
 
 beforeEach(() => {
   host = document.createElement('div')
@@ -105,7 +105,7 @@ describe('keyboard', () => {
   test('every control is a native button, link or radio, and none is a div or span', () => {
     mount()
     act(() => settingsButton().click())
-    const controls = [...host.querySelectorAll('[onclick], [role="button"], [tabindex]:not([tabindex="-1"])')]
+    const controls = [...host.querySelectorAll('[onclick], [role="button"], [tabindex]:not([tabindex="-1"]):not([role="treeitem"])')]
     expect(controls.map((e) => e.tagName)).toEqual([])
     const native = host.querySelectorAll('button, a[href], input')
     expect(native.length).toBeGreaterThanOrEqual(5)

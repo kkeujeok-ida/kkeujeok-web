@@ -20,8 +20,27 @@ import { syncLog } from './syncLog'
 import { type UploadCoordinator, createUploadCoordinator } from './uploadCoordinator'
 import { type Versions, createVersionRestorer, createVersionSource } from './versionHistory'
 import { connectivity } from '../drive/connectivity'
+import { type FolderService, createFolderService } from '../library/folderService'
 
 const coordinators = new WeakMap<RootFolderStore, UploadCoordinator>()
+const folderServices = new WeakMap<RootFolderStore, FolderService>()
+
+/** The one folder service of this page session for `root` (Story 7.6): folders, note parents, the Drive-only change queue. */
+export function defaultFolderService(auth: Auth, root: RootFolderStore): FolderService {
+  let f = folderServices.get(root)
+  if (!f) {
+    f = createFolderService({
+      drive: createAuthedDrive(auth),
+      device: createSyncDeviceStore(openNoteDb()),
+      store: openNoteStore(undefined, { getAccount: () => auth.getState().account }),
+      allowed: () => uploadsAllowed(root),
+      online: () => globalThis.navigator?.onLine !== false,
+      upload: (noteId) => defaultUploadCoordinator(auth, root).syncNow(noteId),
+    })
+    folderServices.set(root, f)
+  }
+  return f
+}
 
 /** The one coordinator of this page session for `root`, wired to the real Drive, IndexedDB and log. */
 export function defaultUploadCoordinator(auth: Auth, root: RootFolderStore): UploadCoordinator {
@@ -45,6 +64,8 @@ export function defaultUploadCoordinator(auth: Auth, root: RootFolderStore): Upl
       // The image assets a note references go before it (Story 4.13); a confirmed one clears its "저장 대기" mark.
       assets: sharedAssetStore(),
       onAssetConfirmed: (hash) => defaultImageHost(auth, root).markConfirmed(hash),
+      // A note created in a folder is uploaded into it (Story 7.6).
+      parentFileId: (noteId) => defaultFolderService(auth, root).parentFileId(noteId),
     })
     c = createUploadCoordinator({
       store,
