@@ -47,6 +47,16 @@ describe('viewport math', () => {
     expect(small.offsetY).toBeCloseTo(12 + (516 - PH * 0.5) / 2, 6)
   })
 
+  test('extraTop: the first page can be scrolled down by that much; the thumb starts at 0 only there', () => {
+    const top = { ...ins, extraTop: 48 }
+    const c = clampViewport({ scale: 2, offsetX: 0, offsetY: 500 }, W, H, PW, PH, top)
+    expect(c.offsetY).toBe(12 + 48)
+    expect(scrollMetrics(c, W, H, PW, PH, top).y!.start).toBe(0)
+    expect(scrollMetrics({ ...c, offsetY: 12 }, W, H, PW, PH, top).y!.start).toBeGreaterThan(0)
+    // the old view (no room above) stays where the fit puts it
+    expect(clampViewport({ scale: 2, offsetX: 0, offsetY: 12 }, W, H, PW, PH, top).offsetY).toBe(12)
+  })
+
   test('an unusable area changes nothing', () => {
     const v = { scale: 1, offsetX: 3, offsetY: 4 }
     expect(clampViewport(v, 0, 0, PW, PH, ins)).toBe(v)

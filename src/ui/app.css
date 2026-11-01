@@ -734,6 +734,12 @@ h1 {
   background: transparent;
 }
 
+.editor-corner .btn {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 var(--spacing-1);
+}
+
 .editor-back {
   justify-content: center;
   border-color: transparent;
@@ -1241,12 +1247,41 @@ h1 {
   bottom: var(--spacing-5);
   left: 50%;
   max-width: calc(100% - var(--spacing-5) * 2);
-  padding: var(--spacing-3) var(--spacing-4);
-  border-radius: var(--rounded-sm);
-  background: var(--components-snackbar-background);
-  color: var(--components-snackbar-text);
+  padding: var(--spacing-1) var(--spacing-4);
+  border: 1px solid var(--color-border-control);
+  border-radius: 9999px;
+  background: var(--color-surface-raised);
+  color: var(--color-ink-primary);
+  box-shadow: var(--components-toolbar-shadow);
   transform: translateX(-50%);
   pointer-events: none;
+}
+
+/* A short note rises from below the page, stays, and sinks again. */
+.snackbar-toast {
+  animation: snackbar-toast 3s ease-in-out both;
+}
+
+@keyframes snackbar-toast {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 24px);
+  }
+  10%,
+  88% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .snackbar-toast {
+    animation: none;
+  }
 }
 
 .snackbar:empty {
@@ -2344,8 +2379,11 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-1);
-  background: var(--components-snackbar-background);
-  color: var(--components-snackbar-text);
+  border-color: var(--color-border-control);
+  border-radius: 9999px;
+  background: var(--color-surface-raised);
+  color: var(--color-ink-primary);
+  box-shadow: var(--components-toolbar-shadow);
 }
 
 .add-page-edge[data-edge='start'] {

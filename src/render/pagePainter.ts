@@ -26,7 +26,8 @@ export const ZOOM_MIN = 0.5
 export const ZOOM_MAX = 8
 
 /** `gap` above, below (and the toolbar side) of the visible area; there is no side margin, so a width fit is the full view width; `extraBottom` more room under a page that is scrolled to its end. */
-export type ViewInsets = { gap: number; extraBottom: number }
+/** `extraTop`: room above the first page that can be scrolled into (the [페이지 추가] button sits there). */
+export type ViewInsets = { gap: number; extraBottom: number; extraTop?: number }
 /** A scrollbar thumb as fractions (0..1) of its track. */
 export type Thumb = { start: number; size: number }
 
@@ -49,7 +50,8 @@ function area(w: number, h: number, pageW: number, pageH: number, ins: ViewInset
   const aw = w
   const ah = h - gap * 2 - extra
   if (aw <= 0 || ah <= 0) return null
-  return { gap, extra, aw, ah }
+  const top = Number.isFinite(ins.extraTop) && (ins.extraTop ?? 0) > 0 ? (ins.extraTop as number) : 0
+  return { gap, extra, top, aw, ah }
 }
 
 /** Page point under the local position (x, y). */
@@ -65,14 +67,14 @@ export function toPage(vp: PageViewport, x: number, y: number): [number, number]
 export function clampViewport(vp: PageViewport, w: number, h: number, pageW: number, pageH: number, ins: ViewInsets): PageViewport {
   const a = area(w, h, pageW, pageH, ins)
   if (!a || !finitePositive(vp.scale)) return vp
-  const axis = (o: number, len: number, avail: number, gap: number) => {
+  const axis = (o: number, len: number, avail: number, gap: number, top = 0) => {
     if (len <= avail + FIT_EPS) return gap + (avail - len) / 2
-    return Math.min(gap, Math.max(gap + avail - len, Number.isFinite(o) ? o : gap))
+    return Math.min(gap + top, Math.max(gap + avail - len, Number.isFinite(o) ? o : gap))
   }
   return {
     scale: vp.scale,
     offsetX: axis(vp.offsetX, pageW * vp.scale, a.aw, 0),
-    offsetY: axis(vp.offsetY, pageH * vp.scale, a.ah, a.gap),
+    offsetY: axis(vp.offsetY, pageH * vp.scale, a.ah, a.gap, a.top),
   }
 }
 
@@ -104,15 +106,15 @@ export function scrollMetrics(vp: PageViewport, w: number, h: number, pageW: num
   const a = area(w, h, pageW, pageH, ins)
   const none = { x: null as Thumb | null, y: null as Thumb | null }
   if (!a) return none
-  const thumb = (o: number, len: number, avail: number, extra: number, gap: number): Thumb | null => {
+  const thumb = (o: number, len: number, avail: number, extra: number, gap: number, top = 0): Thumb | null => {
     if (len <= avail + FIT_EPS) return null
-    const total = len + extra
+    const total = len + extra + top
     const view = avail + extra
-    return { start: Math.min(1, Math.max(0, (gap - o) / total)), size: Math.min(1, view / total) }
+    return { start: Math.min(1, Math.max(0, (gap + top - o) / total)), size: Math.min(1, view / total) }
   }
   return {
     x: thumb(vp.offsetX, pageW * vp.scale, a.aw, 0, 0),
-    y: thumb(vp.offsetY, pageH * vp.scale, a.ah, a.extra, a.gap),
+    y: thumb(vp.offsetY, pageH * vp.scale, a.ah, a.extra, a.gap, a.top),
   }
 }
 

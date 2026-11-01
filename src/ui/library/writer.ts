@@ -385,7 +385,7 @@ export class Writer {
     if (c.width !== w) c.width = w
     if (c.height !== h) c.height = h
     const ins = this.insets()
-    const key = [r.width, r.height, ins.gap, ins.extraBottom].join()
+    const key = [r.width, r.height, ins.gap, ins.extraBottom, ins.extraTop ?? 0].join()
     // A canvas that measures nothing (hidden) keeps the last good size and view.
     if (r.width > 0 && r.height > 0) {
       // The page in view before the size changes stays the current one.

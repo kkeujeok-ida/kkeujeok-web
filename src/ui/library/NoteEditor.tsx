@@ -193,6 +193,7 @@ export function NoteEditor({
   // [+ 페이지 추가] at the ends of the note: adds a page there (set once the page list is known).
   const addEdgeRef = useRef<(edge: 'start' | 'end') => void>(() => {})
   const [toast, setToast] = useState('')
+  const [toastKey, setToastKey] = useState(0)
   const [narrow, setNarrow] = useState(() => globalThis.innerWidth < OVERLAY_BELOW_PX)
   const panel = useRef<HTMLElement>(null)
   const pageBtn = useRef<HTMLButtonElement>(null)
@@ -311,7 +312,7 @@ export function NoteEditor({
                 const el = toolbar.current
                 const r = el?.getBoundingClientRect()
                 const low = !!r && (r.top + r.bottom) / 2 > window.innerHeight / 2
-                return { gap: g, extraBottom: !el || (!dockRef.current.floating && dockRef.current.pos.dock === 'top') || low ? el ? el.offsetHeight + g : g : 0 }
+                return { gap: g, extraTop: 48, extraBottom: !el || (!dockRef.current.floating && dockRef.current.pos.dock === 'top') || low ? el ? el.offsetHeight + g : g : 0 }
               }
               w.onView = (v) => live && setView(v)
               w.onBox = (b) => live && setBox(b)
@@ -1254,6 +1255,7 @@ export function NoteEditor({
   const sayPage = (text: string) => {
     setResultText(text)
     setToast(text)
+    setToastKey((k) => k + 1)
   }
   const pageSay = (key: 'page.added' | 'page.deleted' | 'page.duplicated', n: number) => sayPage(fmt(t(key), { n }))
   const addPageAt = (index: number) => {
@@ -1304,7 +1306,12 @@ export function NoteEditor({
     const i = pages.findIndex((p) => p.id === pageId)
     if (!w || i < 0) return
     w.goToPage(i)
-    if (w.selectOutOfBounds(pageId) > 0) canvas.current?.focus()
+    if (w.selectOutOfBounds(pageId) > 0) {
+      // The lasso is what moves the selection.
+      w.setTool('lasso')
+      setTool('lasso')
+      canvas.current?.focus()
+    }
   }
   const movePagesTo = (ids: string[], index: number) => {
     const w = loaded?.writer
@@ -1625,9 +1632,11 @@ export function NoteEditor({
               </button>
             </div>
           )}
-          <div className="snackbar" aria-hidden="true">
-            {toast}
-          </div>
+          {toast && (
+            <div key={toastKey} className="snackbar snackbar-toast" aria-hidden="true">
+              {toast}
+            </div>
+          )}
           <div role="status" aria-live="polite" className="sr-only">
             {announce}
           </div>
