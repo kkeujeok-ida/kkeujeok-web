@@ -406,5 +406,21 @@
   "page.toPortrait": "세로로 바꾸기",
   "page.backgroundSet": "배경을 바꿨어요: {name}",
   "page.orientationSet": "{n}페이지를 {orientation}로 바꿨어요",
-  "page.selectOutOfBounds": "페이지 밖 요소 {n}개 선택"
+  "page.selectOutOfBounds": "페이지 밖 요소 {n}개 선택",
+  "editor.export": "PDF로 내보내기",
+  "export.title": "PDF로 내보내기",
+  "export.scope": "범위",
+  "export.all": "전체",
+  "export.current": "현재 페이지",
+  "export.custom": "페이지 범위",
+  "export.customLabel": "페이지 (1-{total})",
+  "export.err.emptyRange": "페이지를 입력해 주세요.",
+  "export.err.invalidFormat": "'3' 또는 '3-7'처럼 숫자로 입력해 주세요.",
+  "export.err.reversedRange": "앞 번호가 뒤 번호보다 클 수 없어요.",
+  "export.err.outOfRange": "1부터 {total} 사이로 입력해 주세요.",
+  "export.start": "내보내기",
+  "export.progress": "PDF 만드는 중 · {done}/{total}페이지",
+  "export.failed": "PDF를 만들지 못했어요.",
+  "export.assetMissing": "아직 받지 못한 이미지가 있어요. 이미지를 받은 뒤 다시 시도해 주세요.",
+  "export.retry": "다시 시도"
 }

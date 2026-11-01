@@ -1209,15 +1209,16 @@ describe('zoom and pan', () => {
       'Vertical scroll',
       'Horizontal scroll',
       'Two pages',
+      'Export as PDF',
     ])
     expect(q('[role="status"][aria-live="polite"]')!.textContent).toBe(`Zoom ${Math.round(fit() * 100)}%`)
     expect(document.activeElement).toBe(items[0])
     key(items[0]!, 'ArrowUp')
-    expect(document.activeElement).toBe(items[6])
-    key(items[6]!, 'ArrowDown')
+    expect(document.activeElement).toBe(items[7])
+    key(items[7]!, 'ArrowDown')
     expect(document.activeElement).toBe(items[0])
     key(items[0]!, 'End')
-    expect(document.activeElement).toBe(items[6])
+    expect(document.activeElement).toBe(items[7])
     key(items[6]!, 'Home')
     expect(document.activeElement).toBe(items[0])
 

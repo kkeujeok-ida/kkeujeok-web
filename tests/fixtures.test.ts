@@ -34,6 +34,7 @@ import { resolveConflict } from '../src/ops/resolveConflict'
 import { errorClassRule } from '../src/sync/errorClass'
 import { backoffRule, staleHeadRule, stateMachineRule, uploadKindRule, verifyPlanRule } from '../src/sync/syncRules'
 import { driveFileNameRule, driveRemoteTitleRule, listSummaryRule } from '../src/drive/noteSummary'
+import { exportFileName, exportPlan, exportRange } from '../src/export/exportRules'
 import { restoreNote, restorePage } from '../src/ops/restore'
 import { keepForeverRule, versionListRule } from '../src/sync/versionList'
 import { libraryCreateFolder, libraryFolderName, libraryMoveFolder, libraryMoveNote, libraryNormalize, librarySearch, librarySort, libraryRenameFolder, libraryRenameNote, librarySetCover, libraryCoverResolve, libraryTree, trashFolderRule, trashNoteRule } from '../src/library/libraryRules'
@@ -311,6 +312,9 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'library.tree': ({ input, expected }) => void expect(libraryTree(input as Parameters<typeof libraryTree>[0])).toEqual(expected),
   'trash.trashNote': ({ input, expected }) => void expect(trashNoteRule(input as Parameters<typeof trashNoteRule>[0])).toEqual(expected),
   'trash.trashFolder': ({ input, expected }) => void expect(trashFolderRule(input as Parameters<typeof trashFolderRule>[0])).toEqual(expected),
+  'export.range': ({ input, expected }) => void expect(exportRange(input as Parameters<typeof exportRange>[0])).toEqual(expected),
+  'export.fileName': ({ input, expected }) => void expect(exportFileName(input as Parameters<typeof exportFileName>[0])).toEqual(expected),
+  'export.plan': ({ input, expected }) => void expect(exportPlan(input as Parameters<typeof exportPlan>[0])).toEqual(expected),
   'zoom.snap': ({ input, expected }) => {
     const i = input as { scale: number; fitScale: number }
     expect(snapScale(i.scale, i.fitScale)).toBe(expected)
@@ -332,10 +336,6 @@ const PENDING: string[] = [
   'trash.remoteTrashed',
   'drive.trashbinFolder',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
-  // Export rules (Story 8.1) arrive with the web story 8.3.
-  'export.range',
-  'export.fileName',
-  'export.plan',
 ]
 
 function mergeRunner({ input, expected }: Case) {

@@ -35,6 +35,7 @@ import { DEFAULT_PANEL_SIDE, OVERLAY_BELOW_PX, PageOverview, type PanelSide } fr
 import { SelectionMenu } from './SelectionMenu'
 import { TextEditOverlay } from './TextEditOverlay'
 import { VersionHistory } from './VersionHistory'
+import { ExportDialog } from './ExportDialog'
 import { onResolveRequest, takeResolveRequest } from './resolveRequest'
 import { detectEditedBy } from './useLibrary'
 import { ZOOM_MAX, ZOOM_MIN } from '../../render/pagePainter'
@@ -228,6 +229,7 @@ export function NoteEditor({
   const wantResolve = useRef(false)
   // The version history dialog (Story 3.25).
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const receiving = useNoteReceiving(noteId)
   const receivingRef = useRef(receiving)
   receivingRef.current = receiving
@@ -1475,6 +1477,17 @@ export function NoteEditor({
                       </button>
                     ))}
                   </div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="editor-menu-item"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setExportOpen(true)
+                    }}
+                  >
+                    {t('editor.export')}
+                  </button>
                   {ui?.versions && (
                     <button
                       type="button"
@@ -1649,6 +1662,16 @@ export function NoteEditor({
           <div role="alert" className="sr-only" key={alert.n}>
             {alert.text}
           </div>
+          {exportOpen && (
+            <ExportDialog
+              note={loaded.writer.history.note}
+              current={at + 1}
+              onClose={() => {
+                setExportOpen(false)
+                canvas.current?.focus()
+              }}
+            />
+          )}
           {historyOpen && ui?.versions && (
             <VersionHistory
               noteId={noteId}

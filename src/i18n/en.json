@@ -406,5 +406,21 @@
   "page.toPortrait": "Make portrait",
   "page.backgroundSet": "Background changed: {name}",
   "page.orientationSet": "Page {n} is now {orientation}",
-  "page.selectOutOfBounds": "Select {n} elements outside the page"
+  "page.selectOutOfBounds": "Select {n} elements outside the page",
+  "editor.export": "Export as PDF",
+  "export.title": "Export as PDF",
+  "export.scope": "Range",
+  "export.all": "All pages",
+  "export.current": "Current page",
+  "export.custom": "Page range",
+  "export.customLabel": "Pages (1-{total})",
+  "export.err.emptyRange": "Enter the pages.",
+  "export.err.invalidFormat": "Use numbers, like '3' or '3-7'.",
+  "export.err.reversedRange": "The first number cannot be larger than the second.",
+  "export.err.outOfRange": "Enter pages from 1 to {total}.",
+  "export.start": "Export",
+  "export.progress": "Making PDF · page {done}/{total}",
+  "export.failed": "Could not make the PDF.",
+  "export.assetMissing": "Some images are not on this device yet. Try again after they download.",
+  "export.retry": "Try again"
 }

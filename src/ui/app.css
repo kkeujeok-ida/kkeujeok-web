@@ -2679,3 +2679,7 @@ h1 {
 .folder-picker-item[aria-current='true'] {
   font-weight: 600;
 }
+
+.export-progress:empty {
+  display: none;
+}
