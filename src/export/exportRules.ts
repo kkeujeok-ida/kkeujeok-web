@@ -28,9 +28,7 @@ export function exportRange({ mode, text, current, pageCount }: RangeInput): { p
 }
 
 const RESERVED = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i
-// shortcut: no backslash. spec/export.md lists it, but fixture export.fileName #4 (made by a reference whose '\/' is
-// just '/') keeps it; add it when the fixture is regenerated.
-const BAD_CHARS = '/:*?"<>|'
+const BAD_CHARS = '\\/:*?"<>|'
 
 export function exportFileName({ title }: { title: string }): { name: string } {
   let s = [...trimTitle(title)]
