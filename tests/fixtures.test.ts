@@ -307,6 +307,17 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
+  // Trash rules (Story 14.1) arrive with the web stories 14.3, 7.8.
+  'trash.trashNote',
+  'trash.trashFolder',
+  'trash.restoreNote',
+  'trash.restoreFolder',
+  'trash.purgeItem',
+  'trash.emptyTrash',
+  'trash.list',
+  'trash.access',
+  'trash.remoteTrashed',
+  'drive.trashbinFolder',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
   'library.renameNote',
   'library.setCover',
