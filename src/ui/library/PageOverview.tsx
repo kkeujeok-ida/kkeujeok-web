@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyEvent, type MouseEvent as ReactMouseEvent, type RefObject } from 'react'
 import { fmt, useI18n } from '../../i18n'
+import { ConfirmDialog } from '../ConfirmDialog'
 import type { Page } from '../../model/note'
 import { dropIndex, stepIndex } from '../../model/pageMove'
 import { pageOutOfBounds } from '../../model/pageBounds'
@@ -162,7 +163,7 @@ function Item({ page, index, total, current, picked, drop, conflict, focusable, 
           )}
         </div>
         <span className="po-number" aria-hidden="true">
-          {current ? `${index + 1} · ${t('page.current')}` : index + 1}
+          {index + 1}
         </span>
       </div>
       {out > 0 && (
@@ -275,8 +276,11 @@ export const PageOverview = forwardRef<HTMLElement, Props>(function PageOverview
     setPicked(new Set())
     onGo(i)
   }
-  const doDelete = (ids: string[]) => {
+  // Pages with something on them are asked about first; blank ones go at once.
+  const [ask, setAsk] = useState<string[] | null>(null)
+  const doDelete = (ids: string[], sure = false) => {
     if (readOnly || ids.length >= pages.length) return
+    if (!sure && pages.some((p) => ids.includes(p.id) && p.elements.length > 0)) return setAsk(ids)
     const first = order.findIndex((x) => ids.includes(x))
     refocus.current = Math.min(first, pages.length - ids.length - 1)
     setPicked(new Set())
@@ -425,6 +429,20 @@ export const PageOverview = forwardRef<HTMLElement, Props>(function PageOverview
           <Item key={p.id} page={p} index={i} total={pages.length} current={i === current} picked={live.has(p.id)} drop={drop === i ? 'before' : drop === pages.length && i === pages.length - 1 ? 'after' : null} conflict={conflicted.has(p.id)} focusable={i === current} readOnly={readOnly} onGo={(e) => clickItem(i, e)} onDragStart={(e) => { drag.current = block(p.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id) }} onDragEnd={() => { drag.current = []; setDrop(null) }} onDuplicate={() => onDuplicate?.([p.id])} onDelete={() => doDelete([p.id])} onBackground={(b) => onBackground?.([p.id], b)} onOrientation={(o) => onOrientation?.(p.id, o)} onOutOfBounds={() => onSelectOutOfBounds?.(p.id)} />
         ))}
       </div>
+      {ask && (
+        <ConfirmDialog
+          body={t('page.deleteContentConfirm')}
+          confirmLabel={t('page.delete')}
+          cancelLabel={t('dialog.cancel')}
+          destructive
+          onCancel={() => setAsk(null)}
+          onConfirm={() => {
+            const ids = ask
+            setAsk(null)
+            doDelete(ids, true)
+          }}
+        />
+      )}
     </aside>
   )
 })

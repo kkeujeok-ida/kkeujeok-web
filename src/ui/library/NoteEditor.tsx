@@ -190,9 +190,9 @@ export function NoteEditor({
   const [viewMode, setViewMode] = useState<ViewMode>(() => viewModeStore.read())
   const [modeSay, setModeSay] = useState('')
   const [panelOpen, setPanelOpen] = useState(false)
-  // Scrolling past an end of the note (Story 6.5): the indicator, and what a full pull does (set once the page list is known).
-  const [pull, setPull] = useState<{ edge: 'start' | 'end'; ratio: number } | null>(null)
-  const pullAddRef = useRef<(edge: 'start' | 'end') => void>(() => {})
+  // [+ 페이지 추가] at the ends of the note: adds a page there (set once the page list is known).
+  const addEdgeRef = useRef<(edge: 'start' | 'end') => void>(() => {})
+  const [toast, setToast] = useState('')
   const [narrow, setNarrow] = useState(() => globalThis.innerWidth < OVERLAY_BELOW_PX)
   const panel = useRef<HTMLElement>(null)
   const pageBtn = useRef<HTMLButtonElement>(null)
@@ -314,8 +314,6 @@ export function NoteEditor({
                 return { gap: g, extraBottom: !el || (!dockRef.current.floating && dockRef.current.pos.dock === 'top') || low ? el ? el.offsetHeight + g : g : 0 }
               }
               w.onView = (v) => live && setView(v)
-              w.onPull = (p) => live && setPull(p)
-              w.onPullAdd = (e) => live && pullAddRef.current(e)
               w.onBox = (b) => live && setBox(b)
               w.onErased = (i) => live && erasedRef.current(i)
               w.eraserMode = eraserRef.current.mode
@@ -546,6 +544,11 @@ export function NoteEditor({
     const id = setTimeout(() => setAlert((a) => ({ ...a, text: '' })), ALERT_MS)
     return () => clearTimeout(id)
   }, [alert])
+  useEffect(() => {
+    if (!toast) return
+    const id = setTimeout(() => setToast(''), 3000)
+    return () => clearTimeout(id)
+  }, [toast])
   useEffect(() => {
     if (!resultText) return
     const id = setTimeout(() => setResultText(''), ALERT_MS)
@@ -1247,14 +1250,19 @@ export function NoteEditor({
   }
   const pageLabel = labelOf(at)
   // Page operations of the panel and the end pull (Stories 6.5-6.9). The words go to the polite region.
-  const pageSay = (key: 'page.added' | 'page.deleted' | 'page.duplicated', n: number) => setResultText(fmt(t(key), { n }))
+  // The same words are also shown for a moment (the live region itself is not visible).
+  const sayPage = (text: string) => {
+    setResultText(text)
+    setToast(text)
+  }
+  const pageSay = (key: 'page.added' | 'page.deleted' | 'page.duplicated', n: number) => sayPage(fmt(t(key), { n }))
   const addPageAt = (index: number) => {
     const w = loaded?.writer
     if (!w || w.pageEdit({ op: 'addPage', index })) return
     w.goToPage(index)
     pageSay('page.added', index + 1)
   }
-  pullAddRef.current = (edge) => addPageAt(edge === 'end' ? total : 0)
+  addEdgeRef.current = (edge) => addPageAt(edge === 'end' ? total : 0)
   // Keeps the page in view in view after the pages moved or came and went (`gone`: it was deleted, the next one is shown).
   const settleView = (w: Writer, keep: string | undefined, gone: boolean, nearest: number) => {
     const left = w.history.note.pages
@@ -1266,7 +1274,7 @@ export function NoteEditor({
     const i = pages.findIndex((p) => p.id === ids[0])
     if (!w || i < 0 || w.pageEdit({ op: 'duplicatePage', pageIds: ids })) return
     settleView(w, pages[at]?.id, false, 0)
-    if (ids.length > 1) setResultText(fmt(t('page.duplicatedMany'), { n: ids.length }))
+    if (ids.length > 1) sayPage(fmt(t('page.duplicatedMany'), { n: ids.length }))
     else pageSay('page.duplicated', i + 2)
   }
   const deletePagesOf = (ids: string[]) => {
@@ -1275,20 +1283,20 @@ export function NoteEditor({
     const keep = pages[at]?.id
     if (!w || i < 0 || w.pageEdit({ op: 'deletePage', pageIds: ids })) return
     settleView(w, keep, keep !== undefined && ids.includes(keep), i)
-    if (ids.length > 1) setResultText(fmt(t('page.deletedMany'), { n: ids.length }))
+    if (ids.length > 1) sayPage(fmt(t('page.deletedMany'), { n: ids.length }))
     else pageSay('page.deleted', i + 1)
   }
   const setBackgroundOf = (ids: string[], background: string) => {
     const w = loaded?.writer
     if (!w || w.pageEdit({ op: 'setPageBackground', items: ids.map((pageId) => ({ pageId, background })) })) return
-    setResultText(fmt(t('page.backgroundSet'), { name: t(`library.background.${background}` as 'library.background.plain') }))
+    sayPage(fmt(t('page.backgroundSet'), { name: t(`library.background.${background}` as 'library.background.plain') }))
   }
   const setOrientationOf = (pageId: string, orientation: 'portrait' | 'landscape') => {
     const w = loaded?.writer
     const i = pages.findIndex((p) => p.id === pageId)
     if (!w || i < 0 || w.pageEdit({ op: 'setPageOrientation', pageId, orientation })) return
     settleView(w, pages[at]?.id, false, 0)
-    setResultText(fmt(t('page.orientationSet'), { n: i + 1, orientation: t(`library.orientation.${orientation}`) }))
+    sayPage(fmt(t('page.orientationSet'), { n: i + 1, orientation: t(`library.orientation.${orientation}`) }))
   }
   // The badge: go to the page, select what stands outside it, and hand the keys to the canvas (arrows move the selection).
   const selectOutOfBoundsOf = (pageId: string) => {
@@ -1305,7 +1313,7 @@ export function NoteEditor({
     if (!w || from < 0 || w.pageEdit({ op: 'movePages', pageIds: ids, index })) return
     settleView(w, keep, false, 0)
     const to = w.history.note.pages.findIndex((p) => p.id === ids[0]) + 1
-    setResultText(ids.length > 1 ? fmt(t('page.movedMany'), { n: ids.length }) : fmt(t('page.moved'), { n: from + 1, to }))
+    sayPage(ids.length > 1 ? fmt(t('page.movedMany'), { n: ids.length }) : fmt(t('page.moved'), { n: from + 1, to }))
   }
   // The confirmed text boxes, readable by a screen reader.
   const textBoxes = pages.flatMap((p) => (p.elements as { id?: string; type?: string; text?: unknown }[]).filter((e) => e?.type === 'text' && typeof e.text === 'string').map((e) => ({ id: e.id as string, text: e.text as string })))
@@ -1500,15 +1508,18 @@ export function NoteEditor({
               aria-label={pageLabel}
               aria-describedby={descId}
             />
-            {pull && (
-              <div className="pull-indicator" data-edge={pull.edge} data-axis={viewMode === 'vertical' ? 'y' : 'x'} aria-hidden="true">
-                <svg className="pull-ring" viewBox="0 0 20 20">
-                  <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeOpacity="0.3" strokeWidth="2" />
-                  <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray={`${pull.ratio * 50.27} 50.27`} />
-                </svg>
-                <span>{t('page.pullMore')}</span>
-              </div>
-            )}
+            {!readOnly && !loaded.readOnly && view && (['start', 'end'] as const).map((edge) => {
+              const thumb = viewMode === 'vertical' ? view.y : view.x
+              const there = !thumb || (edge === 'start' ? thumb.start <= 0.001 : thumb.start + thumb.size >= 0.999)
+              return there ? (
+                <button key={edge} type="button" className="btn add-page-edge" data-edge={edge} data-axis={viewMode === 'vertical' ? 'y' : 'x'} onClick={() => addEdgeRef.current(edge)}>
+                  <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
+                  </svg>
+                  {t('page.add')}
+                </button>
+              ) : null
+            })}
             {box && !readOnly && !loaded.writer.pageLocked && (
               <SelectionMenu
                 box={box}
@@ -1614,6 +1625,9 @@ export function NoteEditor({
               </button>
             </div>
           )}
+          <div className="snackbar" aria-hidden="true">
+            {toast}
+          </div>
           <div role="status" aria-live="polite" className="sr-only">
             {announce}
           </div>

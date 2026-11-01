@@ -72,6 +72,24 @@ describe('page overview panel', () => {
     expect(calls).toEqual(['add', `dup ${PA}`, `del ${PB}`])
   })
 
+  test('deleting a page with content asks first; Cancel keeps it, the button deletes', () => {
+    const calls: string[] = []
+    const pages = mkNote({ title: 'x', pages: { [PA]: 'a1', [PB]: 'b1' } }).pages
+    ;(pages[1]!.elements as unknown[]).push({ id: 'e1', type: 'stroke' })
+    m = mountUi(createElement(PageOverview, { id: 'p', pages, current: 0, conflicted: new Set<string>(), side: 'right', overlay: false, onGo: () => {}, onClose: () => {}, onDelete: (ids: string[]) => calls.push(`del ${ids.join()}`) }), 'ko')
+    options()[1]!.focus()
+    key(options()[1]!, 'Delete')
+    const dialog = () => document.querySelector('[role="dialog"]')
+    expect(dialog()?.textContent).toContain('내용이 있는 페이지')
+    expect(calls).toEqual([])
+    act(() => [...document.querySelectorAll<HTMLElement>('[role="dialog"] button')].find((b) => b.textContent === '취소')!.click())
+    expect(dialog()).toBeNull()
+    expect(calls).toEqual([])
+    key(options()[1]!, 'Delete')
+    act(() => [...document.querySelectorAll<HTMLElement>('[role="dialog"] button')].find((b) => b.textContent === '삭제')!.click())
+    expect(calls).toEqual([`del ${PB}`])
+  })
+
   test('Esc closes the menu and returns focus to the button; read-only disables the edits', () => {
     const calls: string[] = []
     mount(0, () => {}, [], { onAdd: () => calls.push('add'), onDelete: () => calls.push('del') })

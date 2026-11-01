@@ -712,7 +712,7 @@ h1 {
 .editor-corner {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-2);
+  gap: 0;
   max-width: 100%;
   padding: var(--spacing-1) var(--spacing-3) var(--spacing-1) var(--spacing-1);
   border: 1px solid var(--components-editor-corner-border);
@@ -2337,50 +2337,41 @@ h1 {
   opacity: 0.3;
 }
 
-/* Scrolling past an end of the note: a ring that fills and the words (Story 6.5). */
-.pull-indicator {
+/* [+ 페이지 추가] at the first and last page. */
+.add-page-edge {
   position: absolute;
   z-index: 2;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--spacing-2);
-  padding: var(--spacing-2) var(--spacing-3);
-  border-radius: var(--rounded-sm);
+  gap: var(--spacing-1);
   background: var(--components-snackbar-background);
   color: var(--components-snackbar-text);
-  pointer-events: none;
 }
 
-.pull-indicator[data-edge='start'] {
-  top: var(--spacing-3);
+.add-page-edge[data-edge='start'] {
+  top: var(--spacing-1);
   left: 50%;
   transform: translateX(-50%);
 }
 
-.pull-indicator[data-edge='end'] {
-  bottom: var(--spacing-3);
+.add-page-edge[data-edge='end'] {
+  bottom: var(--spacing-1);
   left: 50%;
   transform: translateX(-50%);
 }
 
-.pull-indicator[data-axis='x'][data-edge='start'] {
+.add-page-edge[data-axis='x'][data-edge='start'] {
   top: 50%;
-  left: var(--spacing-3);
+  left: var(--spacing-1);
   transform: translateY(-50%);
 }
 
-.pull-indicator[data-axis='x'][data-edge='end'] {
+.add-page-edge[data-axis='x'][data-edge='end'] {
   top: 50%;
-  right: var(--spacing-3);
+  right: var(--spacing-1);
   bottom: auto;
   left: auto;
   transform: translateY(-50%);
-}
-
-.pull-ring {
-  width: 20px;
-  height: 20px;
-  transform: rotate(-90deg);
 }
 
 /* Reordering and picking pages (Story 6.7). */

@@ -64,8 +64,6 @@ const WHEEL_ZOOM = 0.002
 export const ZOOM_STEP = 1.25
 export const ARROW_STEP = 40
 /** Scrolling this far past an end adds a page (Story 6.5, tune by use). */
-export const PULL_PX = 240
-const PULL_IDLE_MS = 200
 export { PAGE_GAP }
 
 export type FitMode = 'width' | 'page' | 'free'
@@ -362,7 +360,6 @@ export class Writer {
       fonts?.removeEventListener?.('loadingdone', repaint)
       offs.forEach((off) => off())
       canvas.removeEventListener('wheel', onWheel)
-      if (this.pull.timer) clearTimeout(this.pull.timer)
       this.stopAnim()
       ro?.disconnect()
       globalThis.removeEventListener?.('resize', relayout)
@@ -625,7 +622,6 @@ export class Writer {
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return
     this.snap()
     if (e.ctrlKey) {
-      this.pullEnd() // a zoom never continues a pull
       if (this.busy()) return
       this.forced = null
       const [fx, fy] = this.local(e.clientX, e.clientY)
@@ -642,46 +638,8 @@ export class Writer {
       dx = dx || dy
       dy = 0
     }
-    const before = this.viewport
     this.scroll(dx, dy)
-    this.pullCheck(before, this.viewMode !== 'vertical' && this.info().y === null ? dx + dy : dy)
   }
-
-  /**
-   * Scrolling past the first / last page (Story 6.5): only a wheel run that began at that edge counts, so inertia that
-   * rolls into the edge adds nothing. PULL_PX of one run adds a page; a pause ends the run.
-   */
-  private pull = { edge: null as 'start' | 'end' | null, sum: 0, last: 0, timer: 0 as ReturnType<typeof setTimeout> | 0, fresh: true }
-  private pullCheck(before: PageViewport, amount: number): void {
-    const p = this.pull
-    const now = globalThis.performance?.now() ?? Date.now()
-    if (now - p.last > PULL_IDLE_MS) Object.assign(p, { edge: null, sum: 0, fresh: true })
-    p.last = now
-    const blocked = amount !== 0 && before.offsetX === this.viewport.offsetX && before.offsetY === this.viewport.offsetY
-    const dir = amount > 0 ? 'end' : 'start'
-    if (p.fresh) p.edge = blocked && !this.readOnly ? dir : null
-    p.fresh = false
-    if (p.edge && blocked && p.edge === dir) p.sum += Math.abs(amount)
-    else Object.assign(p, { edge: null, sum: 0 })
-    if (p.timer) clearTimeout(p.timer)
-    p.timer = setTimeout(() => this.pullEnd(), PULL_IDLE_MS)
-    if (p.edge && p.sum >= PULL_PX) {
-      const edge = p.edge
-      Object.assign(p, { edge: null, sum: 0 }) // one page per run
-      this.onPull(null)
-      this.onPullAdd(edge)
-      return
-    }
-    this.onPull(p.edge && p.sum > 0 ? { edge: p.edge, ratio: Math.min(1, p.sum / PULL_PX) } : null)
-  }
-  private pullEnd(): void {
-    Object.assign(this.pull, { edge: null, sum: 0, timer: 0 })
-    this.onPull(null)
-  }
-  /** The pull indicator: how far the person has scrolled past an end (null: none). */
-  onPull: (p: { edge: 'start' | 'end'; ratio: number } | null) => void = () => {}
-  /** The pull reached its amount: add a page at that end. */
-  onPullAdd: (edge: 'start' | 'end') => void = () => {}
 
   redraw(): void {
     const c = this.canvas

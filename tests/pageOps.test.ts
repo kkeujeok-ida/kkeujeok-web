@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-// Story 6.5: the writer's page edits (one undo step each, locked pages refused) and the scroll-past-end pull.
+// Story 6.5: the writer's page edits (one undo step each, locked pages refused).
 import 'fake-indexeddb/auto'
 import { describe, expect, test } from 'vitest'
 import { History } from '../src/ops/history'
 import { dropIndex, stepIndex } from '../src/model/pageMove'
-import { PULL_PX, Writer } from '../src/ui/library/writer'
+import { Writer } from '../src/ui/library/writer'
 import { PA, PB, mkNote } from './uploadHarness'
 
 const mk = (readOnly = false) => {
@@ -85,42 +85,7 @@ describe('background, orientation, out of bounds (Story 6.9)', () => {
   })
 })
 
-describe('scroll past the end', () => {
-  const pulls = (w: Writer) => {
-    const out: string[] = []
-    w.onPullAdd = (e) => out.push(e)
-    const vp = (w as unknown as { viewport: unknown }).viewport
-    const step = (amount: number, gap = 0) => {
-      if (gap) (w as unknown as { pull: { last: number } }).pull.last -= gap
-      ;(w as unknown as { pullCheck(b: unknown, a: number): void }).pullCheck(vp, amount)
-    }
-    return { out, step }
-  }
-
-  test('a run that starts at the edge adds a page at PULL_PX, once', () => {
-    const { w } = mk()
-    const { out, step } = pulls(w)
-    for (let i = 0; i < 10; i++) step(PULL_PX / 8)
-    expect(out).toEqual(['end'])
-  })
-
-  test('inertia rolling into the edge adds nothing; a pause resets the amount', () => {
-    const { w } = mk()
-    const { out, step } = pulls(w)
-    const view = (w as unknown as { viewport: object }).viewport
-    // the first event of the run moves the view (not at the edge yet)
-    ;(w as unknown as { pullCheck(b: unknown, a: number): void }).pullCheck({ ...view, offsetY: 99 }, 100)
-    for (let i = 0; i < 10; i++) step(100)
-    expect(out).toEqual([])
-    step(100, 1000) // a new run at the edge...
-    step(PULL_PX / 2)
-    step(1, 1000) // ...paused: back to zero
-    step(PULL_PX / 2)
-    expect(out).toEqual([])
-    step(-PULL_PX, 1000)
-    expect(out).toEqual(['start'])
-  })
-
+describe('multi-page undo', () => {
   test('undoing a delete of more than half the pages restores every page with a rev', () => {
     const { h, w } = mk()
     for (let i = 0; i < 3; i++) expect(w.pageEdit({ op: 'addPage', index: 0 })).toBeNull()
