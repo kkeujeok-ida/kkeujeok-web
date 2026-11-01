@@ -26,6 +26,8 @@ export function createNote(a: {
   orderRev: string
   now: string
   editedBy: string
+  /** Story 7.4: the cover; absent = none (no key written). */
+  coverId?: string
 }): OpResult {
   const title = normalizeTitle(a.title, a.existingTitles)
   if (title === null) return { error: 'titleTooLong' }
@@ -34,7 +36,7 @@ export function createNote(a: {
     note: {
       formatVersion: SUPPORTED_FORMAT_VERSION,
       noteId: a.noteId,
-      meta: { title },
+      meta: a.coverId ? { title, coverId: a.coverId } : { title },
       metaRev: a.metaRev,
       metaSeq: 1,
       orderRev: a.orderRev,

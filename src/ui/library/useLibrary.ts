@@ -11,7 +11,7 @@ import { savesSettled } from '../../storage/saveQueue'
 import { PENDING_TRASH, isTrashMark } from '../../sync/noteUploader'
 import { postToTabs } from '../../sync/tabChannel'
 import { acquireNoteLock } from '../../storage/noteLock'
-import { libraryRenameNote } from '../../library/libraryRules'
+import { libraryRenameNote, librarySetCover } from '../../library/libraryRules'
 import type { NoteReceiver } from '../../sync/noteReceiver'
 import type { FolderService } from '../../library/folderService'
 
@@ -24,6 +24,8 @@ export type LibraryItem = {
   title: string | null
   editedMs: number | null
   page?: Page
+  /** `meta.coverId` as stored (may be an id this app does not know); null = none. */
+  coverId?: string | null
   remote?: true
   /** Story 7.6: the folder the note is in (null = top level); unset when no folder service is wired. */
   folderId?: string | null
@@ -53,6 +55,7 @@ export function toItem({ noteId, result }: Entry): LibraryItem {
   const first: unknown = Array.isArray(note.pages) ? note.pages[0] : undefined
   const item: LibraryItem = { noteId, title, editedMs: latestEditedMs(note) }
   if (typeof first === 'object' && first !== null) item.page = first as Page
+  item.coverId = typeof note.meta.coverId === 'string' ? note.meta.coverId : null
   return item
 }
 
@@ -122,7 +125,7 @@ export function detectEditedBy(nav: Nav | undefined = globalThis.navigator as Na
   return os ? `${browser}, ${os}` : browser
 }
 
-export type CreateInput = { title: string; background: Background; orientation: Orientation; /** The folder the new note goes in; null or unset = top level. */ folderId?: string | null }
+export type CreateInput = { title: string; background: Background; orientation: Orientation; coverId?: string | null; /** The folder the new note goes in; null or unset = top level. */ folderId?: string | null }
 
 export function useLibrary(
   openStore: () => NoteStore,
@@ -170,6 +173,7 @@ export function useLibrary(
           noteId: c.noteId,
           title: c.title,
           editedMs: Date.parse(c.modifiedAt) || null,
+          coverId: c.coverId,
           remote: true as const,
           ...(c.blocked && { blocked: { reason: c.blocked, fileId: c.fileId } }),
         }))
@@ -235,7 +239,7 @@ export function useLibrary(
 
   /** Resolves with the new noteId; rejects (nothing stored, defaults untouched) on any failure. */
   const create = useCallback(
-    async ({ title, background, orientation, folderId }: CreateInput): Promise<string> => {
+    async ({ title, background, orientation, folderId, coverId }: CreateInput): Promise<string> => {
       const s = storeRef.current
       // Titles are numbered from the loaded list, so only a loaded library may create.
       if (!s || statusRef.current !== 'ready') throw new Error('library not ready')
@@ -252,6 +256,7 @@ export function useLibrary(
         orderRev: newId(),
         now: new Date().toISOString(),
         editedBy: editedBy ?? detectEditedBy(),
+        ...(coverId && { coverId }),
       })
       if ('error' in r) throw new Error(r.error)
       if (folderId) await folders?.assignNote(noteId, folderId)
@@ -300,6 +305,33 @@ export function useLibrary(
     [receiver, load],
   )
 
+  /** Story 7.4: the note takes a cover (rule `library.setCover`; null removes it). False when nothing could be written. */
+  const setCover = useCallback(
+    async (noteId: string, coverId: string | null): Promise<boolean> => {
+      const s = storeRef.current
+      if (!s) return false
+      const lock = await acquireNoteLock(noteId)
+      try {
+        if (lock.state === 'waiting') await Promise.race([lock.whenHeld, new Promise((r) => setTimeout(r, 1500))])
+        if (lock.state === 'waiting') return false // an editor tab holds the note
+        let r = await s.loadNote(noteId)
+        if (r?.result !== 'ok' && receiver?.beforeOpen) {
+          await receiver.beforeOpen(noteId)
+          r = await s.loadNote(noteId)
+        }
+        if (r?.result !== 'ok' || !r.note || !r.writable) return false
+        const out = librarySetCover({ note: r.note, op: { coverId }, ctx: { rev: newId(), lastSeenRemoteSeq: 0 } })
+        if ('error' in out) return false
+        if (out.inverse && !(await s.commitMerge(noteId, r.note, out.note, { conflicts: [], sidecars: [] }))) return false
+        return true
+      } finally {
+        await lock.release()
+        void load()
+      }
+    },
+    [receiver, load],
+  )
+
   /** The device copy of a note as `.kkj` bytes, for [파일로 내려받기] of the "열 수 없음" sheet. */
   const exportCopy = useCallback(async (noteId: string): Promise<{ name: string; bytes: Uint8Array }> => {
     const s = storeRef.current
@@ -309,5 +341,5 @@ export function useLibrary(
     return { name: `${r.note.meta.title}-${noteId.slice(0, 8)}.kkj`, bytes: await encodeKkj(r.note) }
   }, [])
 
-  return { status: state.status, items: state.items, failed: state.failed, reload: load, create, exportCopy, rename }
+  return { status: state.status, items: state.items, failed: state.failed, reload: load, create, exportCopy, rename, setCover }
 }

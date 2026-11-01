@@ -24,6 +24,7 @@ import { requestResolve } from './resolveRequest'
 import type { FolderResult, FolderService, FolderView } from '../../library/folderService'
 import { FolderPicker } from './FolderPicker'
 import { NOTE_DRAG } from './FolderTree'
+import { CoverArt, CoverDialog, coverUrl } from './CoverArt'
 import { NameDialog } from './NameDialog'
 import { LIBRARY_SORTS, sortBy, useLibrary, type LibraryItem, type LibrarySort } from './useLibrary'
 
@@ -129,7 +130,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     wasOpen.current = sheet !== null
   }, [sheet])
 
-  async function create(v: { title: string; background: Background; orientation: Orientation }) {
+  async function create(v: { title: string; background: Background; orientation: Orientation; coverId: string | null }) {
     if (entering.current) return true
     try {
       const noteId = await lib.create({ ...v, folderId })
@@ -177,6 +178,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   const offline = useOffline()
   type Target = { noteId: string; title: string; from: HTMLElement | null }
   const [renaming, setRenaming] = useState<Target | null>(null)
+  const [covering, setCovering] = useState<(Target & { coverId: string | null }) | null>(null)
   const [moving, setMoving] = useState<Target | null>(null)
   const [undo, setUndo] = useState<{ text: string; inverse?: FolderResult['inverse'] } | null>(null)
   useEffect(() => {
@@ -311,6 +313,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             offline={offline}
             onDelete={uploads ? () => void confirmDelete(item.noteId) : undefined}
             onRename={(from) => setRenaming({ noteId: item.noteId, title: item.title ?? '', from })}
+            onCover={(from) => setCovering({ noteId: item.noteId, title: item.title ?? '', coverId: item.coverId ?? null, from })}
             onMove={folders && folderView ? (from) => setMoving({ noteId: item.noteId, title: item.title ?? '', from }) : undefined}
             exportCopy={async () => {
               const f = await lib.exportCopy(item.noteId)
@@ -348,6 +351,22 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             if (!(await lib.rename(renaming.noteId, name))) return 'failed'
             void uploads?.noteClosed?.(renaming.noteId) // the new name goes up now
             return undefined
+          }}
+        />
+      )}
+      {covering && (
+        <CoverDialog
+          current={covering.coverId}
+          onClose={() => {
+            const from = covering.from
+            setCovering(null)
+            refocus(from)
+          }}
+          onSave={async (id) => {
+            if (id === covering.coverId || (id === null && coverUrl(covering.coverId) === null)) return true // nothing to change; an unknown id stays
+            if (!(await lib.setCover(covering.noteId, id))) return false
+            void uploads?.noteClosed?.(covering.noteId)
+            return true
           }}
         />
       )}
@@ -394,7 +413,12 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
 
 // The first page on the card, drawn by the writing screen's renderer. A page
 // that cannot be drawn leaves an empty card.
-function Thumb({ page }: { page: Page | undefined }) {
+function Thumb({ page, coverId }: { page: Page | undefined; coverId?: string | null }) {
+  const art = coverUrl(coverId)
+  return art ? <CoverArt url={art} /> : <PageThumb page={page} />
+}
+
+function PageThumb({ page }: { page: Page | undefined }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const c = ref.current
@@ -461,6 +485,7 @@ function Card({
   offline,
   onDelete,
   onRename,
+  onCover,
   onMove,
   exportCopy,
 }: {
@@ -471,6 +496,7 @@ function Card({
   offline: boolean
   onDelete?: () => void
   onRename: (from: HTMLElement | null) => void
+  onCover: (from: HTMLElement | null) => void
   onMove?: (from: HTMLElement | null) => void
   exportCopy: () => Promise<void>
 }) {
@@ -510,7 +536,7 @@ function Card({
       <li>
         <div className="cover-card cover-card-disabled" aria-disabled="true" aria-labelledby={titleId} aria-describedby={described} title={item.title}>
           <span className="cover-thumb-wrap">
-            <Thumb page={item.page} />
+            <Thumb page={item.page} coverId={item.coverId} />
             {badge && <SyncBadge label={badge} />}
           </span>
           <span className="cover-text">
@@ -555,7 +581,7 @@ function Card({
         }}
       >
         <span className="cover-thumb-wrap">
-          <Thumb page={item.page} />
+          <Thumb page={item.page} coverId={item.coverId} />
           {badge && <SyncBadge label={badge} />}
         </span>
         <span className="cover-text">
@@ -575,6 +601,7 @@ function Card({
         setMenu={setMenu}
         opener={opener}
         onRename={onRename}
+        onCover={onCover}
         {...(onMove && { onMove })}
         {...(onDelete && { onDelete })}
       />
@@ -583,7 +610,7 @@ function Card({
 }
 
 /**
- * The ⋯ button of a card, a sibling of the card link (UX-DR83): [이름 변경] [이동] [삭제]. [표지 변경] is Story 7.4.
+ * The ⋯ button of a card, a sibling of the card link (UX-DR83): [이름 변경] [표지 변경] [이동] [삭제].
  * [삭제] turns the menu into its confirmation in place; Esc goes back one step and focus returns to where it started.
  */
 function NoteMenu({
@@ -591,6 +618,7 @@ function NoteMenu({
   setMenu,
   opener,
   onRename,
+  onCover,
   onMove,
   onDelete,
 }: {
@@ -598,6 +626,7 @@ function NoteMenu({
   setMenu: (m: { confirm: boolean } | null) => void
   opener: { current: HTMLElement | null }
   onRename: (from: HTMLElement | null) => void
+  onCover: (from: HTMLElement | null) => void
   onMove?: (from: HTMLElement | null) => void
   onDelete?: () => void
 }) {
@@ -689,6 +718,9 @@ function NoteMenu({
             <>
               <button type="button" role="menuitem" className="btn" aria-keyshortcuts="F2" onClick={act(onRename)}>
                 {t('library.noteRename')}
+              </button>
+              <button type="button" role="menuitem" className="btn" onClick={act(onCover)}>
+                {t('library.noteCover')}
               </button>
               {onMove && (
                 <button type="button" role="menuitem" className="btn" onClick={act(onMove)}>

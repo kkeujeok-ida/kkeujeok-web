@@ -557,6 +557,27 @@ h1 {
   box-shadow: var(--components-cover-card-shadow);
 }
 
+.cover-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.cover-option-art {
+  display: block;
+  width: calc(var(--spacing-4) * 4);
+  aspect-ratio: var(--components-cover-card-aspect-ratio);
+  border-radius: var(--components-cover-card-rounded);
+  object-fit: cover;
+}
+
+.cover-option-none {
+  border: 1px solid var(--components-cover-card-fallback-border);
+  background: var(--components-cover-card-fallback-background);
+}
+
 .cover-thumb-new {
   color: var(--color-ink-secondary);
 }

@@ -159,6 +159,7 @@ describe('empty library', () => {
     expect(document.activeElement).toBe(titleInput())
     expect(qa<HTMLInputElement>('input[type="radio"]').filter((r) => r.checked).map((r) => r.value)).toEqual([
       'plain',
+      '', // no cover
       'portrait',
     ])
   })
@@ -249,6 +250,7 @@ describe('creating', () => {
     click(q('.cover-card')!)
     expect(qa<HTMLInputElement>('input[type="radio"]').filter((r) => r.checked).map((r) => r.value)).toEqual([
       'dot',
+      '',
       'landscape',
     ])
   })
@@ -374,8 +376,8 @@ describe('sheet keyboard', () => {
     expect(document.activeElement).toBe(create)
 
     const groups = new Set(qa<HTMLInputElement>('input[type="radio"]').map((r) => r.name))
-    expect(groups.size).toBe(2)
-    expect(qa('fieldset')).toHaveLength(2)
+    expect(groups.size).toBe(3)
+    expect(qa('fieldset')).toHaveLength(3)
 
     key(document.activeElement!, 'Escape')
     expect(dialog()).toBeNull()
@@ -732,13 +734,13 @@ describe('card menu (Story 7.8)', () => {
     const button = q<HTMLButtonElement>('.cover-menu-button')!
     expect(button.closest('a')).toBeNull()
     click(button)
-    expect(menuItems()).toEqual(['이름 변경', '삭제']) // no folders wired: no [이동]
-    click(qa('[role="menuitem"]')[1]!)
+    expect(menuItems()).toEqual(['이름 변경', '표지 변경', '삭제']) // no folders wired: no [이동]
+    click(qa('[role="menuitem"]')[2]!)
     expect(q('[role="alert"]')!.textContent).toContain('휴지통')
     expect(menuItems()).toEqual(['지우기', '취소'])
     expect(document.activeElement!.textContent).toBe('취소')
     key(document.activeElement!, 'Escape') // back to the menu, focus on [삭제]
-    expect(menuItems()).toEqual(['이름 변경', '삭제'])
+    expect(menuItems()).toEqual(['이름 변경', '표지 변경', '삭제'])
     expect(deleted).toEqual([])
     key(document.activeElement!, 'Escape') // closes, focus on ⋯
     expect(q('[role="menu"]')).toBeNull()

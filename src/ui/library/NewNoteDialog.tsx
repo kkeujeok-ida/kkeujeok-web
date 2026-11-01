@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { useI18n, type Key } from '../../i18n'
 import { BACKGROUNDS } from '../../model/note'
 import { MAX_TITLE_LENGTH } from '../../model/noteTitle'
+import { CoverRadios } from './CoverArt'
 import { pageBackground } from '../../render/pageBackground'
 import { ORIENTATIONS, type Background, type NewNoteDefaults, type Orientation } from '../../storage/newNoteDefaults'
 
@@ -60,7 +61,7 @@ function BackgroundPreview({ kind, orientation }: { kind: string; orientation: O
 type Props = {
   defaults: NewNoteDefaults
   /** Resolves false when the note could not be saved. */
-  onCreate: (v: { title: string; background: Background; orientation: Orientation }) => Promise<boolean>
+  onCreate: (v: { title: string; background: Background; orientation: Orientation; coverId: string | null }) => Promise<boolean>
   onClose: () => void
 }
 
@@ -72,12 +73,13 @@ export function NewNoteDialog({ defaults, onCreate, onClose }: Props) {
   const [title, setTitle] = useState('')
   const [background, setBackground] = useState<Background>(defaults.background)
   const [orientation, setOrientation] = useState<Orientation>(defaults.orientation)
+  const [coverId, setCoverId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const busyRef = useRef(false)
   const box = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
-  const ids = { head: useId(), title: useId(), bg: useId(), or: useId() }
+  const ids = { head: useId(), title: useId(), bg: useId(), or: useId(), cover: useId() }
   const composing = useRef(false)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
@@ -95,7 +97,7 @@ export function NewNoteDialog({ defaults, onCreate, onClose }: Props) {
     setFailed(false)
     let ok = false
     try {
-      ok = await onCreate({ title, background, orientation })
+      ok = await onCreate({ title, background, orientation, coverId })
     } catch {
       ok = false
     }
@@ -194,6 +196,13 @@ export function NewNoteDialog({ defaults, onCreate, onClose }: Props) {
             </label>
           ))}
         </fieldset>
+        <CoverRadios
+          name={ids.cover}
+          value={coverId}
+          disabled={busy}
+          onChange={(id) => (setFailed(false), setCoverId(id))}
+          onEnter={() => void submit()}
+        />
         <fieldset className="settings-group">
           <legend>{t('library.pageOrientation')}</legend>
           {ORIENTATIONS.map((o) => (

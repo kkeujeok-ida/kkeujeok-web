@@ -1,6 +1,6 @@
 // Spec `library` (folders, tree, moveNote) and `trash` (trashNote, trashFolder): pure rules,
 // output equal to the fixture JSON. Operations never change their input.
-import { driveFileNameRule } from '../drive/noteSummary'
+import { MAX_COVER_BYTES, driveFileNameRule } from '../drive/noteSummary'
 import type { Note } from '../model/note'
 import { MAX_TITLE_LENGTH, normalizeTitle, trimTitle } from '../model/noteTitle'
 
@@ -30,6 +30,40 @@ export function libraryRenameNote(i: { note: Note; op: { title: string }; existi
     inverse: { op: 'renameNote', title: i.note.meta.title },
     name,
   }
+}
+
+/** `library.setCover`: `meta.coverId` set or removed (never written as null); `metaRev` and `metaSeq` renewed. */
+export function librarySetCover(i: { note: Note; op: { coverId: string | null }; ctx: { rev: string; lastSeenRemoteSeq: number } }) {
+  const id = i.op.coverId
+  if (id !== null && (typeof id !== 'string' || id === '' || new TextEncoder().encode(id).length > MAX_COVER_BYTES)) return { error: 'invalidCoverId' } as RuleError
+  const old = typeof i.note.meta.coverId === 'string' ? i.note.meta.coverId : null
+  if (id === old) return { note: i.note, inverse: null }
+  const { coverId: _drop, ...rest } = i.note.meta
+  return {
+    note: { ...i.note, meta: id === null ? rest : { ...rest, coverId: id }, metaRev: i.ctx.rev, metaSeq: Math.max(i.note.metaSeq, i.ctx.lastSeenRemoteSeq) + 1 },
+    inverse: { op: 'setCover', coverId: old },
+  }
+}
+
+export type CoverEntry = { id: string; name: { ko: string; en: string }; file: string }
+const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v !== ''
+/** The valid entries of a cover index, in order; first entry wins for a shared id. */
+export function libraryCoverEntries(index: unknown): CoverEntry[] {
+  const ix = index as { version?: unknown; covers?: unknown } | null
+  if (typeof ix !== 'object' || ix === null || ix.version !== 1 || !Array.isArray(ix.covers)) return []
+  const out: CoverEntry[] = []
+  for (const e of ix.covers as Record<string, any>[]) {
+    if (typeof e !== 'object' || e === null) continue
+    if (typeof e.id !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(e.id) || out.some((o) => o.id === e.id)) continue
+    if (!nonEmpty(e.name?.ko) || !nonEmpty(e.name?.en) || typeof e.file !== 'string' || !/^[a-z0-9][a-z0-9-]*\.svg$/.test(e.file)) continue
+    out.push({ id: e.id, name: { ko: e.name.ko, en: e.name.en }, file: e.file })
+  }
+  return out
+}
+
+export function libraryCoverResolve(i: { coverId?: unknown; index: unknown }): { kind: 'none' } | { kind: 'cover'; id: string; file: string } {
+  const e = typeof i.coverId === 'string' ? libraryCoverEntries(i.index).find((c) => c.id === i.coverId) : undefined
+  return e ? { kind: 'cover', id: e.id, file: e.file } : { kind: 'none' }
 }
 
 export function libraryMoveNote(i: { folders: Folder[]; note: { noteId: string; parentId: string }; targetParentId: string }) {
