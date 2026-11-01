@@ -332,6 +332,10 @@ const PENDING: string[] = [
   'trash.remoteTrashed',
   'drive.trashbinFolder',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
+  // Export rules (Story 8.1) arrive with the web story 8.3.
+  'export.range',
+  'export.fileName',
+  'export.plan',
 ]
 
 function mergeRunner({ input, expected }: Case) {
