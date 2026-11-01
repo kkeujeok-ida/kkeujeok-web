@@ -28,10 +28,12 @@ export function useFolders(
   useEffect(() => {
     if (!service) return
     let live = true
-    const show = () => void service.view().then((view) => live && setState({ view, loaded: true }), () => {})
+    // `loaded` waits for the first Drive read, so a deep link on an empty cache is not sent back to "모든 노트".
+    let settled = false
+    const show = () => void service.view().then((view) => live && setState({ view, loaded: settled }), () => {})
     const unsub = service.subscribe(show)
     show()
-    const refresh = () => void service.refresh().catch(() => {})
+    const refresh = () => void service.refresh().catch(() => {}).finally(() => ((settled = true), show()))
     refresh()
     window.addEventListener('online', refresh)
     let ready = root ? uploadsAllowed(root) : false

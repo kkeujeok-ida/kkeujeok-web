@@ -524,6 +524,7 @@ export function createFolderService(deps: FolderServiceDeps) {
               ...s.folders.filter((f) => f.fileId === null && !byKid.has(f.id)),
             ]
             const notes: Record<string, string> = Object.fromEntries(t.notes.map((n) => [n.noteId, n.folderId ?? 'root']))
+            for (const n of t.hidden.notes) notes[n] = 'trashbin'
             // a note Drive does not have yet keeps its parent
             for (const [id, p] of Object.entries(s.noteParents)) if (local.has(id) && !noteParentDrive.has(id)) notes[id] = p
             // Drive-only changes not sent yet win over what Drive says.
