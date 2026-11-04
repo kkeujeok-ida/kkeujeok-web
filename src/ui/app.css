@@ -269,6 +269,13 @@ h1 {
   min-height: 60vh;
 }
 
+/* Story 18.7: wide enough for the four cover tiles on one line (they wrap only on a narrow window). */
+.dialog.new-note,
+.dialog.cover-dialog {
+  width: 100%;
+  max-width: calc(var(--spacing-cover-column-min) * 3);
+}
+
 .dialog p {
   margin: 0;
 }
@@ -410,11 +417,37 @@ h1 {
   min-height: var(--spacing-hit-min-web);
 }
 
+/* Story 18.8: one icon at the far right; open, the input grows to the left. */
 .library-search {
   display: flex;
-  flex: 1 1 12rem;
+  flex: 0 0 auto;
+  justify-content: flex-end;
   gap: var(--spacing-2);
   min-width: 0;
+}
+
+.library-search.is-open {
+  flex: 1 1 12rem;
+  max-width: 24rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .library-search.is-open {
+    animation: search-grow 150ms ease-out;
+  }
+}
+
+@keyframes search-grow {
+  from {
+    flex-basis: var(--spacing-hit-min-web);
+  }
+}
+
+.library-search-button.btn {
+  justify-content: center;
+  min-width: var(--spacing-hit-min-web);
+  min-height: var(--spacing-hit-min-web);
+  padding: 0;
 }
 
 .library-search .field-input {
@@ -2639,8 +2672,28 @@ h1 {
   white-space: normal;
 }
 
-.folder-add {
-  margin-top: var(--spacing-2);
+/* Story 18.3: a folder card in the note list, and the `../` card (a note thumbnail in size). */
+.folder-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.folder-thumb-icon {
+  width: 50%;
+  height: auto;
+}
+
+.folder-thumb-label {
+  font-family: var(--typography-title-font-family);
+  font-size: var(--typography-title-font-size);
+  font-weight: var(--typography-title-font-weight);
+}
+
+.folder-card.is-over .folder-thumb {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
 /* A collapsed sidebar opens the tree as a panel beside it. */

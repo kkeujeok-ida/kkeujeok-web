@@ -87,7 +87,7 @@ export function CoverDialog({ current, onSave, onClose }: { current: string | nu
         }
       }}
     >
-      <div ref={box} className="dialog" role="dialog" aria-modal="true" aria-label={t('library.noteCover')}>
+      <div ref={box} className="dialog cover-dialog" role="dialog" aria-modal="true" aria-label={t('library.noteCover')}>
         <h2 className="dialog-title">{t('library.noteCover')}</h2>
         <CoverRadios name={name} value={value} disabled={busy} onChange={(id) => (setFailed(false), setValue(id))} onEnter={() => void save()} />
         <div aria-live="polite" className="dialog-error">

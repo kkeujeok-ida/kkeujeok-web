@@ -6,7 +6,7 @@ import { AccountGate, type GateDeps } from './AccountGate'
 import { SignIn } from './SignIn'
 import { Library } from './library/Library'
 import { FOLDER_ICON, FolderTree } from './library/FolderTree'
-import { folderHref, parseFolderRoute, useFolders } from './library/useFolders'
+import { ALL_NOTES_HREF, folderHref, parseFolderRoute, useFolders } from './library/useFolders'
 import type { FolderService } from '../library/folderService'
 import { NoteEditor, parseNoteRoute } from './library/NoteEditor'
 import { auth as defaultAuth, type Auth } from '../drive/auth'
@@ -100,7 +100,8 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
   const hash = useHash()
   const noteId = parseNoteRoute(hash)
   const routeFolder = parseFolderRoute(hash)
-  const folderId = routeFolder !== null && view.has(routeFolder) ? routeFolder : null
+  // Story 18.5: the address without a folder shows the top level; `#/all` is "모든 노트". null = all notes (also without folders).
+  const folderId = !folderService || hash === ALL_NOTES_HREF ? null : routeFolder !== null && view.has(routeFolder) ? routeFolder : 'root'
   // The folder in the address is gone (or never was): back to all notes, address included.
   useEffect(() => {
     if (routeFolder !== null && loaded && !view.has(routeFolder)) window.location.replace(folderHref(null))
@@ -111,12 +112,12 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
   useEffect(() => {
     if (drawer) drawerBox.current?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus()
   }, [drawer])
-  const selectFolder = (id: string | null) => {
-    window.location.hash = folderHref(id)
+  const selectFolder = (id: string) => {
+    window.location.hash = id === 'all' ? ALL_NOTES_HREF : folderHref(id === 'root' ? null : id)
     setSettingsOpen(false)
     setDrawer(false)
   }
-  const tree = folderService && <FolderTree view={view} service={folderService} current={folderId} onSelect={selectFolder} />
+  const tree = folderService && <FolderTree view={view} service={folderService} current={folderId ?? 'all'} onSelect={selectFolder} />
   const [settingsOpen, setSettingsOpen] = useState(false)
   const settingsButton = useRef<HTMLButtonElement>(null)
   const wasOpen = useRef(false)

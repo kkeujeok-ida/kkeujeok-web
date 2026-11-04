@@ -36,7 +36,7 @@ function mount() {
   const onSelect = vi.fn()
   const service = { deleteFolder } as unknown as FolderService
   const i18n = createI18n({ navigatorLanguage: 'ko-KR' })
-  act(() => root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(FolderTree, { view, service, current: null, onSelect }))))
+  act(() => root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(FolderTree, { view, service, current: 'all', onSelect }))))
   return { deleteFolder, onSelect }
 }
 const items = () => [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')]
@@ -46,52 +46,61 @@ describe('folder tree', () => {
   test('is a tree of treeitems with levels, one tab stop and collapsed parents', () => {
     mount()
     expect(host.querySelector('[role="tree"]')).not.toBeNull()
-    expect(items().map((i) => i.querySelector('.tree-label')!.textContent)).toEqual(['모든 노트', 'A', 'C']) // B is below the closed A
-    expect(items().map((i) => i.getAttribute('aria-level'))).toEqual(['1', '2', '2'])
+    expect(items().map((i) => i.querySelector('.tree-label')!.textContent)).toEqual(['모든 노트', '최상위', 'A', 'C']) // folders start closed: B is below A
+    expect(items().map((i) => i.getAttribute('aria-level'))).toEqual(['1', '1', '2', '2'])
+    expect(host.querySelector('.tree-menu-button')).toBeNull() // no ⋯ button (Story 18.5)
     expect(items().filter((i) => i.tabIndex === 0)).toHaveLength(1)
-    expect(items()[1]!.getAttribute('aria-expanded')).toBe('false')
-    expect(items()[2]!.hasAttribute('aria-expanded')).toBe(false)
+    expect(items()[2]!.getAttribute('aria-expanded')).toBe('false')
+    expect(items()[3]!.hasAttribute('aria-expanded')).toBe(false)
   })
 
-  test('arrows move, open and close; Enter selects', () => {
-    const { onSelect } = mount()
+  test('arrows move, open and close; Enter selects; F2 and Delete do nothing', () => {
+    const { onSelect, deleteFolder } = mount()
     key(items()[0]!, 'ArrowDown')
-    expect(document.activeElement).toBe(items()[1])
-    key(items()[1]!, 'ArrowRight') // opens A
-    expect(items()[1]!.getAttribute('aria-expanded')).toBe('true')
-    expect(items().map((i) => i.dataset.id)).toEqual(['root', 'a', 'b', 'c'])
-    key(items()[1]!, 'ArrowRight') // into A
+    key(items()[1]!, 'ArrowDown')
     expect(document.activeElement).toBe(items()[2])
-    key(items()[2]!, 'ArrowLeft') // back to the parent
-    expect(document.activeElement).toBe(items()[1])
-    key(items()[1]!, 'ArrowLeft') // closes A
-    expect(items()).toHaveLength(3)
-    key(items()[1]!, 'End')
+    key(items()[2]!, 'ArrowRight') // opens A
+    expect(items()[2]!.getAttribute('aria-expanded')).toBe('true')
+    expect(items().map((i) => i.dataset.id)).toEqual(['all', 'root', 'a', 'b', 'c'])
+    key(items()[2]!, 'ArrowRight') // into A
+    expect(document.activeElement).toBe(items()[3])
+    key(items()[3]!, 'ArrowLeft') // back to the parent
     expect(document.activeElement).toBe(items()[2])
-    key(items()[2]!, 'Enter')
+    key(items()[2]!, 'ArrowLeft') // closes A
+    expect(items()).toHaveLength(4)
+    key(items()[2]!, 'End')
+    expect(document.activeElement).toBe(items()[3])
+    key(items()[3]!, 'Enter')
     expect(onSelect).toHaveBeenCalledWith('c')
-    key(items()[2]!, 'Home')
+    key(items()[3]!, 'F2')
+    key(items()[3]!, 'Delete')
+    expect(host.querySelector('[role="menu"], [role="dialog"]')).toBeNull()
+    expect(deleteFolder).not.toHaveBeenCalled()
+    key(items()[3]!, 'Home')
     key(items()[0]!, 'Enter')
-    expect(onSelect).toHaveBeenLastCalledWith(null)
+    expect(onSelect).toHaveBeenLastCalledWith('all')
+    key(items()[0]!, 'ArrowDown')
+    key(items()[1]!, 'Enter')
+    expect(onSelect).toHaveBeenLastCalledWith('root')
   })
 
-  test('delete asks in place with the note count; Esc cancels and focus stays on [삭제]; confirming deletes', () => {
+  test('right-click or Shift+F10 opens [이름 변경][이동][삭제]; delete asks in a centered dialog with the note count; confirming deletes', () => {
     const { deleteFolder } = mount()
-    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="A 메뉴"]')!.click())
+    act(() => void items()[2]!.querySelector('.tree-row')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
     const menu = host.querySelector('[role="menu"]')!
-    act(() => [...menu.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === '삭제')!.click())
-    expect(host.querySelector('.tree-confirm')!.textContent).toContain('2') // n2 is in A, n1 in B below it
-    key(host.querySelector('[role="menu"] button')!, 'Escape')
-    return new Promise<void>((resolve) =>
-      requestAnimationFrame(() => {
-        expect(document.activeElement?.textContent).toBe('삭제')
-        expect(host.querySelector('.tree-confirm')).toBeNull()
-        act(() => (document.activeElement as HTMLButtonElement).click())
-        act(() => [...host.querySelectorAll<HTMLButtonElement>('[role="menu"] button')].find((b) => b.textContent === '지우기')!.click())
-        expect(deleteFolder).toHaveBeenCalledWith('a')
-        resolve()
-      }),
-    )
+    expect([...menu.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['이름 변경', '이동', '삭제'])
+    key(menu.querySelector('button')!, 'Escape')
+    expect(host.querySelector('[role="menu"]')).toBeNull()
+    act(() => void items()[2]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true })))
+    act(() => [...host.querySelectorAll<HTMLButtonElement>('[role="menu"] button')].find((b) => b.textContent === '삭제')!.click())
+    const dialog = host.querySelector('.dialog-scrim [role="dialog"]')!
+    expect(dialog.textContent).toContain('2') // n2 is in A, n1 in B below it
+    key(dialog.querySelector('button')!, 'Escape')
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
+    act(() => void items()[2]!.querySelector('.tree-row')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+    act(() => [...host.querySelectorAll<HTMLButtonElement>('[role="menu"] button')].find((b) => b.textContent === '삭제')!.click())
+    act(() => [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent === '지우기')!.click())
+    expect(deleteFolder).toHaveBeenCalledWith('a')
   })
 
   test('the address of a folder', () => {
@@ -104,8 +113,8 @@ describe('folder tree', () => {
     const moveNote = vi.fn(async () => ({ inverse: { op: 'moveNote', noteId: 'n1', targetParentId: 'root' } }))
     const i18n = createI18n({ navigatorLanguage: 'ko-KR' })
     const service = { moveNote } as unknown as FolderService
-    act(() => root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(FolderTree, { view, service, current: null, onSelect: vi.fn() }))))
-    const row = host.querySelectorAll<HTMLElement>('.tree-row')[2]! // C
+    act(() => root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(FolderTree, { view, service, current: 'all', onSelect: vi.fn() }))))
+    const row = host.querySelectorAll<HTMLElement>('.tree-row')[3]! // C
     const data = { types: [NOTE_DRAG], getData: () => JSON.stringify({ noteId: 'n1', title: '내 노트' }) }
     const ev = (type: string) => Object.assign(new Event(type, { bubbles: true, cancelable: true }), { dataTransfer: data })
     const over = ev('dragover')

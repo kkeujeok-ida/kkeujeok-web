@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useI18n } from '../../i18n'
 
-// The round "+" at the bottom right. It expands a menu holding only [new note].
+// The round "+" at the bottom right. It expands a menu holding [new note] and, with folders, [new folder] (Story 18.3).
 // Focus: first item when opened, back on "+" when closed by Esc, x or outside press.
-export function LibraryFab({ onNewNote }: { onNewNote: (opener: HTMLElement | null) => void }) {
+export function LibraryFab({ onNewNote, onNewFolder }: { onNewNote: (opener: HTMLElement | null) => void; onNewFolder?: (opener: HTMLElement | null) => void }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const button = useRef<HTMLButtonElement>(null)
@@ -59,6 +59,24 @@ export function LibraryFab({ onNewNote }: { onNewNote: (opener: HTMLElement | nu
                 </svg>
               </span>
             </button>
+            {onNewFolder && (
+              <button
+                type="button"
+                role="menuitem"
+                className="fab-item"
+                onClick={() => {
+                  setOpen(false)
+                  onNewFolder(button.current)
+                }}
+              >
+                <span>{t('folder.add')}</span>
+                <span className="fab-item-icon" aria-hidden="true">
+                  <svg className="icon" viewBox="0 0 16 16">
+                    <path d="M2 4.5h4l1.5 1.5H14v6.5H2z" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                  </svg>
+                </span>
+              </button>
+            )}
           </div>
         )}
         <button

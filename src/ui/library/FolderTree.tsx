@@ -1,17 +1,23 @@
-// The folder tree of the sidebar (Story 7.6): "모든 노트" and the folders below it, with the ⋯ menu of a folder
-// (new subfolder, rename, move, delete), drag and drop to move, and an undo snackbar. Everything works by keyboard too.
+// The folder tree of the sidebar (Story 7.6, 18.5): "모든 노트", the top level and the folders below it. A folder has a context menu
+// (right-click, Shift+F10 / the menu key, long press: rename, move, delete), drag and drop to move, and an undo snackbar.
+// Arrow keys move through the tree; there are no F2 / Delete keys here.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { fmt, useI18n } from '../../i18n'
 import type { FolderResult, FolderService, FolderView } from '../../library/folderService'
+import { ConfirmDialog } from '../ConfirmDialog'
 import { FolderPicker } from './FolderPicker'
 import { NameDialog } from './NameDialog'
 
+/** The top level (the root folder); also the target of a move to the top level. */
 const ALL = 'root'
+/** The "모든 노트" row: every note, folders ignored. It is no folder and no move target. */
+export const ALL_NOTES = 'all'
+const LONG_PRESS_MS = 500
 const UNDO_MS = 5000
 /** The drag type of a note card (Story 7.8); its data is `{noteId, title}` as JSON. */
 export const NOTE_DRAG = 'application/x-kkeujeok-note'
 
-type Dialog = { kind: 'new'; parentId: string } | { kind: 'rename'; id: string } | { kind: 'move'; id: string }
+type Dialog = { kind: 'rename'; id: string } | { kind: 'move'; id: string }
 
 const icon = (d: string) => (
   <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -28,14 +34,15 @@ export function FolderTree({
 }: {
   view: FolderView
   service: FolderService
-  /** The folder being looked at; null = "모든 노트". */
-  current: string | null
-  onSelect: (id: string | null) => void
+  /** The row being looked at: `all` ("모든 노트"), `root` (the top level) or a folder id. */
+  current: string
+  onSelect: (id: string) => void
 }) {
   const { t } = useI18n()
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
-  const [focusId, setFocusId] = useState(current ?? ALL)
-  const [menu, setMenu] = useState<{ id: string; confirm: boolean } | null>(null)
+  const [focusId, setFocusId] = useState(current)
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [confirming, setConfirming] = useState<string | null>(null)
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [over, setOver] = useState<string | null>(null)
@@ -43,14 +50,13 @@ export function FolderTree({
   const root = useRef<HTMLDivElement>(null)
   const opener = useRef<HTMLElement | null>(null)
   const toFocus = useRef<string | null>(null)
-  // Only one menu is open at a time: its pieces are kept here, not in a component of their own.
-  const buttons = useRef(new Map<string, HTMLButtonElement>())
   const list = useRef<HTMLDivElement>(null)
-  const del = useRef<HTMLButtonElement>(null)
+  const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null)
+  const longPressed = useRef(false)
 
   // The folder being looked at is shown: its ancestors open.
   useEffect(() => {
-    if (current === null) return
+    if (current === ALL || current === ALL_NOTES) return
     setExpanded((prev) => {
       const next = new Set(prev)
       for (let p = view.folder(current)?.parentId, n = 0; p && p !== ALL && n <= view.folders.length; n++) {
@@ -74,10 +80,10 @@ export function FolderTree({
     return () => clearTimeout(id)
   }, [note])
 
-  // Entering the confirm step puts focus on [취소]; the menu itself starts on its first item.
+  // The menu starts on its first item.
   useEffect(() => {
-    if (menu) list.current?.querySelector<HTMLElement>(menu.confirm ? '[data-cancel]' : '[role="menuitem"]')?.focus()
-  }, [menu?.id, menu?.confirm]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (menu) list.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+  }, [menu?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // A menu closes when the pointer goes elsewhere.
   useEffect(() => {
@@ -89,7 +95,7 @@ export function FolderTree({
     return () => document.removeEventListener('mousedown', away)
   }, [menu])
 
-  const rows: { id: string; depth: number }[] = [{ id: ALL, depth: 0 }]
+  const rows: { id: string; depth: number }[] = [{ id: ALL_NOTES, depth: 1 }, { id: ALL, depth: 1 }]
   const walk = (parent: string, depth: number) => {
     for (const f of view.childrenOf(parent)) {
       rows.push({ id: f.id, depth })
@@ -97,7 +103,7 @@ export function FolderTree({
     }
   }
   walk(ALL, 2)
-  const active = rows.some((r) => r.id === focusId) ? focusId : ALL
+  const active = rows.some((r) => r.id === focusId) ? focusId : current
 
   const focusRow = (id: string) => {
     toFocus.current = id
@@ -110,7 +116,7 @@ export function FolderTree({
       else next.delete(id)
       return next
     })
-  const select = (id: string) => onSelect(id === ALL ? null : id)
+  const select = (id: string) => onSelect(id)
 
   async function move(id: string, target: string) {
     const r = await service.moveFolder(id, target)
@@ -132,7 +138,7 @@ export function FolderTree({
     if (el.closest('[role="menu"]') || el.closest('.tree-menu') || !(el.getAttribute('role') === 'treeitem')) return
     const id = el.dataset.id!
     const i = rows.findIndex((r) => r.id === id)
-    const kids = view.childrenOf(id)
+    const kids = id === ALL_NOTES ? [] : view.childrenOf(id)
     const go = (n: number) => void (e.preventDefault(), focusRow(rows[Math.max(0, Math.min(rows.length - 1, n))]!.id))
     switch (e.key) {
       case 'ArrowDown':
@@ -149,8 +155,8 @@ export function FolderTree({
         return id === ALL || expanded.has(id) ? focusRow(kids[0]!.id) : toggle(id, true)
       case 'ArrowLeft':
         e.preventDefault()
-        if (id !== ALL && expanded.has(id) && kids.length > 0) return toggle(id, false)
-        return void (id !== ALL && focusRow(view.folder(id)?.parentId ?? ALL))
+        if (id !== ALL && id !== ALL_NOTES && expanded.has(id) && kids.length > 0) return toggle(id, false)
+        return void (id !== ALL && id !== ALL_NOTES && focusRow(view.folder(id)?.parentId ?? ALL))
       case 'Enter':
       case ' ':
         e.preventDefault()
@@ -159,41 +165,72 @@ export function FolderTree({
       case 'F10':
         if (e.key === 'F10' && !e.shiftKey) return
         e.preventDefault()
-        if (id !== ALL) setMenu({ id, confirm: false })
+        if (id !== ALL && id !== ALL_NOTES) {
+          const r = el.getBoundingClientRect()
+          setMenu({ id, x: r.left + r.width / 2, y: r.bottom })
+        }
     }
   }
 
   function renderRow(id: string, depth: number) {
     const folder = view.folder(id)
-    const isAll = id === ALL
-    const label = isAll ? t('folder.allNotes') : folder!.name
-    const kids = view.childrenOf(id)
-    const open = isAll || expanded.has(id)
-    const canDrop = dragId !== null && dragId !== id && !view.isInside(id, dragId)
+    const isAllNotes = id === ALL_NOTES
+    const isTop = id === ALL
+    const plain = isAllNotes || isTop // no folder: no menu, no dragging
+    const label = isAllNotes ? t('folder.allNotes') : isTop ? t('folder.topLevel') : folder!.name
+    const kids = isAllNotes ? [] : view.childrenOf(id)
+    const open = isTop || expanded.has(id)
+    const canDrop = !isAllNotes && dragId !== null && dragId !== id && !view.isInside(id, dragId)
     return (
       <li
         key={id}
         role="treeitem"
         data-id={id}
         aria-level={depth}
-        aria-selected={(current ?? ALL) === id}
-        aria-expanded={kids.length > 0 ? open : undefined}
+        aria-selected={current === id}
+        aria-expanded={kids.length > 0 && !isAllNotes ? open : undefined}
         tabIndex={active === id ? 0 : -1}
         onFocus={(e) => e.target === e.currentTarget && setFocusId(id)}
       >
         <div
-          className={`tree-row${(current ?? ALL) === id ? ' is-current' : ''}${over === id ? ' is-over' : ''}`}
+          className={`tree-row${current === id ? ' is-current' : ''}${over === id ? ' is-over' : ''}`}
           style={{ paddingInlineStart: `calc(var(--spacing-2) + ${depth - 1} * var(--spacing-4))` }}
-          draggable={!isAll}
-          onClick={() => select(id)}
+          draggable={!plain}
+          onClick={() => (longPressed.current ? (longPressed.current = false) : select(id))}
+          onContextMenu={(e) => {
+            if (plain) return
+            e.preventDefault()
+            setMenu({ id, x: e.clientX, y: e.clientY })
+          }}
+          onPointerDown={(e) => {
+            if (plain || e.button !== 0) return
+            const at = { x: e.clientX, y: e.clientY }
+            clearTimeout(press.current?.timer)
+            press.current = {
+              ...at,
+              timer: setTimeout(() => {
+                press.current = null
+                longPressed.current = true
+                setMenu({ id, ...at })
+              }, LONG_PRESS_MS),
+            }
+          }}
+          onPointerMove={(e) => {
+            const p = press.current
+            if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) (clearTimeout(p.timer), (press.current = null))
+          }}
+          onPointerUp={() => (clearTimeout(press.current?.timer), (press.current = null))}
+          onPointerCancel={() => (clearTimeout(press.current?.timer), (press.current = null))}
           onDragStart={(e) => {
+            clearTimeout(press.current?.timer)
+            press.current = null
             e.dataTransfer.setData('text/plain', id)
             e.dataTransfer.effectAllowed = 'move'
             setDragId(id)
           }}
           onDragEnd={() => (setDragId(null), setOver(null))}
           onDragOver={(e) => {
-            if (!canDrop && !(dragId === null && e.dataTransfer.types.includes(NOTE_DRAG))) return
+            if (!canDrop && !(!isAllNotes && dragId === null && e.dataTransfer.types.includes(NOTE_DRAG))) return
             e.preventDefault()
             setOver(id)
           }}
@@ -217,7 +254,7 @@ export function FolderTree({
             if (from && canDrop) void move(from, id)
           }}
         >
-          {kids.length > 0 && !isAll ? (
+          {kids.length > 0 && !plain ? (
             <button
               type="button"
               className="btn tree-toggle"
@@ -230,43 +267,38 @@ export function FolderTree({
           ) : (
             <span className="tree-toggle" aria-hidden="true" />
           )}
-          {icon(isAll ? 'M2 3h12M2 8h12M2 13h12' : FOLDER_ICON)}
+          {icon(isAllNotes ? 'M2 3h12M2 8h12M2 13h12' : FOLDER_ICON)}
           <span className="tree-label">{label}</span>
-          {!isAll && renderMenu(id, label)}
         </div>
         {kids.length > 0 && open && <ul role="group">{kids.map((k) => renderRow(k.id, depth + 1))}</ul>}
       </li>
     )
   }
 
-  function renderMenu(id: string, name: string) {
-    const shown = menu?.id === id
-    const confirm = shown && menu!.confirm
+  function renderMenu(m: { id: string; x: number; y: number }) {
+    const { id } = m
+    const row = () => [...(root.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [])].find((el) => el.dataset.id === id)
     const close = () => {
       setMenu(null)
-      buttons.current.get(id)?.focus()
-    }
-    const back = () => {
-      setMenu({ id, confirm: false })
-      requestAnimationFrame(() => del.current?.focus())
+      row()?.focus()
     }
     const pick = (d: Dialog) => {
-      opener.current = buttons.current.get(id) ?? null
+      opener.current = row() ?? null
       setMenu(null)
       setDialog(d)
     }
-    const n = view.noteCount(id)
     return (
-      <span
-        className="tree-menu"
-        onClick={(e) => e.stopPropagation()}
+      <div
+        ref={list}
+        role="menu"
+        aria-label={fmt(t('folder.menu'), { name: view.folder(id)?.name ?? '' })}
+        className="tree-menu tree-menu-list"
+        style={{ position: 'fixed', top: m.y, left: m.x, right: 'auto' }}
         onKeyDown={(e) => {
-          if (!shown) return
           if (e.key === 'Escape') {
             e.preventDefault()
             e.stopPropagation()
-            if (confirm) back()
-            else close()
+            close()
           } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault()
             const items = [...list.current!.querySelectorAll<HTMLElement>('[role="menuitem"]')]
@@ -275,59 +307,25 @@ export function FolderTree({
           }
         }}
       >
-        <button
-          ref={(el) => void (el ? buttons.current.set(id, el) : buttons.current.delete(id))}
-          type="button"
-          className="btn tree-menu-button"
-          tabIndex={-1}
-          aria-label={fmt(t('folder.menu'), { name })}
-          aria-haspopup="menu"
-          aria-expanded={shown}
-          onClick={() => setMenu(shown ? null : { id, confirm: false })}
-        >
-          ⋯
+        <button type="button" role="menuitem" className="btn" onClick={() => pick({ kind: 'rename', id })}>
+          {t('folder.rename')}
         </button>
-        {shown && (
-          <div ref={list} role="menu" className="tree-menu-list">
-            {confirm ? (
-              <>
-                <p role="alert" className="tree-confirm">
-                  {n === 0 ? t('folder.deleteBodyEmpty') : fmt(t('folder.deleteBody'), { n })}
-                </p>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="btn btn-destructive"
-                  onClick={() => {
-                    setMenu(null)
-                    void service.deleteFolder(id).then((r) => r.error && setNote({ text: t('folder.failed') }))
-                  }}
-                >
-                  {t('folder.deleteConfirm')}
-                </button>
-                <button type="button" role="menuitem" className="btn" data-cancel onClick={back}>
-                  {t('library.cancel')}
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" role="menuitem" className="btn" onClick={() => pick({ kind: 'new', parentId: id })}>
-                  {t('folder.newSub')}
-                </button>
-                <button type="button" role="menuitem" className="btn" onClick={() => pick({ kind: 'rename', id })}>
-                  {t('folder.rename')}
-                </button>
-                <button type="button" role="menuitem" className="btn" onClick={() => pick({ kind: 'move', id })}>
-                  {t('folder.move')}
-                </button>
-                <button ref={del} type="button" role="menuitem" className="btn" onClick={() => setMenu({ id, confirm: true })}>
-                  {t('folder.delete')}
-                </button>
-              </>
-            )}
-          </div>
-        )}
-      </span>
+        <button type="button" role="menuitem" className="btn" onClick={() => pick({ kind: 'move', id })}>
+          {t('folder.move')}
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          className="btn"
+          onClick={() => {
+            opener.current = row() ?? null
+            setMenu(null)
+            setConfirming(id)
+          }}
+        >
+          {t('folder.delete')}
+        </button>
+      </div>
     )
   }
 
@@ -340,28 +338,25 @@ export function FolderTree({
   return (
     <div ref={root} className="folder-tree">
       <ul role="tree" aria-label={t('folder.tree')} onKeyDown={onKeyDown}>
+        {renderRow(ALL_NOTES, 1)}
         {renderRow(ALL, 1)}
       </ul>
-      <button
-        type="button"
-        className="btn side-item folder-add"
-        onClick={(e) => {
-          opener.current = e.currentTarget
-          setDialog({ kind: 'new', parentId: ALL })
-        }}
-      >
-        {icon('M8 3v10M3 8h10')}
-        <span>{t('folder.add')}</span>
-      </button>
-      {dialog?.kind === 'new' && (
-        <NameDialog
-          title={dialog.parentId === ALL ? t('folder.add') : t('folder.newSub')}
-          initial=""
-          onClose={closeDialog}
-          onSave={async (name) => {
-            const r = await service.createFolder(name, dialog.parentId)
-            if (!r.error && dialog.parentId !== ALL) toggle(dialog.parentId, true)
-            return r.error
+      {menu && renderMenu(menu)}
+      {confirming && view.folder(confirming) && (
+        <ConfirmDialog
+          body={view.noteCount(confirming) === 0 ? t('folder.deleteBodyEmpty') : fmt(t('folder.deleteBody'), { n: view.noteCount(confirming) })}
+          confirmLabel={t('folder.deleteConfirm')}
+          cancelLabel={t('library.cancel')}
+          destructive
+          onCancel={() => {
+            setConfirming(null)
+            closeDialog()
+          }}
+          onConfirm={() => {
+            const id = confirming
+            setConfirming(null)
+            closeDialog()
+            void service.deleteFolder(id).then((r) => r.error && setNote({ text: t('folder.failed') }))
           }}
         />
       )}

@@ -1,5 +1,5 @@
 // The folders the library shows (Story 7.6) and the address of the folder being looked at: `#/folder/<id>`,
-// no folder in the hash = "모든 노트".
+// no folder in the hash = the top level (Story 18.5); `#/all` = "모든 노트".
 import { useEffect, useState } from 'react'
 import { FolderView, type FolderService } from '../../library/folderService'
 import { uploadsAllowed, type RootFolderStore } from '../../drive/rootFolderStore'
@@ -14,6 +14,7 @@ export function parseFolderRoute(hash: string): string | null {
     return null
   }
 }
+export const ALL_NOTES_HREF = '#/all'
 export const folderHref = (id: string | null) => (id === null ? '#/' : `#/folder/${encodeURIComponent(id)}`)
 
 const EMPTY = new FolderView()

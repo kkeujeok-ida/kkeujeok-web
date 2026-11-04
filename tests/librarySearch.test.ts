@@ -3,7 +3,7 @@
 import 'fake-indexeddb/auto'
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { I18nContext, createI18n } from '../src/i18n'
 import { FolderView } from '../src/library/folderService'
 import type { Note } from '../src/model/note'
@@ -44,9 +44,10 @@ async function show(props: Record<string, unknown> = {}) {
   await settle()
   await settle()
 }
-const titles = () => [...host.querySelectorAll('.cover-item .cover-title')].map((e) => e.textContent)
+const titles = () => [...host.querySelectorAll('.cover-item .cover-card:not(.folder-card) .cover-title')].map((e) => e.textContent)
 const input = () => host.querySelector<HTMLInputElement>('input[type="search"]')!
 async function type(v: string) {
+  if (!host.querySelector('input[type="search"]')) await act(async () => host.querySelector<HTMLButtonElement>('button.library-search-button')!.click())
   const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
   await act(async () => {
     set.call(input(), v)
@@ -79,8 +80,48 @@ describe('library search', () => {
     act(() => void document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true })))
     expect(document.activeElement).toBe(input())
     act(() => void input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
-    expect(input().value).toBe('')
+    expect(host.querySelector('input[type="search"]')).toBeNull() // Esc clears and folds the search again
     expect(location.search).toBe('?sort=nameAsc')
+  })
+  test('Story 18.8: an icon at first; it opens with focus, stays open with a query and folds when empty and blurred', async () => {
+    await show()
+    expect(host.querySelector('input[type="search"]')).toBeNull()
+    expect(host.querySelector('.library-toolbar > .library-search button.library-search-button')).not.toBeNull()
+    await act(async () => host.querySelector<HTMLButtonElement>('button.library-search-button')!.click())
+    expect(document.activeElement).toBe(input())
+    await type('ab')
+    act(() => input().blur())
+    expect(input()).not.toBeNull() // a query keeps it open
+    await type('')
+    act(() => input().focus())
+    act(() => input().blur())
+    expect(host.querySelector('input[type="search"]')).toBeNull()
+  })
+  test('Story 18.3: subfolder cards come before notes, ../ leads up, a dropped folder moves, own descendants are refused', async () => {
+    const view = new FolderView([{ id: 'A', name: 'A', parentId: 'root' }, { id: 'B', name: 'B', parentId: 'A' }, { id: 'C', name: 'C', parentId: 'A' }], { n1: 'A' })
+    const moveFolder = vi.fn(async () => ({ inverse: null }))
+    const folders = { view: async () => view, subscribe: () => () => {}, refresh: async () => {}, takeRevived: () => 0, moveFolder }
+    await show({ folders, folderView: view, folderId: 'A' })
+    const cards = [...host.querySelectorAll('.cover-grid .cover-card')]
+    expect(cards.map((c) => c.querySelector('.cover-title')?.textContent ?? c.querySelector('.folder-thumb-label')?.textContent)).toEqual(['../', 'B', 'C', 'abc'])
+    expect(cards[0]!.getAttribute('href')).toBe('#/')
+    expect(cards[1]!.getAttribute('href')).toBe('#/folder/B')
+    const data = { types: [] as string[], setData() {}, getData: () => '' }
+    const ev = (type: string) => Object.assign(new Event(type, { bubbles: true, cancelable: true }), { dataTransfer: data })
+    const [up, b, c] = [cards[0]!, cards[1]!, cards[2]!]
+    await act(async () => void b.dispatchEvent(ev('dragstart')))
+    const over = ev('dragover')
+    act(() => void c.dispatchEvent(over))
+    expect(over.defaultPrevented).toBe(true)
+    await act(async () => void c.dispatchEvent(ev('drop')))
+    expect(moveFolder).toHaveBeenCalledWith('B', 'C')
+    await act(async () => void b.dispatchEvent(ev('dragstart')))
+    await act(async () => void up.dispatchEvent(ev('drop')))
+    expect(moveFolder).toHaveBeenLastCalledWith('B', 'root')
+    await act(async () => void b.dispatchEvent(ev('dragstart')))
+    const self = ev('dragover')
+    act(() => void b.dispatchEvent(self))
+    expect(self.defaultPrevented).toBe(false) // not onto itself
   })
   test('unknown sort in the address gives the default', async () => {
     history.replaceState(null, '', '/?sort=bogus')

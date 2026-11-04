@@ -24,6 +24,7 @@ import { requestResolve } from './resolveRequest'
 import type { FolderResult, FolderService, FolderView } from '../../library/folderService'
 import { FolderPicker } from './FolderPicker'
 import { NOTE_DRAG } from './FolderTree'
+import { folderHref } from './useFolders'
 import { CoverArt, CoverDialog, coverUrl } from './CoverArt'
 import { NameDialog } from './NameDialog'
 import { librarySearch } from '../../library/libraryRules'
@@ -52,7 +53,7 @@ type Props = {
   folders?: FolderService
   /** The folders the library shows, for [이동]. */
   folderView?: FolderView
-  /** The folder being looked at; null or unset = all notes. */
+  /** The folder being looked at: `root` = the top level, a folder id, null or unset = all notes. */
   folderId?: string | null
 }
 
@@ -89,6 +90,7 @@ function readSort(): LibrarySort {
 export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver, uploads, viewStore = sharedLibraryView(), folders, folderView, folderId = null }: Props) {
   const { t, locale } = useI18n()
   const lib = useLibrary(openStore, defaults, editedBy, receiver, folders)
+  const inFolder = folderId !== null && folderId !== 'root'
   const rx = receiver ?? NO_RECEIVER
   const receive = useSyncExternalStore(rx.subscribe, rx.getState, () => NO_RECEIVE)
   // Grey cards while the first scan runs, only when it lasts over a second.
@@ -147,7 +149,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   async function create(v: { title: string; background: Background; orientation: Orientation; coverId: string | null }) {
     if (entering.current) return true
     try {
-      const noteId = await lib.create({ ...v, folderId })
+      const noteId = await lib.create({ ...v, folderId: inFolder ? folderId : null })
       if (!mounted.current) return true // the library went away; the note is saved
       entering.current = true
       setSheet(null)
@@ -184,6 +186,25 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   const [sort, setSort] = useState<LibrarySort>(() => readSort())
   const [query, setQuery] = useState(() => new URLSearchParams(globalThis.location?.search).get('q') ?? '')
   const searchInput = useRef<HTMLInputElement>(null)
+  const searchButton = useRef<HTMLButtonElement>(null)
+  // Story 18.8: the search is one icon until it is opened; it stays open while there is a query.
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchWanted = useRef(false)
+  const searchShown = searchOpen || query !== ''
+  const openSearch = () => {
+    searchWanted.current = true
+    setSearchOpen(true)
+    searchInput.current?.focus()
+  }
+  useEffect(() => {
+    if (searchShown && searchWanted.current) searchInput.current?.focus()
+    searchWanted.current = false
+  }, [searchShown])
+  const closeSearch = (focusButton: boolean) => {
+    setQuery('')
+    setSearchOpen(false)
+    if (focusButton) requestAnimationFrame(() => searchButton.current?.focus())
+  }
   const pickSort = (v: LibrarySort) => {
     setSort(v)
     try {
@@ -207,10 +228,11 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       const el = e.target as HTMLElement | null
       if (el?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return
       e.preventDefault()
-      searchInput.current?.focus()
+      openSearch()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const [view, setView] = useState<LibraryView>(() => viewStore.read())
   const pickView = (v: LibraryView) => {
@@ -222,7 +244,8 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   // Folder scope (with its subfolders while searching), then the search, then the sort.
   const items = useMemo(() => {
     let list = lib.items
-    if (folderId) list = list.filter((i) => (q && folderView ? i.folderId != null && folderView.isInside(i.folderId, folderId) : i.folderId === folderId))
+    if (folderId === 'root') list = q ? list : list.filter((i) => i.folderId == null)
+    else if (folderId) list = list.filter((i) => (q && folderView ? i.folderId != null && folderView.isInside(i.folderId, folderId) : i.folderId === folderId))
     if (q) {
       // Cards not downloaded yet have no title to search: hidden while searching.
       const readable = list.filter((i) => i.title !== null && !i.remote)
@@ -231,12 +254,23 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     }
     return sortBy(list, sort)
   }, [lib.items, sort, folderId, q, folderView])
+  // Story 18.3: the subfolders as cards before the notes (a search lists notes only); `../` leads to the parent.
+  const subfolders = useMemo(() => {
+    if (!folderView || folderId === null || q) return []
+    const dir = sort === 'nameDesc' ? -1 : 1
+    return [...folderView.childrenOf(folderId)].sort((a, b) => dir * a.name.localeCompare(b.name, locale) || (a.id < b.id ? -1 : 1))
+  }, [folderView, folderId, q, sort, locale])
+  const parentId = inFolder && folderView && !q ? (folderView.folder(folderId)?.parentId ?? 'root') : null
   const { status } = lib
   const offline = useOffline()
   type Target = { noteId: string; title: string; from: HTMLElement | null }
   const [renaming, setRenaming] = useState<Target | null>(null)
   const [covering, setCovering] = useState<(Target & { coverId: string | null }) | null>(null)
   const [moving, setMoving] = useState<Target | null>(null)
+  const [newFolder, setNewFolder] = useState<HTMLElement | null | false>(false)
+  const [movingFolder, setMovingFolder] = useState<{ id: string; from: HTMLElement | null } | null>(null)
+  const [dragFolder, setDragFolder] = useState<string | null>(null)
+  const [overFolder, setOverFolder] = useState<string | null>(null)
   const [undo, setUndo] = useState<{ text: string; inverse?: FolderResult['inverse'] } | null>(null)
   useEffect(() => {
     if (!undo) return
@@ -259,6 +293,42 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     if (r.error) return setUndo({ text: t('library.noteMoveFailed') })
     if (r.inverse) setUndo({ text: fmt(t(target === 'root' ? 'folder.noteMovedTop' : 'folder.noteMoved'), { name: t0.title, folder: folderView?.folder(target)?.name ?? '' }), inverse: r.inverse })
   }
+  async function moveFolderTo(id: string, target: string) {
+    if (!folders) return
+    const r = await folders.moveFolder(id, target)
+    if (r.error) return setUndo({ text: t('folder.failed') })
+    if (r.inverse) setUndo({ text: fmt(t('folder.moved'), { name: folderView?.folder(id)?.name ?? '' }), inverse: r.inverse })
+  }
+  // A folder card or `../` takes a dragged folder (never into itself or below it) and a dragged note.
+  const folderDrop = (target: string) => {
+    const ok = dragFolder !== null && dragFolder !== target && !!folderView && !folderView.isInside(target, dragFolder) && folderView.folder(dragFolder)?.parentId !== target
+    return {
+      onDragOver: (e: React.DragEvent) => {
+        if (!ok && !(dragFolder === null && e.dataTransfer.types.includes(NOTE_DRAG))) return
+        e.preventDefault()
+        setOverFolder(target)
+      },
+      onDragLeave: () => setOverFolder((o) => (o === target ? null : o)),
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault()
+        setOverFolder(null)
+        const raw = dragFolder === null ? e.dataTransfer.getData(NOTE_DRAG) : ''
+        if (raw) {
+          try {
+            const n = JSON.parse(raw) as { noteId: string; title: string }
+            void moveTo({ noteId: n.noteId, title: n.title, from: null }, target)
+          } catch {
+            // not one of ours
+          }
+          return
+        }
+        const from = dragFolder
+        setDragFolder(null)
+        if (from && ok) void moveFolderTo(from, target)
+      },
+    }
+  }
+  const noSubfolders = subfolders.length === 0
   return (
     <section ref={section} className="library" aria-label={t('library.label')} aria-busy={status === 'loading'}>
       <Banner />
@@ -288,29 +358,42 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             </option>
           ))}
         </select>
-      </div>
-      <div className="library-search" role="search">
-        <input
-          ref={searchInput}
-          type="search"
-          className="field-input"
-          aria-label={t('library.searchHint')}
-          placeholder={t('library.searchHint')}
-          aria-keyshortcuts="/"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && query && !e.nativeEvent.isComposing) {
-              e.preventDefault()
-              setQuery('')
-            }
-          }}
-        />
-        {query && (
-          <button type="button" className="btn" onClick={() => { setQuery(''); searchInput.current?.focus() }}>
-            {t('library.searchClear')}
-          </button>
-        )}
+        <div className={searchShown ? 'library-search is-open' : 'library-search'} role="search">
+          {searchShown ? (
+            <>
+              <input
+                ref={searchInput}
+                type="search"
+                className="field-input"
+                aria-label={t('library.searchHint')}
+                placeholder={t('library.searchHint')}
+                aria-keyshortcuts="/"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onBlur={(e) => {
+                  if (!query && !e.currentTarget.parentElement?.contains(e.relatedTarget as Node | null)) setSearchOpen(false)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && !e.nativeEvent.isComposing) {
+                    e.preventDefault()
+                    closeSearch(true)
+                  }
+                }}
+              />
+              {query && (
+                <button type="button" className="btn" onClick={() => { setQuery(''); searchInput.current?.focus() }}>
+                  {t('library.searchClear')}
+                </button>
+              )}
+            </>
+          ) : (
+            <button ref={searchButton} type="button" className="btn library-search-button" aria-label={t('library.search')} aria-keyshortcuts="/" aria-expanded={false} onClick={openSearch}>
+              <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M7 2.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
       {unsaved && (
         <p role="status" className="cover-status">
@@ -366,7 +449,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             ))}
           </>
         )}
-        {status === 'ready' && items.length === 0 && !scanning && folderId && !q && (
+        {status === 'ready' && items.length === 0 && noSubfolders && !scanning && inFolder && !q && (
           <li className="cover-status" role="status">
             {t('folder.empty')}
           </li>
@@ -376,7 +459,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             {fmt(t('library.searchNoResults'), { q })}
           </li>
         )}
-        {status === 'ready' && items.length === 0 && !scanning && !q && (
+        {status === 'ready' && items.length === 0 && noSubfolders && !scanning && !q && (
           <li>
             <button type="button" className="cover-card" onClick={(e) => openSheet(e.currentTarget)}>
               <span className="cover-thumb cover-thumb-new" aria-hidden="true">
@@ -388,6 +471,55 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             </button>
           </li>
         )}
+        {parentId !== null && (
+          <li className="cover-item">
+            <a className={`cover-card folder-card${overFolder === parentId ? ' is-over' : ''}`} href={folderHref(parentId === 'root' ? null : parentId)} aria-label={t('folder.up')} {...folderDrop(parentId)}>
+              <span className="cover-thumb folder-thumb" aria-hidden="true">
+                <span className="folder-thumb-label">../</span>
+              </span>
+            </a>
+          </li>
+        )}
+        {subfolders.map((f) => (
+          <li key={f.id} className="cover-item">
+            <a
+              className={`cover-card folder-card${overFolder === f.id ? ' is-over' : ''}`}
+              href={folderHref(f.id)}
+              draggable={!!folders}
+              onDragStart={(e) => {
+                e.dataTransfer.setData('text/plain', f.id)
+                e.dataTransfer.effectAllowed = 'move'
+                setDragFolder(f.id)
+              }}
+              onDragEnd={() => (setDragFolder(null), setOverFolder(null))}
+              {...folderDrop(f.id)}
+            >
+              <span className="cover-thumb folder-thumb" aria-hidden="true">
+                <svg className="icon folder-thumb-icon" viewBox="0 0 16 16">
+                  <path d="M2 4.5h4l1.5 1.5H14v6.5H2z" stroke="currentColor" strokeWidth="1" fill="none" />
+                </svg>
+              </span>
+              <span className="cover-text">
+                <span className="cover-title">{f.name}</span>
+                <span className="cover-date">{fmt(t('folder.cardNotes'), { n: String(folderView!.noteCount(f.id)) })}</span>
+              </span>
+            </a>
+            {folders && (
+              <div className="cover-menu">
+                <button
+                  type="button"
+                  className="btn cover-menu-button"
+                  aria-label={fmt(t('folder.moveCard'), { name: f.name })}
+                  onClick={(e) => setMovingFolder({ id: f.id, from: e.currentTarget })}
+                >
+                  <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M2 4.5h4l1.5 1.5H14v6.5H2z M8 8v3 M6.5 9.5L8 8l1.5 1.5" stroke="currentColor" strokeWidth="1.2" fill="none" />
+                  </svg>
+                </button>
+              </div>
+            )}
+          </li>
+        ))}
         {items.map((item) => (
           <Card
             key={item.noteId}
@@ -407,7 +539,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           />
         ))}
       </ul>
-      {status === 'ready' && <LibraryFab onNewNote={openSheet} />}
+      {status === 'ready' && <LibraryFab onNewNote={openSheet} {...(folders && { onNewFolder: (from: HTMLElement | null) => setNewFolder(from) })} />}
       {root && asking && (
         <MissingRootDialog onCreate={() => void root.recreate()} onLater={() => setLater(true)} onSignOut={signOut} />
       )}
@@ -417,6 +549,37 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           onCreate={create}
           onClose={() => {
             if (!entering.current) setSheet(null)
+          }}
+        />
+      )}
+      {newFolder !== false && folders && (
+        <NameDialog
+          title={t('folder.add')}
+          initial=""
+          onClose={() => {
+            const from = newFolder || null
+            setNewFolder(false)
+            refocus(from)
+          }}
+          onSave={async (name) => (await folders.createFolder(name, inFolder ? folderId : 'root')).error}
+        />
+      )}
+      {movingFolder && folderView && folderView.folder(movingFolder.id) && (
+        <FolderPicker
+          name={folderView.folder(movingFolder.id)!.name}
+          view={folderView}
+          disabled={new Set(folderView.folders.filter((f) => folderView.isInside(f.id, movingFolder.id)).map((f) => f.id))}
+          selected={folderView.folder(movingFolder.id)!.parentId}
+          onClose={() => {
+            const from = movingFolder.from
+            setMovingFolder(null)
+            refocus(from)
+          }}
+          onPick={(target) => {
+            const m = movingFolder
+            setMovingFolder(null)
+            refocus(m.from)
+            void moveFolderTo(m.id, target)
           }}
         />
       )}
