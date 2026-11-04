@@ -36,6 +36,7 @@ import { noteLockName } from './uploadCoordinator'
 import { PENDING_TRASH, isTrashMark } from './noteUploader'
 import { libraryRenameNote } from '../library/libraryRules'
 
+const FOLDER_MIME = 'application/vnd.google-apps.folder'
 export const KKJ_MIME = 'application/vnd.kkeujeok.kkj'
 /** `files.list` of the rescan: every live note file (folders hold no state of their own yet). */
 export const NOTE_FILES_QUERY = `trashed=false and mimeType='${KKJ_MIME}'`
@@ -659,8 +660,10 @@ export function createNoteReceiver(d: ReceiverDeps) {
     // Local notes whose file was trashed or removed (Story 3.18).
     const gone: { noteId: string; fileId: string; kind: Kind }[] = []
     let byFile: Map<string, string> | null = null
+    let folderChanged = false
     for (const c of changes) {
       const f = c.file
+      if (f?.mimeType === FOLDER_MIME) folderChanged = true // a folder move/rename has no note change: the library reloads (Story 18.1)
       if (c.removed || !f) {
         for (const card of cards.values()) if (card.fileId === c.fileId) await dropCard(g, card.noteId)
         if (!byFile) {
@@ -734,6 +737,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
       for (const f of files) pending.delete(f.noteId)
       unmark(badge)
     }
+    if (folderChanged) bump()
     return ok
   }
 

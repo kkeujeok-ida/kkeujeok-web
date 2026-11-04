@@ -37,6 +37,7 @@ export function defaultFolderService(auth: Auth, root: RootFolderStore): FolderS
       allowed: () => uploadsAllowed(root),
       online: () => globalThis.navigator?.onLine !== false,
       upload: (noteId) => defaultUploadCoordinator(auth, root).syncNow(noteId),
+      log: syncLog(),
       isOpen: async (noteId) => {
         if (openNoteIds().includes(noteId)) return true
         try {

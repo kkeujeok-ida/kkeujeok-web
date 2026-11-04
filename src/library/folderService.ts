@@ -28,7 +28,9 @@ import {
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 const FOLDERS_QUERY = `trashed=false and mimeType='${FOLDER_MIME}'`
+// Not library folders: the system ones, and `cf:<noteId>` (a conflict folder named by a noteId, which showed as a hash-named folder: Story 18.1).
 const SYSTEM_IDS = new Set(['root', 'assets', 'conflicts', 'trashbin'])
+const isLibraryFolderKey = (k: string) => !SYSTEM_IDS.has(k) && !k.includes(':')
 
 type DriveFileLike = { id: string; parents: string[]; appProperties: Record<string, string> }
 type CacheFolder = Folder & { fileId: string | null }
@@ -79,6 +81,8 @@ export type FolderServiceDeps = {
   upload: (noteId: string) => Promise<void>
   /** Story 7.8: a note is open in an editor (any tab): its device copy is not removed under it. */
   isOpen?: (noteId: string) => Promise<boolean>
+  /** Story 18.1: the sync log; every folder change adds a `folderOp` entry. */
+  log?: { append(event: string, fields?: Record<string, unknown>): Promise<unknown> }
   now?: () => Date
   newFolderId?: () => string
 }
@@ -151,6 +155,7 @@ export function createFolderService(deps: FolderServiceDeps) {
     return r
   }
   const notify = () => listeners.forEach((fn) => fn())
+  const logOp = (op: string, folderId: string) => void Promise.resolve(deps.log?.append('folderOp', { op, folderId })).catch(() => {})
   const load = async () => readState(await device.read())
   /** Changes the cache under the device record's transaction. */
   async function mutate(change: (s: State) => void): Promise<void> {
@@ -403,7 +408,7 @@ export function createFolderService(deps: FolderServiceDeps) {
   const flushSoon = () => void flush()
 
   type Change = { folders?: Folder[]; parentId?: string; drive: DriveOp | null; inverse: DriveOp | null }
-  async function apply(rule: (s: State) => Change | RuleError, onOk?: (s: State, r: Change) => void): Promise<FolderResult> {
+  async function apply(op: string, rule: (s: State) => Change | RuleError, onOk?: (s: State, r: Change) => void): Promise<FolderResult> {
     let out: FolderResult = {}
     await mutate((s) => {
       const r = rule(s)
@@ -412,6 +417,7 @@ export function createFolderService(deps: FolderServiceDeps) {
       if (r.drive) enqueue(s.ops, { ...r.drive })
       out = { ...(r.drive?.id !== undefined && { id: String(r.drive.id) }), inverse: r.inverse }
     })
+    if (out.id) logOp(op, out.id)
     return out
   }
   const syncFolders = (s: State, r: Change) => {
@@ -482,19 +488,21 @@ export function createFolderService(deps: FolderServiceDeps) {
       return changed(
         run(() =>
           apply(
+            'create',
             (s) => libraryCreateFolder({ folders: visible(s), id, name, parentId }),
             (s, r) => void s.folders.push({ id, fileId: null, name: String(r.drive!.name), parentId }),
           ),
         ),
       )
     },
-    renameFolder: (id: string, name: string) => changed(run(() => apply((s) => libraryRenameFolder({ folders: visible(s), id, name }), syncFolders))),
-    moveFolder: (id: string, targetParentId: string) => changed(run(() => apply((s) => libraryMoveFolder({ folders: visible(s), id, targetParentId }), syncFolders))),
+    renameFolder: (id: string, name: string) => changed(run(() => apply('rename', (s) => libraryRenameFolder({ folders: visible(s), id, name }), syncFolders))),
+    moveFolder: (id: string, targetParentId: string) => changed(run(() => apply('move', (s) => libraryMoveFolder({ folders: visible(s), id, targetParentId }), syncFolders))),
     /** `noteId` moves to `targetParentId`; the note file is not touched. */
     moveNote: (noteId: string, targetParentId: string) =>
       changed(
         run(() =>
           apply(
+            'moveNote',
             (s) => libraryMoveNote({ folders: visible(s), note: { noteId, parentId: s.noteParents[noteId] ?? 'root' }, targetParentId }),
             (s, r) => void (s.noteParents[noteId] = r.parentId!),
           ),
@@ -512,7 +520,7 @@ export function createFolderService(deps: FolderServiceDeps) {
           out = { id }
         }),
       )
-      if (!out.error) flushSoon()
+      if (!out.error) (logOp('delete', id), flushSoon())
       return out
     },
     /** Runs a stored inverse (the `inverse` of an earlier change). */
@@ -554,7 +562,7 @@ export function createFolderService(deps: FolderServiceDeps) {
           const sorted = [...folderFiles].sort((a, b) => (a.createdTime ?? '~').localeCompare(b.createdTime ?? '~') || (a.id < b.id ? -1 : 1))
           for (const f of sorted) {
             const k = f.appProperties.kkeujeokId
-            if (k && !SYSTEM_IDS.has(k) && !byKid.has(k)) byKid.set(k, f)
+            if (k && isLibraryFolderKey(k) && !byKid.has(k)) byKid.set(k, f)
           }
           const noteParentDrive = new Map<string, string>()
           for (const n of noteFiles) if (n.appProperties.kkeujeokId) noteParentDrive.set(n.appProperties.kkeujeokId, parentOf(n))
@@ -592,6 +600,10 @@ export function createFolderService(deps: FolderServiceDeps) {
               } else if (o.kind === 'trashFolder' && !folders.some((f) => f.id === o.id) && old.has(String(o.id))) {
                 folders.push(old.get(String(o.id))!) // still in Drive's tree: kept for the move
               }
+            }
+            for (const f of folders) {
+              const o = old.get(f.id)
+              if (!o || o.name !== f.name || o.parentId !== f.parentId) logOp('remote', f.id)
             }
             s.folders = folders
             s.noteParents = notes

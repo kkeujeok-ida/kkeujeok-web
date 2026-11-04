@@ -30,6 +30,19 @@ const token = async (e: RxEnv) => (await e.device.read()).pageToken
 const downloads = (e: RxEnv) => e.drive.count('downloadRevision')
 const states = (e: RxEnv) => e.events('stateChange').map((x) => `${x.from}>${x.to}`)
 
+describe('folder changes (Story 18.1)', () => {
+  test('a folder moved in Drive, no note changed: the library version goes up so the folders are read again', async () => {
+    const e = await make()
+    await e.receiver.check()
+    const a = await e.drive.create({ name: 'A', mimeType: 'application/vnd.google-apps.folder', parents: ['ROOT'], appProperties: { kkeujeokId: 'aaaa' } })
+    await e.receiver.check()
+    const v = e.receiver.getState().version
+    e.drive.rename(a.id, 'A2')
+    await e.receiver.check()
+    expect(e.receiver.getState().version).toBeGreaterThan(v)
+  })
+})
+
 describe('first check on this browser', () => {
   test('start token first, cards from the summary without a download, token saved last', async () => {
     const e = await make()

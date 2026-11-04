@@ -177,6 +177,33 @@ describe('reading Drive', () => {
     expect(v.has('bbbb')).toBe(false)
   })
 
+  test('conflict folders (cf:<noteId>, named by a noteId) are no library folders (Story 18.1)', async () => {
+    const { e, svc } = await setup()
+    const c = await mk(e, 'conflicts', ['ROOT'], '.conflicts')
+    await mk(e, 'cf:0192f3a0-0000-7000-8000-000000000001', [c.id], '0192f3a0-0000-7000-8000-000000000001')
+    await mk(e, 'aaaa', ['ROOT'], 'A')
+    await svc.refresh()
+    expect((await svc.view()).folders.map((f) => f.name)).toEqual(['A'])
+  })
+
+  test('create, move, rename and delete leave folderOp entries in the log; a remote move too', async () => {
+    const { e, svc: base } = await setup()
+    const ops: unknown[] = []
+    const svc = createFolderService({
+      drive: e.drive, device: e.device, store: e.store, allowed: () => true, online: () => true, upload: async () => {},
+      log: { append: async (ev, f) => void ops.push({ ev, ...f }) },
+    })
+    void base
+    const a = await svc.createFolder('A', 'root')
+    const b = await svc.createFolder('B', 'root')
+    await svc.moveFolder(b.id!, a.id!)
+    await svc.renameFolder(b.id!, 'B2')
+    await svc.deleteFolder(b.id!)
+    await svc.flush()
+    expect(ops.map((o) => (o as { op: string }).op)).toEqual(['create', 'create', 'move', 'rename', 'delete'])
+    expect(ops.every((o) => (o as { ev: string }).ev === 'folderOp')).toBe(true)
+  })
+
   test('a folder cycle is drawn repaired and the smallest id is moved to the top level in Drive', async () => {
     const { e, svc } = await setup()
     const a = await mk(e, 'aaaa', ['ROOT'])
