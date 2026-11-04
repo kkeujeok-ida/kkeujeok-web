@@ -24,7 +24,7 @@ const EVENTS: Record<string, [string, boolean][]> = {
   conflictResolved: [['noteId', true], ['choice', true]],
   pageTokenRejected: [],
   duplicatesCleaned: [['count', true]],
-  folderOp: [['op', true], ['folderId', true]],
+  folderOp: [['op', true], ['folderId', true], ['done', false]],
   repeatedFailure: [['noteId', true], ['count', true], ['reason', false]],
 }
 
@@ -53,6 +53,7 @@ function valid(field: string, v: unknown, event: unknown): boolean {
     case 'from': case 'to': return str && STATES.includes(v)
     case 'folderId': return str && UUID.test(v)
     case 'op': return str && ['create', 'move', 'rename', 'delete', 'remote'].includes(v)
+    case 'done': return v === true
     case 'kind': return v === 'simple' || v === 'resumable'
     case 'class': return str && CLASSES.includes(v)
     case 'status': return int(v, 100, 599)
