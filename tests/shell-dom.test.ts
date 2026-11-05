@@ -83,7 +83,7 @@ describe('settings', () => {
     mount()
     act(() => settingsButton().click())
     const text = host.querySelector('.settings')!.textContent!
-    expect(host.querySelectorAll('input[type="radio"]')).toHaveLength(3)
+    expect(host.querySelectorAll('input[type="radio"]')).toHaveLength(6)
     expect(host.querySelector('a[href="/privacy"]')).not.toBeNull()
     expect(text).toContain('로그아웃')
     expect(text).toContain('연결 해제')

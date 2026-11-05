@@ -46,16 +46,16 @@ const key = (el: Element, k: string) => act(() => void el.dispatchEvent(new Keyb
 describe('folder tree', () => {
   test('Home starts closed: only the two top rows show, its toggle opens the folders', () => {
     mount(false)
-    expect(items().map((i) => i.querySelector('.tree-label')!.textContent)).toEqual(['모든 노트', 'Home'])
+    expect(items().map((i) => i.querySelector('.tree-label')!.textContent)).toEqual(['모든 노트', '홈'])
     expect(items()[1]!.getAttribute('aria-expanded')).toBe('false')
     act(() => void host.querySelector<HTMLElement>('[data-id="root"] .tree-toggle')!.click())
-    expect(items().map((i) => i.querySelector('.tree-label')!.textContent)).toEqual(['모든 노트', 'Home', 'A', 'C'])
+    expect(items().map((i) => i.querySelector('.tree-label')!.textContent)).toEqual(['모든 노트', '홈', 'A', 'C'])
   })
 
   test('is a tree of treeitems with levels, one tab stop and collapsed parents', () => {
     mount()
     expect(host.querySelector('[role="tree"]')).not.toBeNull()
-    expect(items().map((i) => i.querySelector('.tree-label')!.textContent)).toEqual(['모든 노트', 'Home', 'A', 'C']) // folders start closed: B is below A
+    expect(items().map((i) => i.querySelector('.tree-label')!.textContent)).toEqual(['모든 노트', '홈', 'A', 'C']) // folders start closed: B is below A
     expect(items().map((i) => i.getAttribute('aria-level'))).toEqual(['1', '1', '2', '2'])
     expect(host.querySelector('.tree-menu-button')).toBeNull() // no ⋯ button (Story 18.5)
     expect(items().filter((i) => i.tabIndex === 0)).toHaveLength(1)
