@@ -38,6 +38,17 @@ describe('pdf render size and LRU', () => {
   })
 })
 
+describe('pdf lru recent entries', () => {
+  test('entries touched in the last 500 ms are not evicted', () => {
+    const out: string[] = []
+    const lru = new ByteLru<{ bytes: number }>(100, () => out.push('x'), () => 10, 500)
+    lru.put('a', { bytes: 80 })
+    lru.put('b', { bytes: 80 })
+    expect(out).toEqual([])
+    expect(lru.size).toBe(2)
+  })
+})
+
 describe('pdf placeholder by state', () => {
   const calls: string[] = []
   const ctx = new Proxy({}, { get: (_, k) => (k === 'fillText' ? (s: string) => calls.push(s) : () => {}), set: () => true }) as unknown as CanvasRenderingContext2D
