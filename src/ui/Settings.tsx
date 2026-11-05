@@ -37,8 +37,8 @@ export function Settings({
   unsentIds?: () => Promise<string[] | null>
 }) {
   const { t, choice, setChoice } = useI18n()
-  const theme = useSyncExternalStore(subscribeTheme, getTheme)
-  const leftHanded = useSyncExternalStore(subscribeLeftHanded, getLeftHanded)
+  const theme = useSyncExternalStore(subscribeTheme, getTheme, getTheme)
+  const leftHanded = useSyncExternalStore(subscribeLeftHanded, getLeftHanded, getLeftHanded)
   const [help, setHelp] = useState(false)
   const helpBtn = useRef<HTMLButtonElement>(null)
   const wasHelp = useRef(false)
