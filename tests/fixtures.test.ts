@@ -338,6 +338,13 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
+  // All Dark rules (Story 10.1) arrive with the web story 10.3.
+  'invert.color',
+  'invert.ink',
+  'invert.paper',
+  'invert.highlighter',
+  'invert.background',
+  'invert.layers',
   // Trash rules (Story 14.1) arrive with the web stories 14.3, 7.8.
   'trash.restoreNote',
   'trash.restoreFolder',
