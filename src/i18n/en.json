@@ -432,6 +432,7 @@
   "export.progress": "Making PDF · page {done}/{total}",
   "export.failed": "Could not make the PDF.",
   "export.assetMissing": "Some images are not on this device yet. Try again after they download.",
+  "export.pdfMissing": "The original PDF has not downloaded yet, so it cannot be exported.",
   "export.retry": "Try again"
 ,
   "library.importPdf": "Import PDF",

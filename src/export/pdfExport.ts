@@ -1,6 +1,6 @@
 // "Range -> PDF Blob" (spec/export.md). No UI here, so print (Story 8.4) can reuse it. It draws `exportPlan` from the
 // working copy of the note, with the same outline / layout functions as the screen. Nothing is read from Drive.
-import { PDFDocument, PDFHexString, PDFName, type PDFFont, type PDFImage, type PDFOperator } from 'pdf-lib'
+import { PDFDocument, PDFHexString, PDFName, type PDFEmbeddedPage, type PDFFont, type PDFImage, type PDFOperator } from 'pdf-lib'
 import {
   appendBezierCurve, beginText, clip, closePath, concatTransformationMatrix, drawObject, endPath, endText, fill, lineTo, moveTo,
   popGraphicsState, pushGraphicsState, rectangle, setFillingRgbColor, setFontAndSize, setGraphicsState, setLineWidth,
@@ -8,7 +8,7 @@ import {
 } from 'pdf-lib'
 import fontkit from '@pdf-lib/fontkit'
 import { COLOR_DEFAULT, ITALIC_SKEW, WIDTH_MIN, cpLen, isZeroWidth, layoutText, normalizeRuns, textStyles } from '../model/textLayout'
-import { patternOf } from '../model/pdfRules'
+import { isPdfBackground, patternOf } from '../model/pdfRules'
 import { fontAdvances } from '../model/textMetrics'
 import { highlighterOutline, windAlike } from '../render/highlighterOutline'
 import { pageBackground } from '../render/pageBackground'
@@ -32,7 +32,7 @@ export type PdfJob = {
 }
 export type PdfResult =
   | { ok: true; blob: Blob; fileName: string; pages: number }
-  | { ok: false; error: RangeError | 'assetMissing'; assets?: string[] }
+  | { ok: false; error: RangeError | 'assetMissing'; assets?: string[]; pdfAssets?: string[] }
 
 export class ExportCancelled extends Error {
   constructor() {
@@ -77,6 +77,20 @@ async function embedFont(doc: PDFDocument, data: Uint8Array): Promise<PDFFont> {
   return font
 }
 
+/**
+ * `cm` that puts the original PDF page (PDF user space) on the output page [0 0 width height], y up: the inverse of
+ * `pdf.pageMatrix`, so the visible box fills the page exactly and element coordinates share the same ground.
+ */
+export function groundMatrix(box: number[], rotate: number, userUnit: number, height: number): number[] {
+  const [x0, y0, x1, y1] = box as [number, number, number, number]
+  const u = userUnit, H = height
+  if (rotate === 90) return [0, -u, u, 0, -y0 * u, H + x0 * u]
+  if (rotate === 180) return [-u, 0, 0, -u, x1 * u, H + y0 * u]
+  if (rotate === 270) return [0, u, -u, 0, y1 * u, H - x1 * u]
+  return [u, 0, 0, u, -x0 * u, H - y1 * u]
+}
+
+const EMBED_CHUNK = 25 // original pages copied per call; the tab gets its turn between calls
 const tick = () => new Promise<void>((r) => setTimeout(r, 0))
 
 export async function buildPdf(job: PdfJob): Promise<PdfResult> {
@@ -95,7 +109,7 @@ export async function buildPdf(job: PdfJob): Promise<PdfResult> {
     }
     plan = exportPlan({ ...job, localAssets: bytes.keys() })
   }
-  if ('error' in plan) return { ok: false, error: plan.error, ...('assets' in plan && { assets: plan.assets }) }
+  if ('error' in plan) return { ok: false, error: plan.error, ...('assets' in plan && { assets: plan.assets }), ...('pdfAssets' in plan && { pdfAssets: plan.pdfAssets }) }
 
   const doc = await PDFDocument.create()
   doc.registerFontkit(fontkit)
@@ -119,6 +133,36 @@ export async function buildPdf(job: PdfJob): Promise<PdfResult> {
     images.set(h, rec.ext === 'jpg' || rec.ext === 'jpeg' ? await doc.embedJpg(data) : await doc.embedPng(data))
     gone()
   }
+  // Original PDF pages: each source file is loaded once; the pages the range uses are copied in chunks (no rasterising).
+  const srcDocs = new Map<string, PDFDocument>()
+  const grounds = new Map<string, PDFEmbeddedPage>()
+  const wanted = plan.pages.flatMap((pp) => {
+    const bg = job.note.pages[pp.number - 1]!.background
+    return isPdfBackground(bg) ? [bg] : []
+  })
+  const embedFrom = async (i: number) => {
+    const first = wanted[i]!
+    let src = srcDocs.get(first.asset)
+    if (!src) srcDocs.set(first.asset, (src = await PDFDocument.load(bytes.get(first.asset)!.bytes, { updateMetadata: false })))
+    const pick = new Map<string, (typeof wanted)[number]>()
+    for (let k = i; k < wanted.length && pick.size < EMBED_CHUNK; k++) {
+      const w = wanted[k]!
+      const key = `${w.asset}:${w.page}`
+      if (w.asset === first.asset && !grounds.has(key)) pick.set(key, w)
+    }
+    const entries = [...pick]
+    const srcPages = entries.map(([, w]) => {
+      if (w.page >= src!.getPageCount()) throw new Error('pdf page missing')
+      return src!.getPage(w.page)
+    })
+    const ident = entries.map((): [number, number, number, number, number, number] => [1, 0, 0, 1, 0, 0])
+    const boxes = entries.map(([, w]) => ({ left: w.box[0]!, bottom: w.box[1]!, right: w.box[2]!, top: w.box[3]! }))
+    const emb = await doc.embedPages(srcPages, boxes, ident)
+    entries.forEach(([key], k) => grounds.set(key, emb[k]!))
+    await tick()
+    gone()
+  }
+  let nextGround = 0
   const multiply = doc.context.register(doc.context.obj({ Type: 'ExtGState', CA: 0.4, ca: 0.4, BM: 'Multiply' }))
 
   let done = 0
@@ -131,9 +175,19 @@ export async function buildPdf(job: PdfJob): Promise<PdfResult> {
     const gs = page.node.newExtGState('Mul', multiply)
     const keep = new Map(pp.elements.map((e) => [e.id, e]))
     // Everything below is in the note's y-down space; the clip is the page.
-    const ops: PDFOperator[] = [pushGraphicsState(), concatTransformationMatrix(1, 0, 0, -1, 0, pp.height), rectangle(0, 0, pp.width, pp.height), clip(), endPath()]
-    ops.push(fillRgb('#ffffff'), rectangle(0, 0, pp.width, pp.height), fill())
-    const bg = pageBackground(patternOf(np.background), pp.width, pp.height)
+    const ops: PDFOperator[] = []
+    const ref = isPdfBackground(np.background) ? np.background : null
+    if (ref) {
+      const key = `${ref.asset}:${ref.page}`
+      if (!grounds.has(key)) await embedFrom(nextGround)
+      nextGround++
+      const [a, b, c, d, e, f] = groundMatrix(ref.box, ref.rotate, ref.userUnit, pp.height) as [number, number, number, number, number, number]
+      ops.push(pushGraphicsState(), concatTransformationMatrix(a, b, c, d, e, f), drawObject(page.node.newXObject('Pdf', grounds.get(key)!.ref)), popGraphicsState())
+    }
+    ops.push(pushGraphicsState(), concatTransformationMatrix(1, 0, 0, -1, 0, pp.height), rectangle(0, 0, pp.width, pp.height), clip(), endPath())
+    // a PDF page has no paper: the original page is the ground
+    if (!ref) ops.push(fillRgb('#ffffff'), rectangle(0, 0, pp.width, pp.height), fill())
+    const bg = ref ? { lines: [], dots: [], lineColor: '', lineWidth: 0, dotColor: '', dotRadius: 0 } : pageBackground(patternOf(np.background), pp.width, pp.height)
     if (bg.lines.length) {
       ops.push(setStrokingRgbColor(...rgb(bg.lineColor)), setLineWidth(bg.lineWidth))
       for (const [x1, y1, x2, y2] of bg.lines) ops.push(moveTo(x1!, y1!), lineTo(x2!, y2!))

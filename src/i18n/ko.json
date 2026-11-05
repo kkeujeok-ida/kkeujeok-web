@@ -432,6 +432,7 @@
   "export.progress": "PDF 만드는 중 · {done}/{total}페이지",
   "export.failed": "PDF를 만들지 못했어요.",
   "export.assetMissing": "아직 받지 못한 이미지가 있어요. 이미지를 받은 뒤 다시 시도해 주세요.",
+  "export.pdfMissing": "PDF 원본을 아직 받지 못해 내보낼 수 없어요.",
   "export.retry": "다시 시도"
 ,
   "library.importPdf": "PDF 가져오기",

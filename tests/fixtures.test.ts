@@ -326,6 +326,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'export.range': ({ input, expected }) => void expect(exportRange(input as Parameters<typeof exportRange>[0])).toEqual(expected),
   'export.fileName': ({ input, expected }) => void expect(exportFileName(input as Parameters<typeof exportFileName>[0])).toEqual(expected),
   'export.plan': ({ input, expected }) => void expect(exportPlan(input as Parameters<typeof exportPlan>[0])).toEqual(expected),
+  'pdf.exportStructure': ({ input, expected }) => void expect(exportPlan(input as Parameters<typeof exportPlan>[0])).toEqual(expected),
   'zoom.snap': ({ input, expected }) => {
     const i = input as { scale: number; fitScale: number }
     expect(snapScale(i.scale, i.fitScale)).toBe(expected)
@@ -337,8 +338,6 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
-  // PDF background rules (Story 9.1) arrive with the web stories 9.3, 9.5, 9.7.
-  'pdf.exportStructure',
   // Trash rules (Story 14.1) arrive with the web stories 14.3, 7.8.
   'trash.restoreNote',
   'trash.restoreFolder',

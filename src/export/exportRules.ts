@@ -1,6 +1,6 @@
 // spec rules export.range, export.fileName, export.plan (spec/export.md). Pure: the PDF builder draws this plan.
 import { isAssetHash } from '../model/imageRules'
-import { patternOf } from '../model/pdfRules'
+import { isPdfBackground, patternOf } from '../model/pdfRules'
 import { round2 } from '../model/number'
 import { trimTitle } from '../model/noteTitle'
 import { cpLen, layoutText, normalizeRuns, textStyles } from '../model/textLayout'
@@ -50,12 +50,12 @@ export type PlanElement =
   | { id: string; kind: 'text'; x: number; y: number; width: number; height: number; rotation: number; lines: string[]; colors: string[] }
   | { id: string; kind: 'image'; x: number; y: number; width: number; height: number; rotation: number; asset: string; ext: string }
 export type PlanPage = {
-  number: number; id: string; width: number; height: number; orientation: 'portrait' | 'landscape'; paper: string
-  background: string; lines: number; dots: number; shapes: { min: number; max: number }; images: number
+  number: number; id: string; width: number; height: number; orientation: 'portrait' | 'landscape'; paper?: string
+  background: string; pdf?: { asset: string; page: number }; lines: number; dots: number; shapes: { min: number; max: number }; images: number
   omitted: string[]; elements: PlanElement[]
 }
-export type ExportPlan = { fileName: string; fonts: string[]; assets: string[]; pages: PlanPage[] }
-export type PlanResult = ExportPlan | { error: RangeError } | { error: 'assetMissing'; assets: string[] }
+export type ExportPlan = { fileName: string; fonts: string[]; assets: string[]; pdfAssets?: string[]; pages: PlanPage[] }
+export type PlanResult = ExportPlan | { error: RangeError } | { error: 'assetMissing'; assets: string[]; pdfAssets?: string[] }
 export type PlanInput = {
   note: { meta: { title: string }; pages: ReadonlyArray<Record<string, any>> }
   range: Omit<RangeInput, 'pageCount'>
@@ -94,12 +94,15 @@ function textEntry(e: El, fonts: Set<string>): PlanElement {
 export function exportPlan({ note, range, localAssets }: PlanInput): PlanResult {
   const r = exportRange({ ...range, pageCount: note.pages.length })
   if ('error' in r) return r
-  const fonts = new Set<string>(), assets = new Set<string>(), pages: PlanPage[] = []
+  const fonts = new Set<string>(), assets = new Set<string>(), pdfAssets = new Set<string>(), pages: PlanPage[] = []
   for (const n of r.pages) {
     const p = note.pages[n - 1]!
     const bg = pageBackground(patternOf(p.background), p.width, p.height)
     const elements: PlanElement[] = [], omitted: string[] = []
-    let min = 1 + (bg.lines.length + bg.dots.length > 0 ? 1 : 0), max = 1 + bg.lines.length + bg.dots.length
+    // A PDF page has no paper and no background path: only the ink counts (the original page is the ground).
+    const pdf = isPdfBackground(p.background) ? p.background : null
+    if (pdf) pdfAssets.add(pdf.asset)
+    let min = pdf ? 0 : 1 + (bg.lines.length + bg.dots.length > 0 ? 1 : 0), max = pdf ? 0 : 1 + bg.lines.length + bg.dots.length
     let images = 0
     for (const e of p.elements as El[]) {
       if (!visible(e, p.width, p.height)) { omitted.push(e.id as string); continue }
@@ -118,18 +121,23 @@ export function exportPlan({ note, range, localAssets }: PlanInput): PlanResult 
       }
     }
     pages.push({
-      number: n, id: p.id, width: p.width, height: p.height, orientation: p.width > p.height ? 'landscape' : 'portrait', paper: bg.paper,
-      background: patternOf(p.background),
-      lines: bg.lines.length, dots: bg.dots.length, shapes: { min, max }, images, omitted, elements,
+      number: n, id: p.id, width: p.width, height: p.height, orientation: p.width > p.height ? 'landscape' : 'portrait',
+      ...(pdf ? { background: 'pdf', pdf: { asset: pdf.asset, page: pdf.page } } : { paper: bg.paper, background: patternOf(p.background) }),
+      lines: pdf ? 0 : bg.lines.length, dots: pdf ? 0 : bg.dots.length, shapes: { min, max }, images, omitted, elements,
     })
   }
   const local = new Set(localAssets)
-  const missing = [...assets].filter((h) => !isAssetHash(h) || !local.has(h)).sort(byCodeUnit)
-  if (missing.length) return { error: 'assetMissing', assets: missing }
+  const lost = (h: string) => !isAssetHash(h) || !local.has(h)
+  const missing = [...assets, ...pdfAssets].filter(lost).sort(byCodeUnit)
+  if (missing.length) {
+    const lostPdf = [...pdfAssets].filter(lost).sort(byCodeUnit)
+    return { error: 'assetMissing', assets: missing, ...(lostPdf.length && { pdfAssets: lostPdf }) }
+  }
   return {
     fileName: exportFileName({ title: note.meta.title }).name,
     fonts: ['Pretendard-Regular', 'Pretendard-SemiBold'].filter((f) => fonts.has(f)),
     assets: [...assets].sort(byCodeUnit),
+    ...(pdfAssets.size && { pdfAssets: [...pdfAssets].sort(byCodeUnit) }),
     pages,
   }
 }

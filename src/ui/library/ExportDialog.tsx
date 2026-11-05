@@ -9,7 +9,7 @@ import { sharedAssetStore } from '../../sync/imageWiring'
 import { downloadBlob } from '../download'
 
 type Mode = 'all' | 'current' | 'custom'
-type Phase = { kind: 'choose' } | { kind: 'making'; done: number; total: number } | { kind: 'failed'; missing: boolean }
+type Phase = { kind: 'choose' } | { kind: 'making'; done: number; total: number } | { kind: 'failed'; missing: boolean; pdf?: boolean }
 
 const MODES: { mode: Mode; label: Key }[] = [
   { mode: 'all', label: 'export.all' },
@@ -29,10 +29,14 @@ type Props = {
   note: PdfJob['note']
   /** 1-based number of the page on screen. */
   current: number
+  /** The image host: a missing asset (a PDF original) is asked for before the export gives up. */
+  images?: { retry(asset: string): void } | null
   onClose: () => void
 }
 
-export function ExportDialog({ mode: purpose = 'export', note, current, onClose }: Props) {
+const FETCH_WAIT_MS = 15_000
+
+export function ExportDialog({ mode: purpose = 'export', note, current, images, onClose }: Props) {
   const printing = purpose === 'print'
   const { t } = useI18n()
   const [mode, setMode] = useState<Mode>('all')
@@ -61,11 +65,25 @@ export function ExportDialog({ mode: purpose = 'export', note, current, onClose 
       // pdf-lib and fontkit load only when an export starts
       const [{ buildPdf, ExportCancelled: Cancelled }, { loadFonts, webpToPng }] = await Promise.all([import('../../export/pdfExport'), import('../../export/browserAssets')])
       cancelled = Cancelled
+      const store = sharedAssetStore()
+      // Asset first: a byte file this device lacks is fetched (the asset sync) and waited for, unless offline.
+      const assets = {
+        get: async (h: string) => {
+          let rec = await store.get(h)
+          if (rec || !images) return rec
+          images.retry(h)
+          for (let t = 0; !rec && t < FETCH_WAIT_MS && navigator.onLine !== false && !ac.signal.aborted; t += 500) {
+            await new Promise((res) => setTimeout(res, 500))
+            rec = await store.get(h)
+          }
+          return rec
+        },
+      }
       const r = await buildPdf({
-        note, range, assets: sharedAssetStore(), fonts: loadFonts, webpToPng, signal: ac.signal,
+        note, range, assets, fonts: loadFonts, webpToPng, signal: ac.signal,
         onProgress: (done, total) => setPhase({ kind: 'making', done, total }),
       })
-      if (!r.ok) return setPhase({ kind: 'failed', missing: r.error === 'assetMissing' })
+      if (!r.ok) return setPhase({ kind: 'failed', missing: r.error === 'assetMissing', pdf: !!r.pdfAssets?.length })
       if (printing) await (await import('../../export/printPdf')).printBlob(r.blob)
       else downloadBlob(r.fileName, r.blob, 'application/pdf')
       onClose()
@@ -167,7 +185,7 @@ export function ExportDialog({ mode: purpose = 'export', note, current, onClose 
         </p>
         {phase.kind === 'failed' && (
           <p className="dialog-error" role="alert">
-            {t(printing ? 'print.failed' : 'export.failed')} {phase.missing && t('export.assetMissing')}
+            {t(printing ? 'print.failed' : 'export.failed')} {phase.missing && t(phase.pdf ? 'export.pdfMissing' : 'export.assetMissing')}
           </p>
         )}
         <div className="dialog-actions">

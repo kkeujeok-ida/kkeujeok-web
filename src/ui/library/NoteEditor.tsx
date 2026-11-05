@@ -1692,6 +1692,7 @@ export function NoteEditor({
               mode={exportOpen}
               note={loaded.writer.history.note}
               current={at + 1}
+              images={imagesRef.current}
               onClose={() => {
                 setExportOpen(false)
                 canvas.current?.focus()
