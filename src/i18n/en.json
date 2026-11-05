@@ -432,7 +432,8 @@
   "export.progress": "Making PDF · page {done}/{total}",
   "export.failed": "Could not make the PDF.",
   "export.assetMissing": "Some images are not on this device yet. Try again after they download.",
-  "export.retry": "Try again",
+  "export.retry": "Try again"
+,
   "library.importPdf": "Import PDF",
   "pdf.import.progress": "Importing PDF · page {done}/{total}",
   "pdf.import.starting": "Importing PDF",
@@ -442,5 +443,8 @@
   "pdf.import.unreadable": "This file cannot be read.",
   "pdf.import.noSpace": "There is not enough room to keep it in this browser.",
   "pdf.import.done": "PDF imported.",
-  "pdf.import.ok": "OK"
+  "pdf.import.ok": "OK",
+  "pdf.page": "PDF page",
+  "pdf.downloading": "Downloading PDF",
+  "pdf.failed": "Could not download the PDF [Try again]"
 }

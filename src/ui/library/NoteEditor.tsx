@@ -3,6 +3,7 @@ import { SNACKBAR_MS } from '../snackbar'
 import { fmt, useI18n, type Key } from '../../i18n'
 import { defaultFor, type Pen, type PenTool } from '../../model/pen'
 import { addSlot, indexAfterMove, indexAfterRemove, moveSlot, pickByTool, removeSlot } from '../../model/penSlotList'
+import { isPdfBackground } from '../../model/pdfRules'
 import { elementClipboard } from '../../model/elementClipboard'
 import { isBlankText } from '../../model/textLayout'
 import { sessionHistory } from '../../ops/sessionHistories'
@@ -465,6 +466,7 @@ export function NoteEditor({
   useEffect(() => {
     if (!loaded || !images) return
     images.labels = { downloading: t('image.downloading'), failed: t('image.failed'), broken: t('image.broken') }
+    if (images.pdf) images.pdf.labels = { downloading: t('pdf.downloading'), failed: t('pdf.failed') }
     return images.subscribe(() => {
       loaded.writer.redraw()
       setRevision((n) => n + 1)
@@ -1255,7 +1257,7 @@ export function NoteEditor({
           n: i + 1,
           total,
           orientation: t(page.width > page.height ? 'library.orientation.landscape' : 'library.orientation.portrait'),
-        })
+        }) + (isPdfBackground(page.background) ? `, ${t('pdf.page')}` : '')
       : undefined
   }
   const pageLabel = labelOf(at)
@@ -1611,6 +1613,11 @@ export function NoteEditor({
                 {pages.map((p, i) => (
                   <li key={p.id} aria-current={i === at ? 'page' : undefined}>
                     {labelOf(i)}
+                    {images?.pdf?.state(p) === 'failed' && (
+                      <button type="button" onClick={() => images.retry((p.background as { asset: string }).asset)}>
+                        {t('editor.imageRetry')}
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -1629,6 +1636,7 @@ export function NoteEditor({
           {panelOpen && (
             <PageOverview
               ref={panel}
+              images={images}
               id={panelId}
               pages={pages}
               current={at}

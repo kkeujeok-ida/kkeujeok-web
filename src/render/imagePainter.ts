@@ -1,6 +1,7 @@
 // Draws an image element (spec image.md): the decoded picture in its box, turned about the box center, or the grey
 // placeholder while the asset is not on this device; a small mark while Drive does not hold the asset yet.
 import type { AssetState } from '../model/imageRules'
+import type { PdfLayer } from './pdfPages'
 
 type El = Record<string, unknown>
 
@@ -11,6 +12,8 @@ export type ImageSource = {
   state(asset: unknown): AssetState
   pending(asset: string): boolean
   labels: { downloading: string; failed: string; broken: string }
+  /** The PDF ground of PDF pages (Story 9.5); without it a PDF page is plain. */
+  pdf?: PdfLayer
 }
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)

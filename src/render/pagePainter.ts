@@ -1,7 +1,7 @@
 // Paper, background and strokes of one page onto a 2D canvas context (AD-11).
 // The context's own transform is the device pixel ratio; the viewport maps
 // page points (pt, top-left origin) into CSS pixels of the canvas.
-import { patternOf } from '../model/pdfRules'
+import { isPdfBackground, patternOf } from '../model/pdfRules'
 import { isValidStroke, type Page, type Stroke } from '../model/note'
 import { pageBackground } from './pageBackground'
 import { outlinePath, strokeOutline } from './strokeOutline'
@@ -233,6 +233,14 @@ export function paintPage(
         ctx.arc(x!, y!, bg.dotRadius, 0, Math.PI * 2)
       }
       ctx.fill()
+    }
+
+    if (images?.pdf && isPdfBackground(page.background)) {
+      // The part of the page on screen, for the sharp tile of a zoomed view.
+      const dpr = ctx.getTransform().a || 1
+      const x0 = -offsetX / scale, y0 = -offsetY / scale
+      const vis = { x0: Math.max(0, x0), y0: Math.max(0, y0), x1: Math.min(w, x0 + ctx.canvas.width / dpr / scale), y1: Math.min(h, y0 + ctx.canvas.height / dpr / scale) }
+      images.pdf.paint(ctx, page, vis, scale * dpr)
     }
 
     const ids = new Set<string>()

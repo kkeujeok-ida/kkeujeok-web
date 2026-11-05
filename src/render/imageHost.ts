@@ -6,6 +6,8 @@ import { isPdfBackground } from '../model/pdfRules'
 import type { AssetStore } from '../storage/assetStore'
 import type { AssetSync } from '../sync/assetSync'
 import type { ImageSource } from './imagePainter'
+import { createPdfPages } from './pdfPages'
+import type { PdfJs } from '../model/pdfParse'
 
 /** The longest side a picture is kept at for drawing (pixels). */
 export const DECODE_MAX = 2048
@@ -26,7 +28,7 @@ export type ImageHost = ImageSource & {
   discardPdf(hash: string): Promise<void>
 }
 
-export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: ImageIo; decodeBitmap?: (blob: Blob) => Promise<ImageBitmap> }): ImageHost {
+export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: ImageIo; decodeBitmap?: (blob: Blob) => Promise<ImageBitmap>; pdfjs?: () => Promise<PdfJs> }): ImageHost {
   const io = d.io ?? browserImageIo
   const bitmaps = new Map<string, CanvasImageSource | 'broken'>()
   const decoding = new Set<string>()
@@ -34,6 +36,7 @@ export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: Im
   const listeners = new Set<() => void>()
   const tell = () => listeners.forEach((f) => f())
   d.sync.subscribe(tell)
+  const pdfPages = createPdfPages({ store: d.store, sync: d.sync, changed: tell, ...(d.pdfjs && { load: d.pdfjs }) })
   let seen: Note | null = null
 
   // Decodes once per hash; a hash that failed is not tried again (no endless repaint).
@@ -67,6 +70,7 @@ export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: Im
 
   return {
     labels: { downloading: '', failed: '', broken: '' },
+    pdf: pdfPages.layer,
     state: (asset) => d.sync.state(asset),
     pending: (asset) => d.sync.pending(asset),
     bitmap(hash) {
@@ -82,14 +86,17 @@ export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: Im
       for (const p of note.pages) for (const e of p.elements as { type?: unknown; asset?: unknown; ext?: unknown }[]) if (e?.type === 'image' && typeof e.asset === 'string') found.set(e.asset, String(e.ext))
       for (const [h, ext] of found) exts.set(h, ext)
       // A PDF background is fetched like an image: the page shows a placeholder until its bytes are here (Story 9.5 draws it).
-      for (const p of note.pages) if (isPdfBackground(p.background)) found.set(p.background.asset, 'pdf')
+      for (const p of note.pages) if (isPdfBackground(p.background)) (found.set(p.background.asset, 'pdf'), exts.set(p.background.asset, 'pdf'))
       if (found.size > 0) void d.sync.ensure(found)
     },
     subscribe(fn) {
       listeners.add(fn)
       return () => void listeners.delete(fn)
     },
-    retry: (asset) => d.sync.retry(asset, exts.get(asset) ?? 'jpg'),
+    retry(asset) {
+      pdfPages.layer.retry(asset)
+      d.sync.retry(asset, exts.get(asset) ?? 'jpg')
+    },
     markConfirmed: (hash) => d.sync.markConfirmed(hash),
     async discardPdf(hash) {
       await d.store.remove(hash)

@@ -1457,6 +1457,8 @@ export class Writer {
       // A placeholder that failed to download tries again when it is tapped.
       const hit = id ? els.find((e) => e?.id === id) : undefined
       if (hit?.type === 'image' && typeof hit.asset === 'string' && this.images?.state(hit.asset) === 'failed') this.images.retry(hit.asset)
+      // [다시 시도] on the placeholder of a PDF page that failed.
+      else if (!hit && this.images?.pdf?.state(slot.page) === 'failed') this.images.retry((slot.page.background as { asset: string }).asset)
       return
     }
     const end = l.path[l.path.length - 1]!

@@ -5,6 +5,7 @@ import type { Page } from '../../model/note'
 import { dropIndex, stepIndex } from '../../model/pageMove'
 import { pageOutOfBounds } from '../../model/pageBounds'
 import { isPdfBackground } from '../../model/pdfRules'
+import type { ImageHost } from '../../render/imageHost'
 import type { El } from '../../model/select'
 import { StrokePathCache, fitViewport, paintPage } from '../../render/pagePainter'
 
@@ -54,7 +55,7 @@ function useVisible(ref: RefObject<HTMLElement | null>): boolean {
   return seen
 }
 
-function Thumb({ page }: { page: Page }) {
+function Thumb({ page, images }: { page: Page; images?: ImageHost | undefined }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const c = ref.current
@@ -70,7 +71,7 @@ function Thumb({ page }: { page: Page }) {
         const ctx = c.getContext('2d')
         if (!ctx) return
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-        paintPage(ctx, page, fitViewport(r.width, r.height, page.width, page.height), cache)
+        paintPage(ctx, page, fitViewport(r.width, r.height, page.width, page.height), cache, null, null, images)
       } catch {
         // an empty thumbnail
       }
@@ -78,14 +79,16 @@ function Thumb({ page }: { page: Page }) {
     draw()
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(draw) : null
     ro?.observe(c)
-    return () => ro?.disconnect()
-  }, [page])
+    // A PDF page is drawn once its bytes are here and rendered.
+    const un = isPdfBackground(page.background) ? images?.subscribe(draw) : undefined
+    return () => (ro?.disconnect(), un?.())
+  }, [page, images])
   return <canvas ref={ref} className="po-canvas" aria-hidden="true" />
 }
 
-type ItemProps = { page: Page; index: number; total: number; current: boolean; picked: boolean; drop: 'before' | 'after' | null; conflict: boolean; focusable: boolean; readOnly: boolean; onGo: (e: ReactMouseEvent) => void; onDragStart: (e: ReactDragEvent) => void; onDragEnd: () => void; onDuplicate: () => void; onDelete: () => void; onBackground: (b: string) => void; onOrientation: (o: 'portrait' | 'landscape') => void; onOutOfBounds: () => void }
+type ItemProps = { images?: ImageHost | undefined; page: Page; index: number; total: number; current: boolean; picked: boolean; drop: 'before' | 'after' | null; conflict: boolean; focusable: boolean; readOnly: boolean; onGo: (e: ReactMouseEvent) => void; onDragStart: (e: ReactDragEvent) => void; onDragEnd: () => void; onDuplicate: () => void; onDelete: () => void; onBackground: (b: string) => void; onOrientation: (o: 'portrait' | 'landscape') => void; onOutOfBounds: () => void }
 
-function Item({ page, index, total, current, picked, drop, conflict, focusable, readOnly, onGo, onDragStart, onDragEnd, onDuplicate, onDelete, onBackground, onOrientation, onOutOfBounds }: ItemProps) {
+function Item({ images, page, index, total, current, picked, drop, conflict, focusable, readOnly, onGo, onDragStart, onDragEnd, onDuplicate, onDelete, onBackground, onOrientation, onOutOfBounds }: ItemProps) {
   const { t } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const visible = useVisible(box)
@@ -133,6 +136,7 @@ function Item({ page, index, total, current, picked, drop, conflict, focusable, 
   const portrait = w <= h
   const label = [
     fmt(t('editor.page'), { n: index + 1, total, orientation: t(w > h ? 'library.orientation.landscape' : 'library.orientation.portrait') }),
+    ...(pdf ? [t('pdf.page')] : []),
     ...(current ? [t('page.current')] : []),
     ...(picked ? [t('page.picked')] : []),
     ...badges,
@@ -150,7 +154,7 @@ function Item({ page, index, total, current, picked, drop, conflict, focusable, 
         onClick={onGo}
       >
         <div ref={box} className="po-thumb" style={{ aspectRatio: String(ratio) }} aria-hidden="true">
-          {visible && <Thumb page={page} />}
+          {visible && <Thumb page={page} images={images} />}
           {conflict && (
             <span className="po-badges">
               {[t('page.conflictBadge')].map((b) => (
@@ -224,6 +228,7 @@ function Item({ page, index, total, current, picked, drop, conflict, focusable, 
 }
 
 type Props = {
+  images?: ImageHost | undefined
   id: string
   pages: readonly Page[]
   current: number
@@ -245,7 +250,7 @@ type Props = {
   onSelectOutOfBounds?: (pageId: string) => void
 }
 
-export const PageOverview = forwardRef<HTMLElement, Props>(function PageOverview({ id, pages, current, conflicted, side, overlay, readOnly = false, onGo, onClose, onAdd, onDuplicate, onDelete, onMove, onBackground, onOrientation, onSelectOutOfBounds }, ref) {
+export const PageOverview = forwardRef<HTMLElement, Props>(function PageOverview({ images, id, pages, current, conflicted, side, overlay, readOnly = false, onGo, onClose, onAdd, onDuplicate, onDelete, onMove, onBackground, onOrientation, onSelectOutOfBounds }, ref) {
   const { t } = useI18n()
   const list = useRef<HTMLDivElement>(null)
   // The current page stays in view as the canvas scrolls.
@@ -428,7 +433,7 @@ export const PageOverview = forwardRef<HTMLElement, Props>(function PageOverview
       )}
       <div ref={list} role="listbox" aria-label={t('page.overview')} aria-orientation="vertical" className="po-list" onKeyDown={onKeyDown} onDragOver={onDragOver} onDrop={onDrop}>
         {pages.map((p, i) => (
-          <Item key={p.id} page={p} index={i} total={pages.length} current={i === current} picked={live.has(p.id)} drop={drop === i ? 'before' : drop === pages.length && i === pages.length - 1 ? 'after' : null} conflict={conflicted.has(p.id)} focusable={i === current} readOnly={readOnly} onGo={(e) => clickItem(i, e)} onDragStart={(e) => { drag.current = block(p.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id) }} onDragEnd={() => { drag.current = []; setDrop(null) }} onDuplicate={() => onDuplicate?.([p.id])} onDelete={() => doDelete([p.id])} onBackground={(b) => onBackground?.([p.id], b)} onOrientation={(o) => onOrientation?.(p.id, o)} onOutOfBounds={() => onSelectOutOfBounds?.(p.id)} />
+          <Item key={p.id} images={images} page={p} index={i} total={pages.length} current={i === current} picked={live.has(p.id)} drop={drop === i ? 'before' : drop === pages.length && i === pages.length - 1 ? 'after' : null} conflict={conflicted.has(p.id)} focusable={i === current} readOnly={readOnly} onGo={(e) => clickItem(i, e)} onDragStart={(e) => { drag.current = block(p.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id) }} onDragEnd={() => { drag.current = []; setDrop(null) }} onDuplicate={() => onDuplicate?.([p.id])} onDelete={() => doDelete([p.id])} onBackground={(b) => onBackground?.([p.id], b)} onOrientation={(o) => onOrientation?.(p.id, o)} onOutOfBounds={() => onSelectOutOfBounds?.(p.id)} />
         ))}
       </div>
       {ask && (
