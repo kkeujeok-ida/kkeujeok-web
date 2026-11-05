@@ -281,3 +281,15 @@ describe('resolve helpers', () => {
     }
   })
 })
+
+describe('PDF background after a merge (Story 9.3)', () => {
+  test('a well-formed PDF page is editable, a malformed one stays read-only', () => {
+    const ref = { type: 'pdf', asset: 'a'.repeat(64), page: 0, box: [0, 0, 595, 842], rotate: 0, userUnit: 1 }
+    const pdf = (id: string, rev: string, bg: unknown): Page => ({ ...page(id, rev), background: bg as never })
+    const base = note([pdf('a', 'a1', ref), pdf('b', 'b1', { ...ref, rotate: 45 })])
+    const local = note([pdf('a', 'a2', ref), pdf('b', 'b2', { ...ref, rotate: 45 })])
+    const r = merge(base, local, note([pdf('a', 'a1', ref), pdf('b', 'b1', { ...ref, rotate: 45 })]), ctx)
+    expect(r.result).toBe('merged')
+    if (r.result === 'merged') expect(r.readOnlyPages).toEqual(['b'])
+  })
+})

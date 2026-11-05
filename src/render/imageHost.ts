@@ -22,6 +22,8 @@ export type ImageHost = ImageSource & {
   markConfirmed(hash: string): void
   /** Story 9.3: keeps the bytes of an imported PDF and marks them on this device; throws when they cannot be kept. */
   storePdf(hash: string, bytes: Uint8Array): Promise<void>
+  /** Drops the bytes of a PDF whose import did not finish. */
+  discardPdf(hash: string): Promise<void>
 }
 
 export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: ImageIo; decodeBitmap?: (blob: Blob) => Promise<ImageBitmap> }): ImageHost {
@@ -89,6 +91,10 @@ export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: Im
     },
     retry: (asset) => d.sync.retry(asset, exts.get(asset) ?? 'jpg'),
     markConfirmed: (hash) => d.sync.markConfirmed(hash),
+    async discardPdf(hash) {
+      await d.store.remove(hash)
+      d.sync.dropLocal(hash)
+    },
     async storePdf(hash, bytes) {
       await d.store.put(hash, 'pdf', bytes)
       exts.set(hash, 'pdf')

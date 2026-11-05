@@ -2,6 +2,7 @@
 // clock, no random number, no input mutated (inputs are deep-copied first, so
 // the result never shares an object with an argument). Unknown fields ride along.
 import type { Note, Page } from '../model/note'
+import { isPdfBackground } from '../model/pdfRules'
 
 export type MergeCtx = { now: string; orderRev: string; rev: string; editedBy: string; lastSeenRemoteSeq: number }
 export type ConflictKind = 'bothEdited' | 'remoteDeleted' | 'localDeleted'
@@ -193,7 +194,7 @@ function mergeChecked(base0: Note | null, local0: Note, remote0: Note, ctx0: Mer
     return !!p && (!rr || rr.rev !== p.rev)
   })
   const undoDrop = [...lp.keys()].filter((id) => result.get(id)?.rev !== lp.get(id)!.rev)
-  const readOnlyPages = U.filter((id) => result.has(id) && !BACKGROUNDS.includes(result.get(id)!.background as never))
+  const readOnlyPages = U.filter((id) => result.has(id) && !(BACKGROUNDS.includes(result.get(id)!.background as never) || isPdfBackground(result.get(id)!.background)))
   let seen = ctx.lastSeenRemoteSeq
   for (const p of remote.pages) seen = Math.max(seen, p.seq)
   seen = Math.max(seen, remote.orderSeq, remote.metaSeq)

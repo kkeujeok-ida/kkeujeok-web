@@ -11,17 +11,19 @@ const manifest = JSON.parse(readFileSync(dir + 'manifest.json', 'utf8')) as Reco
 const load = () => import('pdfjs-dist/legacy/build/pdf.mjs') as unknown as Promise<PdfJs>
 const fileOf = (name: string) => new File([readFileSync(dir + name)], name)
 
-function run(name: string, over: { store?: (h: string, b: Uint8Array) => Promise<void>; signal?: AbortSignal } = {}) {
+function run(name: string, over: { store?: (h: string, b: Uint8Array) => Promise<void>; signal?: AbortSignal; create?: () => Promise<string> } = {}) {
   const stored: string[] = []
+  const discarded: string[] = []
   const created: unknown[] = []
   const d = {
     signal: over.signal ?? new AbortController().signal,
     onProgress: () => {},
     store: over.store ?? (async (h: string) => void stored.push(h)),
-    create: async (imp: unknown) => (created.push(imp), 'note-1'),
+    create: over.create ?? (async (imp: unknown) => (created.push(imp), 'note-1')),
+    discard: async (h: string) => void discarded.push(h),
     load,
   }
-  return importPdf(fileOf(name), d).then((r) => ({ r, stored, created }))
+  return importPdf(fileOf(name), d).then((r) => ({ r, stored, created, discarded }))
 }
 
 describe('pdf import with the sample files', () => {
@@ -50,6 +52,12 @@ describe('pdf import with the sample files', () => {
     const { r, created } = await run('a4.pdf', { store: () => Promise.reject(new Error('quota')) })
     expect(r).toEqual({ error: 'noSpace' })
     expect(created).toEqual([])
+  })
+
+  test('a note that cannot be written gives the bytes back', async () => {
+    const { r, stored, discarded } = await run('a4.pdf', { create: () => Promise.reject(new Error('disk')) })
+    expect(r).toEqual({ error: 'corrupt' })
+    expect(discarded).toEqual(stored)
   })
 
   test('a cancel leaves nothing', async () => {

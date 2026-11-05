@@ -3,14 +3,14 @@
 import { useEffect, useId, useRef } from 'react'
 import { fmt, useI18n, type Key } from '../../i18n'
 
-export type PdfImportState = { name: string; done: number; total: number; error?: Key }
+export type PdfImportState = { name: string; done: number; total: number; error?: Key; /** Writing the note: [취소] is off. */ saving?: boolean }
 
 export function PdfImportDialog({ state, onCancel, onClose }: { state: PdfImportState; onCancel: () => void; onClose: () => void }) {
   const { t } = useI18n()
   const head = useId()
   const button = useRef<HTMLButtonElement>(null)
   const failed = state.error !== undefined
-  const act = failed ? onClose : onCancel
+  const act = failed ? onClose : state.saving ? () => {} : onCancel
   const actRef = useRef(act)
   actRef.current = act
   useEffect(() => button.current?.focus(), [failed])
@@ -38,7 +38,7 @@ export function PdfImportDialog({ state, onCancel, onClose }: { state: PdfImport
           {text}
         </p>
         <div className="dialog-actions">
-          <button ref={button} type="button" className="btn" onClick={act}>
+          <button ref={button} type="button" className="btn" aria-disabled={!failed && state.saving} onClick={act}>
             {t(failed ? 'pdf.import.ok' : 'dialog.cancel')}
           </button>
         </div>

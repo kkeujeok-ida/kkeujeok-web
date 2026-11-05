@@ -14,6 +14,10 @@ export type PdfImportDeps = {
   store: (hash: string, bytes: Uint8Array) => Promise<void>
   /** Writes the new note; resolves with its id. */
   create: (imp: PdfImportOut) => Promise<string>
+  /** Drops the kept bytes unless a note uses them. */
+  discard: (hash: string) => Promise<void>
+  /** The bytes are about to be kept: from here a cancel is too late for the caller. */
+  onSaving?: () => void
   load?: () => Promise<PdfJs>
 }
 
@@ -23,14 +27,20 @@ export async function importPdf(file: File, d: PdfImportDeps): Promise<PdfImport
     const imp = pdfImport({ fileName: file.name, size: p.size, head: p.head, sha256: p.sha256, parse: p.parse })
     if ('error' in imp) return imp
     if (d.signal.aborted) return { cancelled: true }
+    d.onSaving?.()
     try {
       await d.store(p.sha256, p.bytes)
     } catch {
       return { error: 'noSpace' }
     }
-    // shortcut: a cancel after the bytes were kept leaves them (content addressed, unreferenced) in the store.
-    if (d.signal.aborted) return { cancelled: true }
-    return { noteId: await d.create(imp) }
+    const drop = () => d.discard(p.sha256).catch(() => {})
+    if (d.signal.aborted) return await drop(), { cancelled: true }
+    try {
+      return { noteId: await d.create(imp) }
+    } catch {
+      await drop()
+      return { error: 'corrupt' }
+    }
   } catch (e) {
     if ((e as { name?: string })?.name === 'AbortError' || d.signal.aborted) return { cancelled: true }
     return { error: 'corrupt' }

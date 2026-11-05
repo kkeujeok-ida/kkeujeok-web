@@ -35,6 +35,10 @@ export function createAssetStore(ndb: Db) {
       }
       return null
     },
+    /** Drops the bytes under `hash` (an import that did not become a note). */
+    async remove(hash: string): Promise<void> {
+      if (isAssetHash(hash)) await ndb.withDb((db) => db.delete(ASSET_STORE, hash))
+    },
     /** Stores bytes fetched from Drive only when they hash to `hash`; false when they do not. */
     async putVerified(hash: string, ext: string, bytes: Uint8Array): Promise<boolean> {
       if ((await sha256Hex(bytes)) !== hash) return false

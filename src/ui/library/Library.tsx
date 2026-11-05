@@ -64,7 +64,7 @@ type Props = {
   /** The folder being looked at: `root` = the top level, a folder id, null or unset = all notes. */
   folderId?: string | null
   /** Story 9.3: where the bytes of an imported PDF are kept. Without it the shared byte store is used. */
-  images?: Pick<ImageHost, 'storePdf'>
+  images?: Pick<ImageHost, 'storePdf' | 'discardPdf'>
 }
 
 const PDF_ERROR: Record<PdfImportError, Key> = {
@@ -186,7 +186,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   const pdfInput = useRef<HTMLInputElement>(null)
   const [pdfSaid, setPdfSaid] = useState('')
   async function importFile(file: File) {
-    if (pdfAbort.current || entering.current || lib.status !== 'ready') return
+    if (pdf || pdfAbort.current || entering.current || lib.status !== 'ready') return
     const ac = new AbortController()
     pdfAbort.current = ac
     setPdf({ name: file.name, done: 0, total: 0 })
@@ -194,6 +194,11 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       signal: ac.signal,
       onProgress: (done, total) => mounted.current && setPdf((p) => p && { ...p, done, total }),
       store: (hash, bytes) => (images ? images.storePdf(hash, bytes) : sharedAssetStore().put(hash, 'pdf', bytes)),
+      onSaving: () => mounted.current && setPdf((p) => p && { ...p, saving: true }),
+      discard: async (hash) => {
+        if (await lib.pdfReferenced(hash)) return
+        await (images ? images.discardPdf(hash) : sharedAssetStore().remove(hash))
+      },
       create: (imp) => lib.createFromPdf(imp, inFolder ? folderId : null),
     })
     pdfAbort.current = null

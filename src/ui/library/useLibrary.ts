@@ -5,6 +5,7 @@ import { newId } from '../../model/ids'
 import { encodeKkj } from '../../model/kkjCodec'
 import type { Note, Page } from '../../model/note'
 import { createNote } from '../../ops/ops'
+import { referencedAssets } from '../../model/imageRules'
 import type { PdfImportOut } from '../../model/pdfRules'
 import type { Background, NewNoteDefaults, Orientation } from '../../storage/newNoteDefaults'
 import type { NoteStore } from '../../storage/noteStore'
@@ -280,8 +281,8 @@ export function useLibrary(
       const r = createNote({ title: imp.title, existingTitles: [], background: 'plain', orientation: 'portrait', noteId, pageId: newId(), pageRev: newId(), metaRev: newId(), orderRev: newId(), now, editedBy: by })
       if ('error' in r) throw new Error(r.error)
       r.note.pages = imp.pages.map((p) => ({ id: newId(), width: p.width, height: p.height, background: p.background, rev: newId(), seq: 1, editedAt: now, editedBy: by, elements: [] }))
-      if (folderId) await folders?.assignNote(noteId, folderId)
       await s.writeNote(r.note)
+      if (folderId) await folders?.assignNote(noteId, folderId)
       seq.current++
       const item: LibraryItem = { ...toItem({ noteId, result: { result: 'ok', writable: true, note: r.note } }), ...(folders && { folderId: folderId ?? null }) }
       setState((p) => ({ ...p, items: sortItems([...p.items.filter((i) => i.noteId !== noteId), item]) }))
@@ -289,6 +290,21 @@ export function useLibrary(
     },
     [editedBy, folders],
   )
+
+  /** Story 9.3: true when a note on this device uses the PDF asset `hash` as a background. */
+  const pdfReferenced = useCallback(async (hash: string): Promise<boolean> => {
+    const s = storeRef.current
+    if (!s) return true // unknown: keep the bytes
+    try {
+      for (const id of await s.listIds()) {
+        const n = (await s.loadNote(id))?.note
+        if (n && referencedAssets(n).includes(hash)) return true
+      }
+      return false
+    } catch {
+      return true
+    }
+  }, [])
 
   /**
    * Story 7.8: the note takes a new title (rule `library.renameNote`: `metaRev`, `metaSeq`); the next upload renames the Drive
@@ -361,5 +377,5 @@ export function useLibrary(
     return { name: `${r.note.meta.title}-${noteId.slice(0, 8)}.kkj`, bytes: await encodeKkj(r.note) }
   }, [])
 
-  return { status: state.status, items: state.items, failed: state.failed, reload: load, create, exportCopy, rename, setCover, createFromPdf }
+  return { status: state.status, items: state.items, failed: state.failed, reload: load, create, exportCopy, rename, setCover, createFromPdf, pdfReferenced }
 }
