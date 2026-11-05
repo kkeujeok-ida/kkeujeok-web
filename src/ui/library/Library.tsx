@@ -18,6 +18,11 @@ import { useDisplayLabel } from '../sync/useDisplayLabel'
 import type { UploadCoordinator } from '../../sync/uploadCoordinator'
 import { LIBRARY_LAYOUTS, LIBRARY_SIZES, sharedLibraryView, type LibraryView } from '../../storage/libraryView'
 import { LibraryFab } from './LibraryFab'
+import { PdfImportDialog, type PdfImportState } from './PdfImportDialog'
+import { importPdf, type PdfImportError } from '../../library/pdfImport'
+import { sharedAssetStore } from '../../sync/imageWiring'
+import type { ImageHost } from '../../render/imageHost'
+import type { Key } from '../../i18n'
 import { NewNoteDialog } from './NewNoteDialog'
 import { noteHref } from './NoteEditor'
 import { requestResolve } from './resolveRequest'
@@ -58,6 +63,17 @@ type Props = {
   folderView?: FolderView
   /** The folder being looked at: `root` = the top level, a folder id, null or unset = all notes. */
   folderId?: string | null
+  /** Story 9.3: where the bytes of an imported PDF are kept. Without it the shared byte store is used. */
+  images?: Pick<ImageHost, 'storePdf'>
+}
+
+const PDF_ERROR: Record<PdfImportError, Key> = {
+  tooLarge: 'pdf.import.tooLarge',
+  tooManyPages: 'pdf.import.tooManyPages',
+  encrypted: 'pdf.import.encrypted',
+  corrupt: 'pdf.import.unreadable',
+  notPdf: 'pdf.import.unreadable',
+  noSpace: 'pdf.import.noSpace',
 }
 
 const NO_RECEIVE: ReceiveState = { version: 0, receiving: new Set(), scanning: false, revived: 0 }
@@ -90,7 +106,7 @@ function readSort(): LibrarySort {
   }
 }
 
-export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver, uploads, viewStore = sharedLibraryView(), folders, folderView, folderId = null }: Props) {
+export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver, uploads, viewStore = sharedLibraryView(), folders, folderView, folderId = null, images }: Props) {
   const { t, locale } = useI18n()
   const lib = useLibrary(openStore, defaults, editedBy, receiver, folders)
   const inFolder = folderId !== null && folderId !== 'root'
@@ -162,6 +178,40 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       console.warn('Could not create the note', e)
       return false
     }
+  }
+
+  // Story 9.3: a picked or dropped PDF becomes a new note in this folder.
+  const [pdf, setPdf] = useState<PdfImportState | null>(null)
+  const pdfAbort = useRef<AbortController | null>(null)
+  const pdfInput = useRef<HTMLInputElement>(null)
+  const [pdfSaid, setPdfSaid] = useState('')
+  async function importFile(file: File) {
+    if (pdfAbort.current || entering.current || lib.status !== 'ready') return
+    const ac = new AbortController()
+    pdfAbort.current = ac
+    setPdf({ name: file.name, done: 0, total: 0 })
+    const r = await importPdf(file, {
+      signal: ac.signal,
+      onProgress: (done, total) => mounted.current && setPdf((p) => p && { ...p, done, total }),
+      store: (hash, bytes) => (images ? images.storePdf(hash, bytes) : sharedAssetStore().put(hash, 'pdf', bytes)),
+      create: (imp) => lib.createFromPdf(imp, inFolder ? folderId : null),
+    })
+    pdfAbort.current = null
+    if (!mounted.current) return
+    if ('error' in r) {
+      setPdf((p) => p && { ...p, error: PDF_ERROR[r.error] })
+      setPdfSaid(t(PDF_ERROR[r.error]))
+      return
+    }
+    setPdf(null)
+    if ('cancelled' in r) return
+    setPdfSaid(t('pdf.import.done'))
+    entering.current = true
+    globalThis.location.hash = noteHref(r.noteId)
+  }
+  const closePdf = () => {
+    setPdf(null)
+    section.current?.querySelector<HTMLElement>('.fab-button')?.focus()
   }
 
   // A note left with strokes that could not be saved: say so once.
@@ -336,7 +386,19 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   }
   const noSubfolders = subfolders.length === 0
   return (
-    <section ref={section} className="library" aria-label={t('library.label')} aria-busy={status === 'loading'}>
+    <section
+      ref={section}
+      className="library"
+      aria-label={t('library.label')}
+      aria-busy={status === 'loading'}
+      onDragOver={(e) => e.dataTransfer.types.includes('Files') && e.preventDefault()}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return
+        e.preventDefault()
+        const f = e.dataTransfer.files[0]
+        if (f) void importFile(f)
+      }}
+    >
       <Banner />
       <div className="library-toolbar">
         <h2 className="library-heading">{t('library.label')}</h2>
@@ -541,7 +603,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           />
         ))}
       </ul>
-      {status === 'ready' && <LibraryFab onNewNote={openSheet} {...(folders && { onNewFolder: (from: HTMLElement | null) => setNewFolder(from) })} />}
+      {status === 'ready' && <LibraryFab onNewNote={openSheet} onImportPdf={() => pdfInput.current?.click()} {...(folders && { onNewFolder: (from: HTMLElement | null) => setNewFolder(from) })} />}
       {root && asking && (
         <MissingRootDialog onCreate={() => void root.recreate()} onLater={() => setLater(true)} onSignOut={signOut} />
       )}
@@ -687,9 +749,25 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           )}
         </div>
       )}
+      <input
+        ref={pdfInput}
+        type="file"
+        accept="application/pdf"
+        hidden
+        data-testid="pdf-input"
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          e.target.value = ''
+          if (f) void importFile(f)
+        }}
+      />
+      {pdf && <PdfImportDialog state={pdf} onCancel={() => pdfAbort.current?.abort()} onClose={closePdf} />}
       <LibrarySyncing />
       <span className="sr-only" aria-live="polite">
         {q && status === 'ready' ? fmt(t('library.searchResultCount'), { n: String(items.length) }) : ''}
+      </span>
+      <span className="sr-only" role="status" aria-live="polite">
+        {pdfSaid}
       </span>
     </section>
   )

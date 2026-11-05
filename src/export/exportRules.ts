@@ -1,5 +1,6 @@
 // spec rules export.range, export.fileName, export.plan (spec/export.md). Pure: the PDF builder draws this plan.
 import { isAssetHash } from '../model/imageRules'
+import { patternOf } from '../model/pdfRules'
 import { round2 } from '../model/number'
 import { trimTitle } from '../model/noteTitle'
 import { cpLen, layoutText, normalizeRuns, textStyles } from '../model/textLayout'
@@ -96,7 +97,7 @@ export function exportPlan({ note, range, localAssets }: PlanInput): PlanResult 
   const fonts = new Set<string>(), assets = new Set<string>(), pages: PlanPage[] = []
   for (const n of r.pages) {
     const p = note.pages[n - 1]!
-    const bg = pageBackground(p.background, p.width, p.height)
+    const bg = pageBackground(patternOf(p.background), p.width, p.height)
     const elements: PlanElement[] = [], omitted: string[] = []
     let min = 1 + (bg.lines.length + bg.dots.length > 0 ? 1 : 0), max = 1 + bg.lines.length + bg.dots.length
     let images = 0
@@ -118,7 +119,7 @@ export function exportPlan({ note, range, localAssets }: PlanInput): PlanResult 
     }
     pages.push({
       number: n, id: p.id, width: p.width, height: p.height, orientation: p.width > p.height ? 'landscape' : 'portrait', paper: bg.paper,
-      background: ['lined', 'grid', 'dot'].includes(p.background) ? p.background : 'plain',
+      background: patternOf(p.background),
       lines: bg.lines.length, dots: bg.dots.length, shapes: { min, max }, images, omitted, elements,
     })
   }

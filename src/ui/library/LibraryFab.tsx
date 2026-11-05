@@ -3,7 +3,7 @@ import { useI18n } from '../../i18n'
 
 // The round "+" at the bottom right. It expands a menu holding [new note] and, with folders, [new folder] (Story 18.3).
 // Focus: first item when opened, back on "+" when closed by Esc, x or outside press.
-export function LibraryFab({ onNewNote, onNewFolder }: { onNewNote: (opener: HTMLElement | null) => void; onNewFolder?: (opener: HTMLElement | null) => void }) {
+export function LibraryFab({ onNewNote, onNewFolder, onImportPdf }: { onNewNote: (opener: HTMLElement | null) => void; onNewFolder?: (opener: HTMLElement | null) => void; onImportPdf?: (opener: HTMLElement | null) => void }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const button = useRef<HTMLButtonElement>(null)
@@ -43,6 +43,24 @@ export function LibraryFab({ onNewNote, onNewFolder }: { onNewNote: (opener: HTM
       <div className="fab">
         {open && (
           <div ref={menu} className="fab-menu" role="menu" onKeyDown={onMenuKeyDown}>
+            {onImportPdf && (
+              <button
+                type="button"
+                role="menuitem"
+                className="fab-item"
+                onClick={() => {
+                  setOpen(false)
+                  onImportPdf(button.current)
+                }}
+              >
+                <span>{t('library.importPdf')}</span>
+                <span className="fab-item-icon" aria-hidden="true">
+                  <svg className="icon" viewBox="0 0 16 16">
+                    <path d="M3 2h7l3 3v9H3z M8 6v5 M6 9l2 2 2-2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                  </svg>
+                </span>
+              </button>
+            )}
             <button
               type="button"
               role="menuitem"

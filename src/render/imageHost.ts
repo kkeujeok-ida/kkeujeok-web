@@ -2,13 +2,14 @@
 // painter draws, and the import of a new file. One per page session; the writers and the uploader share it.
 import { type ImageIo, type ImportError, type Prepared, browserImageIo, prepareImage } from '../model/imageImport'
 import type { Note } from '../model/note'
+import { isPdfBackground } from '../model/pdfRules'
 import type { AssetStore } from '../storage/assetStore'
 import type { AssetSync } from '../sync/assetSync'
 import type { ImageSource } from './imagePainter'
 
 /** The longest side a picture is kept at for drawing (pixels). */
 export const DECODE_MAX = 2048
-const MIME: Record<string, string> = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' }
+const MIME: Record<string, string> = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf' }
 
 export type ImageHost = ImageSource & {
   /** Starts reading, fetching and confirming the assets of the images of `note` (a no-op for a note already seen). */
@@ -19,6 +20,8 @@ export type ImageHost = ImageSource & {
   /** The file as bytes in the store and the sync state, ready for `insertImage`; nothing is stored on an error. */
   prepare(file: Blob): Promise<(Prepared & { stored: true }) | { error: ImportError | 'storeFailed' }>
   markConfirmed(hash: string): void
+  /** Story 9.3: keeps the bytes of an imported PDF and marks them on this device; throws when they cannot be kept. */
+  storePdf(hash: string, bytes: Uint8Array): Promise<void>
 }
 
 export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: ImageIo; decodeBitmap?: (blob: Blob) => Promise<ImageBitmap> }): ImageHost {
@@ -76,6 +79,8 @@ export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: Im
       const found = new Map<string, string>()
       for (const p of note.pages) for (const e of p.elements as { type?: unknown; asset?: unknown; ext?: unknown }[]) if (e?.type === 'image' && typeof e.asset === 'string') found.set(e.asset, String(e.ext))
       for (const [h, ext] of found) exts.set(h, ext)
+      // A PDF background is fetched like an image: the page shows a placeholder until its bytes are here (Story 9.5 draws it).
+      for (const p of note.pages) if (isPdfBackground(p.background)) found.set(p.background.asset, 'pdf')
       if (found.size > 0) void d.sync.ensure(found)
     },
     subscribe(fn) {
@@ -84,6 +89,11 @@ export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: Im
     },
     retry: (asset) => d.sync.retry(asset, exts.get(asset) ?? 'jpg'),
     markConfirmed: (hash) => d.sync.markConfirmed(hash),
+    async storePdf(hash, bytes) {
+      await d.store.put(hash, 'pdf', bytes)
+      exts.set(hash, 'pdf')
+      d.sync.markLocal(hash)
+    },
     async prepare(file) {
       const p = await prepareImage(file, io)
       if ('error' in p) return p

@@ -193,7 +193,7 @@ function mergeChecked(base0: Note | null, local0: Note, remote0: Note, ctx0: Mer
     return !!p && (!rr || rr.rev !== p.rev)
   })
   const undoDrop = [...lp.keys()].filter((id) => result.get(id)?.rev !== lp.get(id)!.rev)
-  const readOnlyPages = U.filter((id) => result.has(id) && !BACKGROUNDS.includes(result.get(id)!.background))
+  const readOnlyPages = U.filter((id) => result.has(id) && !BACKGROUNDS.includes(result.get(id)!.background as never))
   let seen = ctx.lastSeenRemoteSeq
   for (const p of remote.pages) seen = Math.max(seen, p.seq)
   seen = Math.max(seen, remote.orderSeq, remote.metaSeq)

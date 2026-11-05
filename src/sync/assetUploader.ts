@@ -3,6 +3,7 @@
 // `appProperties.kkeujeokId = "asset:<sha256>"`, never by name, and never deleted.
 import { RESUMABLE_CHUNK, type DriveClient, type DriveFile, kkeujeokIdQuery } from '../drive/driveClient'
 import type { Note } from '../model/note'
+import { isPdfBackground } from '../model/pdfRules'
 import { imageUploadPlan, isAssetHash, referencedAssets } from '../model/imageRules'
 import type { AssetStore } from '../storage/assetStore'
 import type { SyncDeviceStore } from '../storage/syncDevice'
@@ -11,7 +12,7 @@ import type { CallFn } from './sidecarUploader'
 
 export const ASSETS_KKEUJEOK_ID = 'assets'
 const ASSETS_FOLDER_NAME = '.assets'
-const MIME: Record<string, string> = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' }
+const MIME: Record<string, string> = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf' }
 /** The note is looked at again this many times when it was edited while the assets went. */
 const ROUNDS = 3
 
@@ -85,6 +86,7 @@ export function createAssetUploader(d: AssetUploaderDeps) {
       if (referenced.length === 0) return note
       const exts = new Map<string, string>()
       for (const p of note.pages) for (const e of p.elements as { type?: unknown; asset?: unknown; ext?: unknown }[]) if (e?.type === 'image') exts.set(String(e.asset), String(e.ext))
+      for (const p of note.pages) if (isPdfBackground(p.background)) exts.set(p.background.asset, 'pdf')
       const bytes = new Map<string, Uint8Array>()
       for (const h of referenced) {
         if (!isAssetHash(h)) continue

@@ -432,5 +432,15 @@
   "export.progress": "PDF 만드는 중 · {done}/{total}페이지",
   "export.failed": "PDF를 만들지 못했어요.",
   "export.assetMissing": "아직 받지 못한 이미지가 있어요. 이미지를 받은 뒤 다시 시도해 주세요.",
-  "export.retry": "다시 시도"
+  "export.retry": "다시 시도",
+  "library.importPdf": "PDF 가져오기",
+  "pdf.import.progress": "PDF 가져오는 중 · {done}/{total}페이지",
+  "pdf.import.starting": "PDF 가져오는 중",
+  "pdf.import.tooLarge": "100MB보다 큰 PDF는 가져올 수 없어요.",
+  "pdf.import.tooManyPages": "500페이지보다 긴 PDF는 가져올 수 없어요.",
+  "pdf.import.encrypted": "암호가 걸린 PDF는 가져올 수 없어요.",
+  "pdf.import.unreadable": "이 파일을 읽을 수 없어요.",
+  "pdf.import.noSpace": "이 브라우저에 보관할 공간이 부족해요.",
+  "pdf.import.done": "PDF를 가져왔어요.",
+  "pdf.import.ok": "확인"
 }

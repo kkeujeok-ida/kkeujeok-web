@@ -1,6 +1,7 @@
 // Paper, background and strokes of one page onto a 2D canvas context (AD-11).
 // The context's own transform is the device pixel ratio; the viewport maps
 // page points (pt, top-left origin) into CSS pixels of the canvas.
+import { patternOf } from '../model/pdfRules'
 import { isValidStroke, type Page, type Stroke } from '../model/note'
 import { pageBackground } from './pageBackground'
 import { outlinePath, strokeOutline } from './strokeOutline'
@@ -208,7 +209,7 @@ export function paintPage(
     ctx.rect(0, 0, w, h)
     ctx.clip()
 
-    const name = typeof page.background === 'string' ? page.background : 'plain'
+    const name = patternOf(page.background)
     // A huge page would make the pattern explode: paper only past this count.
     const count = name === 'dot' ? (w / 28) * (h / 28) : name === 'grid' ? (w + h) / 28 : h / 28
     const bg = count > MAX_BACKGROUND_ITEMS ? pageBackground('plain', w, h) : pageBackground(name, w, h)

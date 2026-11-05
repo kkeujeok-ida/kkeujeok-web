@@ -8,6 +8,7 @@ import {
 } from 'pdf-lib'
 import fontkit from '@pdf-lib/fontkit'
 import { COLOR_DEFAULT, ITALIC_SKEW, WIDTH_MIN, cpLen, isZeroWidth, layoutText, normalizeRuns, textStyles } from '../model/textLayout'
+import { patternOf } from '../model/pdfRules'
 import { fontAdvances } from '../model/textMetrics'
 import { highlighterOutline, windAlike } from '../render/highlighterOutline'
 import { pageBackground } from '../render/pageBackground'
@@ -132,7 +133,7 @@ export async function buildPdf(job: PdfJob): Promise<PdfResult> {
     // Everything below is in the note's y-down space; the clip is the page.
     const ops: PDFOperator[] = [pushGraphicsState(), concatTransformationMatrix(1, 0, 0, -1, 0, pp.height), rectangle(0, 0, pp.width, pp.height), clip(), endPath()]
     ops.push(fillRgb('#ffffff'), rectangle(0, 0, pp.width, pp.height), fill())
-    const bg = pageBackground(np.background, pp.width, pp.height)
+    const bg = pageBackground(patternOf(np.background), pp.width, pp.height)
     if (bg.lines.length) {
       ops.push(setStrokingRgbColor(...rgb(bg.lineColor)), setLineWidth(bg.lineWidth))
       for (const [x1, y1, x2, y2] of bg.lines) ops.push(moveTo(x1!, y1!), lineTo(x2!, y2!))

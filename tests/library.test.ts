@@ -79,11 +79,13 @@ const select = (el: HTMLSelectElement, v: string) =>
     el.dispatchEvent(new Event('change', { bubbles: true }))
   })
 const buttonByText = (text: string) => qa<HTMLButtonElement>('button').find((b) => b.textContent === text)!
+// [PDF 가져오기] sits above [새 노트] (Story 9.3).
+const newNoteItem = () => qa('[role="menuitem"]').find((m) => m.textContent === '새 노트')!
 const titleInput = () => q<HTMLInputElement>('input[type="text"]')!
 
 async function openSheetViaFab() {
   click(fabButton())
-  click(q('[role="menuitem"]')!)
+  click(newNoteItem())
 }
 
 const mk = (noteId: string, title: string, editedAt: unknown, pageCount = 1): Note => {
@@ -166,10 +168,10 @@ describe('empty library', () => {
 })
 
 describe('fab', () => {
-  test('opens only [new note], + becomes x, veil shown; x, outside and Esc collapse; Esc focuses +', async () => {
+  test('opens [import PDF] above [new note], + becomes x, veil shown; x, outside and Esc collapse; Esc focuses +', async () => {
     await mountLibrary()
     click(fabButton())
-    expect(qa('[role="menuitem"]').map((m) => m.textContent)).toEqual(['새 노트'])
+    expect(qa('[role="menuitem"]').map((m) => m.textContent)).toEqual(['PDF 가져오기', '새 노트'])
     expect(q('[role="menu"]')).not.toBeNull()
     expect(q('.fab-veil')).not.toBeNull()
     expect(fabButton().getAttribute('aria-expanded')).toBe('true')
@@ -191,14 +193,14 @@ describe('fab', () => {
     expect(document.activeElement).toBe(fabButton())
   })
 
-  test('arrow keys stay on the single item; menu item opens the sheet', async () => {
+  test('arrow keys move between the items; menu item opens the sheet', async () => {
     await mountLibrary()
     click(fabButton())
     key(document.activeElement!, 'ArrowDown')
-    expect(document.activeElement).toBe(q('[role="menuitem"]'))
+    expect(document.activeElement).toBe(newNoteItem())
     key(document.activeElement!, 'ArrowUp')
     expect(document.activeElement).toBe(q('[role="menuitem"]'))
-    click(q('[role="menuitem"]')!)
+    click(newNoteItem())
     expect(dialog()).not.toBeNull()
     expect(q('[role="menu"]')).toBeNull()
   })
@@ -207,7 +209,7 @@ describe('fab', () => {
     await mountLibrary()
     await openSheetViaFab()
     click(fabButton())
-    click(q('[role="menuitem"]')!)
+    click(newNoteItem())
     click(q('.cover-card')!)
     expect(qa('[role="dialog"]')).toHaveLength(1)
   })

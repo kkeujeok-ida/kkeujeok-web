@@ -1,5 +1,6 @@
 // Page operations (spec/ops.md "Page operations"; mirrors test/tools/pages.js). Never mutate the input note.
 import type { Note, Page } from '../model/note'
+import { isPdfBackground, patternOf } from '../model/pdfRules'
 import type { Ctx, Op, OpResult } from './ops'
 
 const BACKGROUNDS = ['plain', 'lined', 'grid', 'dot']
@@ -25,7 +26,7 @@ export function addPage(note: Note, op: Op, ctx: Ctx): OpResult {
   const next = structuredClone(note)
   const page: Page = {
     id: ctx.pageIds![0]!, width: ref.width, height: ref.height,
-    background: BACKGROUNDS.includes(ref.background) ? ref.background : 'plain',
+    background: patternOf(ref.background),
     rev: '', seq: 0, editedAt: '', editedBy: '', elements: [],
   }
   stamp(page, ctx, ctx.revs![0]!)
@@ -136,12 +137,14 @@ export function setPageOrder(note: Note, op: Op, ctx: Ctx): OpResult {
 export function setPageBackground(note: Note, op: Op, ctx: Ctx): OpResult {
   const items = (Array.isArray(op.items) ? op.items : []) as { pageId: string; background: string }[]
   const have = new Set(note.pages.map((p) => p.id))
+  const named = new Set(items.map((it) => it.pageId))
   if (items.some((it) => !have.has(it.pageId))) return { error: 'pageNotFound' }
   if (hasDup(items.map((it) => it.pageId))) return { error: 'duplicateId' }
   if (items.some((it) => !BACKGROUNDS.includes(it.background))) return { error: 'invalidBackground' }
+  if (note.pages.some((p) => named.has(p.id) && isPdfBackground(p.background))) return { error: 'pdfBackground' }
   const want = new Map(items.map((it) => [it.pageId, it.background]))
   const next = structuredClone(note)
-  const back: { pageId: string; background: string }[] = []
+  const back: { pageId: string; background: unknown }[] = []
   let k = 0
   for (const page of next.pages) {
     if (!want.has(page.id) || want.get(page.id) === page.background) continue
@@ -158,6 +161,7 @@ export function setPageOrientation(note: Note, op: Op, ctx: Ctx): OpResult {
   if (idx < 0) return { error: 'pageNotFound' }
   if (op.orientation !== 'portrait' && op.orientation !== 'landscape') return { error: 'invalidOrientation' }
   const page = note.pages[idx]!
+  if (isPdfBackground(page.background)) return { error: 'pdfOrientation' }
   const cur = page.width > page.height ? 'landscape' : 'portrait'
   if (cur === op.orientation || page.width === page.height) return unchanged(note)
   const next = structuredClone(note)

@@ -1,6 +1,7 @@
 // Note model (spec note-format.md, note.formatVersion). A note is plain JSON
 // so fields this client does not know ride along untouched at every level.
 import { round2 } from './number'
+import { isKnownBackground } from './pdfRules'
 
 export const SUPPORTED_FORMAT_VERSION = 1
 export const BACKGROUNDS = ['plain', 'lined', 'grid', 'dot'] as const
@@ -19,7 +20,8 @@ export type Page = Extra & {
   id: string
   width: number
   height: number
-  background: string
+  /** A pattern name or a PDF reference object (spec pdf.md). */
+  background: string | Extra
   rev: string
   seq: number
   editedAt: string
@@ -66,7 +68,7 @@ function validPage(p: unknown): boolean {
     isStr(p.id) &&
     isNum(p.width) && p.width > 0 &&
     isNum(p.height) && p.height > 0 &&
-    (BACKGROUNDS as readonly unknown[]).includes(p.background) &&
+    isKnownBackground(p.background) &&
     isStr(p.rev) &&
     isInt(p.seq) &&
     isStr(p.editedAt) &&
@@ -116,6 +118,11 @@ export function toWritableJson(note: Note): Note {
     p.width = round2(p.width)
     p.height = round2(p.height)
     p.seq = round2(p.seq)
+    const bg = p.background
+    if (typeof bg === 'object' && bg !== null) {
+      if (Array.isArray(bg.box) && bg.box.every((n) => typeof n === 'number' && Number.isFinite(n))) bg.box = bg.box.map(round2)
+      if (typeof bg.userUnit === 'number' && Number.isFinite(bg.userUnit)) bg.userUnit = round2(bg.userUnit)
+    }
     for (const e of p.elements) if (isValidStroke(e)) roundStroke(e)
   }
   return j

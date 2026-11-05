@@ -2,6 +2,7 @@
 // image.assetState. Pure (port of the Android lib/model/image_rules.dart).
 import type { Note } from './note'
 import { round2 } from './number'
+import { isPdfBackground } from './pdfRules'
 
 /** The least width or height of an image, pt. */
 export const IMAGE_SIZE_MIN = 1
@@ -47,6 +48,8 @@ export function referencedAssets(note: Pick<Note, 'pages'>): string[] {
     for (const e of (Array.isArray(p.elements) ? p.elements : []) as { type?: unknown; asset?: unknown }[]) {
       if (e && e.type === 'image') out.add(typeof e.asset === 'string' ? e.asset : '')
     }
+    // A well-formed PDF background names its asset too (spec pdf.md "Asset first").
+    if (isPdfBackground(p.background)) out.add(p.background.asset)
   }
   return [...out].sort(byCodeUnit)
 }

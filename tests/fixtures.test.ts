@@ -21,6 +21,7 @@ import { dockAtPointer } from '../src/ui/library/toolbarDock'
 import { placeBubble } from '../src/ui/library/bubblePlace'
 import { driveAssetsFolderRule } from '../src/drive/duplicates'
 import { assetState, imageAccept, imageInitialSize, imageUploadPlan, referencedAssets } from '../src/model/imageRules'
+import { pdfImport, pdfPageBox, pdfPageDisplay, pdfPageMatrix, pdfPagePoint, type PdfImportIn } from '../src/model/pdfRules'
 import { layoutText, type LineBox } from '../src/model/textLayout'
 import { snapScale } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
@@ -105,6 +106,16 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'ops.setPageOrder': opRunner,
   'ops.setPageBackground': opRunner,
   'ops.setPageOrientation': opRunner,
+  'pdf.pageOps': opRunner,
+  'pdf.pageBox': ({ input, expected }) => void expect(pdfPageBox(input as Parameters<typeof pdfPageBox>[0])).toEqual(expected),
+  'pdf.import': ({ input, expected }) => void expect(pdfImport(input as PdfImportIn)).toEqual(expected),
+  'pdf.pageDisplay': ({ input, expected }) => void expect(pdfPageDisplay(input as Parameters<typeof pdfPageDisplay>[0])).toEqual(expected),
+  'pdf.pageMatrix': ({ input, expected }) => {
+    const i = input as { box: number[]; rotate: number; userUnit: number; point: number[] }
+    expect({ point: pdfPageMatrix(i.box, i.rotate, i.userUnit, i.point) }).toEqual(expected)
+    // The inverse of the answer gives the input point back.
+    expect(pdfPagePoint(i.box, i.rotate, i.userUnit, (expected as { point: number[] }).point)).toEqual(i.point)
+  },
   'select.image': ({ input, expected }) => {
     const i = input as { fn: 'lasso' | 'tap' | 'rect'; elements: El[]; polygon?: P[]; point?: P; tolerance?: number; rect?: [number, number, number, number] }
     const got = i.fn === 'lasso' ? selectLasso(i.elements, i.polygon!) : i.fn === 'tap' ? selectTap(i.elements, i.point!, i.tolerance) : selectRect(i.elements, i.rect!)
@@ -327,11 +338,6 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
   // PDF background rules (Story 9.1) arrive with the web stories 9.3, 9.5, 9.7.
-  'pdf.pageBox',
-  'pdf.pageMatrix',
-  'pdf.import',
-  'pdf.pageDisplay',
-  'pdf.pageOps',
   'pdf.exportStructure',
   // Trash rules (Story 14.1) arrive with the web stories 14.3, 7.8.
   'trash.restoreNote',

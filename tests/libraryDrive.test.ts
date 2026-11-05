@@ -223,7 +223,7 @@ describe('missing-root dialog', () => {
     mountLibrary(store)
     await flush()
     await click(q('.fab-button')!)
-    await click(q('[role="menuitem"]')!)
+    await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((m) => m.textContent === '새 노트')!)
     expect(q('[role="dialog"]')).not.toBeNull()
     setVisibility('visible') // the re-check finds it missing
     await flush()

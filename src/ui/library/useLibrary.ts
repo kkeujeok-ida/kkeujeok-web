@@ -5,6 +5,7 @@ import { newId } from '../../model/ids'
 import { encodeKkj } from '../../model/kkjCodec'
 import type { Note, Page } from '../../model/note'
 import { createNote } from '../../ops/ops'
+import type { PdfImportOut } from '../../model/pdfRules'
 import type { Background, NewNoteDefaults, Orientation } from '../../storage/newNoteDefaults'
 import type { NoteStore } from '../../storage/noteStore'
 import { savesSettled } from '../../storage/saveQueue'
@@ -268,6 +269,27 @@ export function useLibrary(
     [defaults, editedBy, folders],
   )
 
+  /** Story 9.3: a new note with the pages of an imported PDF (rule `pdf.import`); the title is not made unique. Rejects when nothing was stored. */
+  const createFromPdf = useCallback(
+    async (imp: PdfImportOut, folderId?: string | null): Promise<string> => {
+      const s = storeRef.current
+      if (!s || statusRef.current !== 'ready') throw new Error('library not ready')
+      const noteId = newId()
+      const now = new Date().toISOString()
+      const by = editedBy ?? detectEditedBy()
+      const r = createNote({ title: imp.title, existingTitles: [], background: 'plain', orientation: 'portrait', noteId, pageId: newId(), pageRev: newId(), metaRev: newId(), orderRev: newId(), now, editedBy: by })
+      if ('error' in r) throw new Error(r.error)
+      r.note.pages = imp.pages.map((p) => ({ id: newId(), width: p.width, height: p.height, background: p.background, rev: newId(), seq: 1, editedAt: now, editedBy: by, elements: [] }))
+      if (folderId) await folders?.assignNote(noteId, folderId)
+      await s.writeNote(r.note)
+      seq.current++
+      const item: LibraryItem = { ...toItem({ noteId, result: { result: 'ok', writable: true, note: r.note } }), ...(folders && { folderId: folderId ?? null }) }
+      setState((p) => ({ ...p, items: sortItems([...p.items.filter((i) => i.noteId !== noteId), item]) }))
+      return noteId
+    },
+    [editedBy, folders],
+  )
+
   /**
    * Story 7.8: the note takes a new title (rule `library.renameNote`: `metaRev`, `metaSeq`); the next upload renames the Drive
    * file. A note open in another tab is told to rename itself. False when nothing was changed.
@@ -339,5 +361,5 @@ export function useLibrary(
     return { name: `${r.note.meta.title}-${noteId.slice(0, 8)}.kkj`, bytes: await encodeKkj(r.note) }
   }, [])
 
-  return { status: state.status, items: state.items, failed: state.failed, reload: load, create, exportCopy, rename, setCover }
+  return { status: state.status, items: state.items, failed: state.failed, reload: load, create, exportCopy, rename, setCover, createFromPdf }
 }

@@ -4,6 +4,7 @@ import { ConfirmDialog } from '../ConfirmDialog'
 import type { Page } from '../../model/note'
 import { dropIndex, stepIndex } from '../../model/pageMove'
 import { pageOutOfBounds } from '../../model/pageBounds'
+import { isPdfBackground } from '../../model/pdfRules'
 import type { El } from '../../model/select'
 import { StrokePathCache, fitViewport, paintPage } from '../../render/pagePainter'
 
@@ -88,6 +89,7 @@ function Item({ page, index, total, current, picked, drop, conflict, focusable, 
   const { t } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const visible = useVisible(box)
+  const pdf = isPdfBackground(page.background) // a PDF page keeps its background and orientation (spec pdf.md)
   const [open, setOpen] = useState(false)
   const [sub, setSub] = useState(false) // the background choices instead of the main items
   const menu = useRef<HTMLDivElement>(null)
@@ -198,7 +200,7 @@ function Item({ page, index, total, current, picked, drop, conflict, focusable, 
       {open && (
         <div ref={menu} role="menu" aria-label={t('page.menu')} className="editor-menu po-menu" onKeyDown={onMenuKey}>
           {sub ? (
-            <BackgroundItems value={BACKGROUNDS.includes(page.background as never) ? page.background : null} onPick={(b) => pick(() => onBackground(b))()} />
+            <BackgroundItems value={typeof page.background === 'string' && BACKGROUNDS.includes(page.background as never) ? page.background : null} onPick={(b) => pick(() => onBackground(b))()} />
           ) : (
             <>
               <button type="button" role="menuitem" className="editor-menu-item" onClick={pick(onDuplicate)}>
@@ -207,10 +209,10 @@ function Item({ page, index, total, current, picked, drop, conflict, focusable, 
               <button type="button" role="menuitem" className="editor-menu-item" aria-disabled={total < 2} onClick={pick(() => total > 1 && onDelete())}>
                 {t('page.delete')}
               </button>
-              <button type="button" role="menuitem" className="editor-menu-item" aria-haspopup="menu" onClick={() => setSub(true)}>
+              <button type="button" role="menuitem" className="editor-menu-item" aria-haspopup="menu" aria-disabled={pdf} onClick={() => !pdf && setSub(true)}>
                 {t('page.changeBackground')}
               </button>
-              <button type="button" role="menuitem" className="editor-menu-item" aria-disabled={w === h} onClick={pick(() => w !== h && onOrientation(portrait ? 'landscape' : 'portrait'))}>
+              <button type="button" role="menuitem" className="editor-menu-item" aria-disabled={w === h || pdf} onClick={pick(() => w !== h && !pdf && onOrientation(portrait ? 'landscape' : 'portrait'))}>
                 {t(portrait ? 'page.toLandscape' : 'page.toPortrait')}
               </button>
             </>
