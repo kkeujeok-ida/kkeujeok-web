@@ -8,6 +8,7 @@ import { elementClipboard } from '../../model/elementClipboard'
 import { isBlankText } from '../../model/textLayout'
 import { sessionHistory } from '../../ops/sessionHistories'
 import { auth } from '../../drive/auth'
+import { ShortcutSheet } from '../ShortcutSheet'
 import { getLeftHanded, subscribeLeftHanded } from '../../storage/leftHanded'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
 import { acquireNoteLock } from '../../storage/noteLock'
@@ -713,6 +714,22 @@ export function NoteEditor({
       if (writer.readOnly) return
       const redo = k === 'y' || e.shiftKey
       if (redo ? writer.redo() : writer.undo()) e.preventDefault()
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [loaded])
+
+  // '?' on the canvas or the toolbar opens the shortcut sheet (not while typing or under a dialog).
+  const [sheet, setSheet] = useState(false)
+  useEffect(() => {
+    if (!loaded) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '?' || e.ctrlKey || e.metaKey || e.altKey || e.repeat || e.isComposing || popoverOpen.current) return
+      const target = e.target as Element | null
+      if (target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])') || document.querySelector('[role="dialog"], [aria-modal="true"]')) return
+      if (![toolbar.current, canvas.current].some((r) => r?.contains(target) || r?.contains(document.activeElement))) return
+      e.preventDefault()
+      setSheet(true)
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
@@ -1662,6 +1679,7 @@ export function NoteEditor({
           <div role="status" className="snackbar">
             {message ? t(MESSAGE_KEY[message.key]) : ''}
           </div>
+          {sheet && <ShortcutSheet onClose={() => setSheet(false)} />}
           {deleted && (
             <div
               role="status"

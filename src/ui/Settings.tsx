@@ -8,6 +8,7 @@ import { deleteNoteDatabase } from '../storage/noteDb'
 import { VISIBLE_TOOLS_MAX, VISIBLE_TOOLS_MIN, sharedVisibleTools } from '../storage/toolbarVisibleTools'
 import { getLeftHanded, setLeftHanded, subscribeLeftHanded } from '../storage/leftHanded'
 import { THEMES, getTheme, setTheme, subscribeTheme } from '../storage/theme'
+import { Help } from './Help'
 import { PenPaletteEditor } from './PenPaletteEditor'
 import { ConfirmDialog } from './ConfirmDialog'
 import { downloadBlob } from './download'
@@ -38,6 +39,13 @@ export function Settings({
   const { t, choice, setChoice } = useI18n()
   const theme = useSyncExternalStore(subscribeTheme, getTheme)
   const leftHanded = useSyncExternalStore(subscribeLeftHanded, getLeftHanded)
+  const [help, setHelp] = useState(false)
+  const helpBtn = useRef<HTMLButtonElement>(null)
+  const wasHelp = useRef(false)
+  useEffect(() => {
+    if (wasHelp.current && !help) helpBtn.current?.focus() // back from the help page
+    wasHelp.current = help
+  }, [help])
   const [action, setAction] = useState<Action | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<Key | null>(null)
@@ -109,6 +117,7 @@ export function Settings({
   // The view replaced the library: move focus to its heading so the change is announced.
   const title = useRef<HTMLHeadingElement>(null)
   useEffect(() => title.current?.focus(), [])
+  if (help) return <Help onClose={() => setHelp(false)} />
   return (
     <section className="settings" aria-labelledby="settings-title">
       <header className="settings-header">
@@ -161,6 +170,9 @@ export function Settings({
         </div>
       </div>
       <PenPaletteEditor />
+      <button ref={helpBtn} type="button" className="btn" onClick={() => setHelp(true)}>
+        {t('settings.help')}
+      </button>
       <a className="btn" href="/privacy" target="_blank" rel="noopener noreferrer">
         {t('settings.privacy')}
       </a>

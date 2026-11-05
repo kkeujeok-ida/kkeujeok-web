@@ -2763,3 +2763,9 @@ h1 {
 .export-progress:empty {
   display: none;
 }
+.help-list { margin: 0; }
+.help-row { display: flex; gap: var(--spacing-3); padding: var(--spacing-1) 0; }
+.help-row dt { flex: none; min-width: 12em; }
+.help-row dd { margin: 0; color: var(--color-ink-secondary); }
+.help kbd, .shortcut-sheet kbd { font: inherit; font-weight: 600; }
+.shortcut-sheet { max-height: 80vh; overflow-y: auto; }
