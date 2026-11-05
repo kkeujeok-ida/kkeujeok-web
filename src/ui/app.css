@@ -2784,3 +2784,6 @@ h1 {
   pointer-events: none;
   z-index: 2;
 }
+
+/* Long English text wraps instead of being cut (Story 10.7). */
+.btn, .dialog, .snackbar, .editor-banner, .sync-banner, .conflict-sheet { overflow-wrap: anywhere; }
