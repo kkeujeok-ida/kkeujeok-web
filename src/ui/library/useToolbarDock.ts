@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type RefObject } from 'react'
-import type { Dock, ToolbarPos, ToolbarPositionStore } from '../../storage/toolbarPosition'
+import { DEFAULT_POS, type Dock, type ToolbarPos, type ToolbarPositionStore } from '../../storage/toolbarPosition'
 import { DOCKS, applyDock, centerOf, clampCenter, dockRect, dockAtPointer, ratioOf, sizeAt, type Pt, type Size } from './toolbarDock'
 
 /** A press that moves farther than this many px starts dragging the toolbar. */
 const DRAG_PX = 6
+/** At or below this CSS width the toolbar is docked on top only (UX-DR88). */
+export const NARROW_PX = 400
 const winSize = (): Size => ({ w: window.innerWidth, h: window.innerHeight })
 
 export type Outline = { dock: Dock; left: number; top: number; width: number; height: number; near: boolean }
 
 /** The toolbar's place: the stored position, the window and toolbar measures, and dragging the handle. */
 export function useToolbarDock(store: ToolbarPositionStore, bar: RefObject<HTMLElement | null>, active: boolean) {
-  const [pos, setPos] = useState<ToolbarPos>(() => store.read())
+  const [stored, setPos] = useState<ToolbarPos>(() => store.read())
   const [win, setWin] = useState<Size>(winSize)
+  // 320px width / 400% zoom: the toolbar sits at the top only (display only; the stored place is kept).
+  const pos = win.w <= NARROW_PX ? { ...DEFAULT_POS } : stored
   const [size, setSize] = useState<Size>({ w: 0, h: 0 })
   const [drag, setDrag] = useState<{ center: Pt; pointer: Pt } | null>(null)
   const press = useRef<{ id: number; x: number; y: number; off: Pt; on: boolean } | null>(null)

@@ -1146,7 +1146,8 @@ h1 {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pen-nib {
+  .pen-nib,
+  .pen-toolbar.is-vertical .pen-nib {
     transition: none;
   }
 }
