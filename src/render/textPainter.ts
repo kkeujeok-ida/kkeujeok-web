@@ -10,7 +10,8 @@ const COLOR = /^#[0-9a-f]{6}$/
 export const drawableText = (e: unknown): e is El => !!e && typeof e === 'object' && (e as El).type === 'text' && typeof (e as El).text === 'string'
 
 /** Paints `e` with its top-left (before rotation) at the page origin of `ctx`; it turns about the box center. */
-export function paintTextBox(ctx: CanvasRenderingContext2D, e: El): void {
+/** `ink` maps a letter color (All Dark); default as written. */
+export function paintTextBox(ctx: CanvasRenderingContext2D, e: El, ink: (c: string) => string = (c) => c): void {
   const lay = layoutText(e)
   const cps = [...(e.text as string)].map((c) => c.codePointAt(0)!)
   const { size, bold } = textStyles(e)
@@ -54,7 +55,7 @@ export function paintTextBox(ctx: CanvasRenderingContext2D, e: El): void {
           ctx.translate(gx, y + line.baseline)
           if (italic[i]) ctx.transform(1, 0, -ITALIC_SKEW, 1, 0, 0)
           ctx.font = `${bold[i] ? 600 : 400} ${size[i]}px Pretendard, system-ui, sans-serif`
-          ctx.fillStyle = color[i]!
+          ctx.fillStyle = ink(color[i]!)
           ctx.fillText(group, 0, 0)
           ctx.restore()
         }

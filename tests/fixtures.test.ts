@@ -22,6 +22,7 @@ import { placeBubble } from '../src/ui/library/bubblePlace'
 import { driveAssetsFolderRule } from '../src/drive/duplicates'
 import { assetState, imageAccept, imageInitialSize, imageUploadPlan, referencedAssets } from '../src/model/imageRules'
 import { pdfImport, pdfPageBox, pdfPageDisplay, pdfPageMatrix, pdfPagePoint, type PdfImportIn } from '../src/model/pdfRules'
+import { invertBackground, invertColor, invertHighlighter, invertInk, invertLayers, invertPaper } from '../src/model/invert'
 import { layoutText, type LineBox } from '../src/model/textLayout'
 import { snapScale } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
@@ -42,6 +43,16 @@ import { libraryCreateFolder, libraryFolderName, libraryMoveFolder, libraryMoveN
 
 // `tolerance` is the fixture file's top-level value, copied onto each case.
 type Case = { name: string; input: unknown; expected: unknown; tolerance?: number }
+
+// Every [r,g,b] channel within `tol`; the other fields (e.g. `corrected`) exactly.
+function near(got: object, expected: unknown, tol = 0) {
+  const g = got as Record<string, unknown>, e = expected as Record<string, unknown>
+  expect(Object.keys(g).sort()).toEqual(Object.keys(e).sort())
+  for (const k of Object.keys(e)) {
+    if (Array.isArray(e[k])) (e[k] as number[]).forEach((v, i) => expect(Math.abs((g[k] as number[])[i]! - v)).toBeLessThanOrEqual(tol))
+    else expect(g[k]).toEqual(e[k])
+  }
+}
 
 // Rule id -> how to judge one case. A new spec rule adds one line here.
 const runners: Record<string, (c: Case) => void | Promise<void>> = {
@@ -327,6 +338,12 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'export.fileName': ({ input, expected }) => void expect(exportFileName(input as Parameters<typeof exportFileName>[0])).toEqual(expected),
   'export.plan': ({ input, expected }) => void expect(exportPlan(input as Parameters<typeof exportPlan>[0])).toEqual(expected),
   'pdf.exportStructure': ({ input, expected }) => void expect(exportPlan(input as Parameters<typeof exportPlan>[0])).toEqual(expected),
+  'invert.color': ({ input, expected, tolerance }) => near(invertColor(input as { color: string }), expected, tolerance),
+  'invert.ink': ({ input, expected, tolerance }) => near(invertInk(input as { color: string }), expected, tolerance),
+  'invert.paper': ({ expected }) => void expect(invertPaper()).toEqual(expected),
+  'invert.highlighter': ({ input, expected, tolerance }) => near(invertHighlighter(input as { colors: string[] }), expected, tolerance),
+  'invert.background': ({ input, expected, tolerance }) => near(invertBackground(input as { background: string }), expected, tolerance),
+  'invert.layers': ({ input, expected }) => void expect(invertLayers(input as Parameters<typeof invertLayers>[0])).toEqual(expected),
   'zoom.snap': ({ input, expected }) => {
     const i = input as { scale: number; fitScale: number }
     expect(snapScale(i.scale, i.fitScale)).toBe(expected)
@@ -338,13 +355,6 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
-  // All Dark rules (Story 10.1) arrive with the web story 10.3.
-  'invert.color',
-  'invert.ink',
-  'invert.paper',
-  'invert.highlighter',
-  'invert.background',
-  'invert.layers',
   // Trash rules (Story 14.1) arrive with the web stories 14.3, 7.8.
   'trash.restoreNote',
   'trash.restoreFolder',

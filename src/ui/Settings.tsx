@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { syncLog } from '../sync/syncLog'
 import { countUnsent, defaultUnsentStore } from '../sync/unsent'
 import { fmt, useI18n, type Choice, type Key } from '../i18n'
@@ -6,6 +6,7 @@ import type { Auth } from '../drive/auth'
 import { clearSessionHistories } from '../ops/sessionHistories'
 import { deleteNoteDatabase } from '../storage/noteDb'
 import { VISIBLE_TOOLS_MAX, VISIBLE_TOOLS_MIN, sharedVisibleTools } from '../storage/toolbarVisibleTools'
+import { THEMES, getTheme, setTheme, subscribeTheme } from '../storage/theme'
 import { PenPaletteEditor } from './PenPaletteEditor'
 import { ConfirmDialog } from './ConfirmDialog'
 import { downloadBlob } from './download'
@@ -34,6 +35,7 @@ export function Settings({
   unsentIds?: () => Promise<string[] | null>
 }) {
   const { t, choice, setChoice } = useI18n()
+  const theme = useSyncExternalStore(subscribeTheme, getTheme)
   const [action, setAction] = useState<Action | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<Key | null>(null)
@@ -128,6 +130,15 @@ export function Settings({
             />
             {/* Native names are read in their own language even inside the other UI language. */}
             <span lang={c.value === 'system' ? undefined : c.value}>{t(c.label)}</span>
+          </label>
+        ))}
+      </fieldset>
+      <fieldset className="settings-group">
+        <legend>{t('settings.theme')}</legend>
+        {THEMES.map((v) => (
+          <label key={v} className="option">
+            <input type="radio" name="theme" value={v} checked={theme === v} onChange={() => setTheme(v)} />
+            <span>{t(`settings.theme.${v}`)}</span>
           </label>
         ))}
       </fieldset>

@@ -7,6 +7,8 @@ import { pageBackground } from './pageBackground'
 import { outlinePath, strokeOutline } from './strokeOutline'
 import { highlighterOutline, highlighterPath } from './highlighterOutline'
 import { drawableImage, paintImage, type ImageSource } from './imagePainter'
+import { dotHex, inkHex, invertLayers, lineHex, paperHex } from '../model/invert'
+import { isAllDark } from '../storage/theme'
 import { drawableText, paintTextBox } from './textPainter'
 
 /** page point = (local - offset) / scale. Only 2.12 (zoom/pan) changes it. */
@@ -164,8 +166,10 @@ const MAX_BACKGROUND_ITEMS = 100000
 const COLOR = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
 const HIGHLIGHTER_ALPHA = 0.4
 // A highlighter stroke is one layer (one fill) composited once: 0.4 opacity, multiply (spec stroke-geometry.md).
-const fill = (ctx: CanvasRenderingContext2D, path: Path2D, color: unknown, tool?: unknown, alpha = 1) => {
-  ctx.fillStyle = typeof color === 'string' && COLOR.test(color) ? color : '#000000'
+// All Dark (`dark`): pens use the corrected inverted ink; a highlighter keeps its color with normal alpha (spec invert.md).
+const fill = (ctx: CanvasRenderingContext2D, path: Path2D, color: unknown, tool?: unknown, alpha = 1, dark = false) => {
+  const c = typeof color === 'string' && COLOR.test(color) ? color : '#000000'
+  ctx.fillStyle = dark && tool !== 'highlighter' ? inkHex(c.slice(0, 7)) : c
   if (tool !== 'highlighter') {
     if (alpha === 1) return ctx.fill(path, 'nonzero')
     ctx.save()
@@ -175,7 +179,7 @@ const fill = (ctx: CanvasRenderingContext2D, path: Path2D, color: unknown, tool?
   }
   ctx.save()
   ctx.globalAlpha = HIGHLIGHTER_ALPHA * alpha
-  ctx.globalCompositeOperation = 'multiply'
+  if (!dark) ctx.globalCompositeOperation = 'multiply'
   ctx.fill(path, 'nonzero')
   ctx.restore()
 }
@@ -196,6 +200,8 @@ export function paintPage(
   images?: ImageSource,
   /** Strokes (by id) drawn at `alpha` of their opacity: the ones the eraser would remove. */
   fade?: { ids: ReadonlySet<string>; alpha: number } | null,
+  /** Draw in All Dark; default: the current theme. A copy that is saved or exported passes false. */
+  allDark: boolean = isAllDark(),
 ): void {
   const { width: w, height: h } = page
   const { scale, offsetX, offsetY } = viewport
@@ -209,14 +215,16 @@ export function paintPage(
     ctx.rect(0, 0, w, h)
     ctx.clip()
 
+    // A PDF page inverts nothing, so one rule decides for every layer.
+    const dark = allDark && invertLayers({ page, layer: 'paper' }).invert
     const name = patternOf(page.background)
     // A huge page would make the pattern explode: paper only past this count.
     const count = name === 'dot' ? (w / 28) * (h / 28) : name === 'grid' ? (w + h) / 28 : h / 28
     const bg = count > MAX_BACKGROUND_ITEMS ? pageBackground('plain', w, h) : pageBackground(name, w, h)
-    ctx.fillStyle = bg.paper
+    ctx.fillStyle = dark ? paperHex() : bg.paper
     ctx.fillRect(0, 0, w, h)
     if (bg.lines.length > 0) {
-      ctx.strokeStyle = bg.lineColor
+      ctx.strokeStyle = dark ? lineHex() : bg.lineColor
       ctx.lineWidth = bg.lineWidth
       ctx.beginPath()
       for (const [x1, y1, x2, y2] of bg.lines) {
@@ -226,7 +234,7 @@ export function paintPage(
       ctx.stroke()
     }
     if (bg.dots.length > 0) {
-      ctx.fillStyle = bg.dotColor
+      ctx.fillStyle = dark ? dotHex() : bg.dotColor
       ctx.beginPath()
       for (const [x, y] of bg.dots) {
         ctx.moveTo(x! + bg.dotRadius, y!)
@@ -257,14 +265,15 @@ export function paintPage(
         }
       }
     }
+    const ink = dark ? inkHex : undefined
     let drafted = false
     for (const e of Array.isArray(elements) ? elements : []) {
       try {
         if (draft && (e as { id?: unknown } | null)?.id === draft.id) {
           drafted = true
-          paintTextBox(ctx, draft.el)
-        } else if (drawableText(e)) paintTextBox(ctx, e)
-        else if (drawableImage(e)) paintImage(ctx, e, images)
+          paintTextBox(ctx, draft.el, ink)
+        } else if (drawableText(e)) paintTextBox(ctx, e, ink)
+        else if (drawableImage(e)) paintImage(ctx, e, images, allDark ? invertLayers({ page, element: e as { type: string } }).underlay : undefined)
         if (!isValidStroke(e)) continue
         ids.add(e.id)
         const pcs = pieces.get(e.id)
@@ -276,7 +285,7 @@ export function paintPage(
           for (const p of pcs) if (isValidStroke(p)) hole.addPath(cache.pathOf(p))
           ctx.clip(hole, 'evenodd')
         }
-        fill(ctx, cache.pathOf(e), e.color, e.tool, fade?.ids.has(e.id) ? fade.alpha : 1)
+        fill(ctx, cache.pathOf(e), e.color, e.tool, fade?.ids.has(e.id) ? fade.alpha : 1, dark)
         if (pcs) ctx.restore()
       } catch {
         // one bad element must not hide the rest
@@ -284,7 +293,7 @@ export function paintPage(
     }
     if (draft && !drafted) {
       try {
-        paintTextBox(ctx, draft.el)
+        paintTextBox(ctx, draft.el, ink)
       } catch {
         // the draft is skipped for this frame
       }
@@ -292,7 +301,7 @@ export function paintPage(
     cache.keepOnly(ids)
     if (live && isValidStroke(live)) {
       try {
-        fill(ctx, strokePath(live), live.color, live.tool)
+        fill(ctx, strokePath(live), live.color, live.tool, 1, dark)
       } catch {
         // the stroke in progress is skipped for this frame
       }

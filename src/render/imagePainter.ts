@@ -20,7 +20,8 @@ const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFin
 /** An image element that can be drawn. */
 export const drawableImage = (e: unknown): e is El => !!e && typeof e === 'object' && (e as El).type === 'image' && ['x', 'y', 'width', 'height'].every((k) => isNum((e as El)[k]))
 
-export function paintImage(ctx: CanvasRenderingContext2D, e: El, src?: ImageSource): void {
+/** `underlay`: a fill drawn under the picture (All Dark: the original white paper, spec invert.layers). */
+export function paintImage(ctx: CanvasRenderingContext2D, e: El, src?: ImageSource, underlay?: string): void {
   const x = e.x as number, y = e.y as number, w = e.width as number, h = e.height as number
   const rot = isNum(e.rotation) ? e.rotation : 0
   const asset = e.asset
@@ -34,6 +35,10 @@ export function paintImage(ctx: CanvasRenderingContext2D, e: El, src?: ImageSour
     const state = src ? src.state(asset) : 'downloading'
     const pic = src && state === 'ready' && typeof asset === 'string' ? src.bitmap(asset) : null
     if (pic && pic !== 'broken') {
+      if (underlay) {
+        ctx.fillStyle = underlay
+        ctx.fillRect(x, y, w, h)
+      }
       ctx.drawImage(pic, x, y, w, h)
     } else {
       ctx.fillStyle = '#e5e7eb'

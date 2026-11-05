@@ -6,6 +6,15 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Kkeujeok</title>
+    <script>
+      // Theme before first paint, so a reload never flashes another theme. Same key/values as src/storage/theme.ts.
+      try {
+        var t = localStorage.getItem('kkeujeok.theme')
+        var r = document.documentElement
+        r.dataset.theme = t === 'dark' || t === 'alldark' ? 'dark' : 'light'
+        if (t === 'alldark') r.dataset.invert = 'true'
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
