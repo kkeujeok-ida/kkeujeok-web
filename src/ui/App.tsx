@@ -8,6 +8,7 @@ import { Library } from './library/Library'
 import { FOLDER_ICON, FolderTree } from './library/FolderTree'
 import { ALL_NOTES_HREF, folderHref, parseFolderRoute, useFolders } from './library/useFolders'
 import type { FolderService } from '../library/folderService'
+import { SNACKBAR_MS } from './snackbar'
 import { NoteEditor, parseNoteRoute } from './library/NoteEditor'
 import { auth as defaultAuth, type Auth } from '../drive/auth'
 import { defaultRootFolder, type RootFolderStore } from '../drive/rootFolderStore'
@@ -92,7 +93,7 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
   useEffect(() => {
     if (revived === 0) return
     setReviveShown(true)
-    const id = setTimeout(() => setReviveShown(false), 4000)
+    const id = setTimeout(() => setReviveShown(false), SNACKBAR_MS)
     return () => clearTimeout(id)
   }, [revived])
   const { t } = useI18n()

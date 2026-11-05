@@ -1,10 +1,11 @@
 // "다른 기기에서 지운 노트에 보내지 않은 변경이 있어 되살렸어요." (UX-DR68): once for each note the
 // receiver restored, for a few seconds. The live region is always there so a screen reader hears the text.
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { SNACKBAR_MS } from '../snackbar'
 import { useI18n } from '../../i18n'
 import { useSyncUi } from './syncUi'
 
-export const REVIVE_SNACKBAR_MS = 4000
+export const REVIVE_SNACKBAR_MS = SNACKBAR_MS
 const NONE = { subscribe: () => () => {}, getState: () => ({ revived: 0 }) as { revived?: number } }
 
 export function ReviveSnackbar() {

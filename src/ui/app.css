@@ -2674,6 +2674,9 @@ h1 {
 
 /* Story 18.3: a folder card in the note list, and the `../` card (a note thumbnail in size). */
 .folder-thumb {
+  /* Icon only on the empty page: no card background, border or shadow like a note thumbnail. */
+  aspect-ratio: var(--components-cover-card-aspect-ratio);
+  color: var(--color-ink-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2689,6 +2692,25 @@ h1 {
   font-family: var(--typography-title-font-family);
   font-size: var(--typography-title-font-size);
   font-weight: var(--typography-title-font-weight);
+}
+
+.folder-colors {
+  display: grid;
+  grid-template-columns: repeat(3, 28px);
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+}
+
+.folder-color {
+  width: 28px;
+  height: 28px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.folder-color[aria-checked='true'] {
+  border-color: var(--color-ink-primary, currentColor);
 }
 
 .folder-card.is-over .folder-thumb {

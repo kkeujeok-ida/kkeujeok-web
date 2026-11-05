@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyEvent } from 'react'
+import { SNACKBAR_MS } from '../snackbar'
 import { fmt, useI18n, type Key } from '../../i18n'
 import { defaultFor, type Pen, type PenTool } from '../../model/pen'
 import { addSlot, indexAfterMove, indexAfterRemove, moveSlot, pickByTool, removeSlot } from '../../model/penSlotList'
@@ -71,10 +72,6 @@ function backToLibrary() {
   else goToLibrary()
 }
 
-const SNACKBAR_MS = 4000
-/** The "slot deleted" snackbar with [되돌리기] stays this long. */
-const DELETE_UNDO_MS = 5000
-const DELETE_UNDO_FOCUS_MS = 15000
 /** The scale badge stays this long after the last zoom. */
 const ZOOM_BADGE_MS = 1500
 /** An assertive announcement stays in its live region this long. */
@@ -549,7 +546,7 @@ export function NoteEditor({
   }, [alert])
   useEffect(() => {
     if (!toast) return
-    const id = setTimeout(() => setToast(''), 3000)
+    const id = setTimeout(() => setToast(''), SNACKBAR_MS)
     return () => clearTimeout(id)
   }, [toast])
   useEffect(() => {
@@ -684,16 +681,11 @@ export function NoteEditor({
     lastUsed.current = deleted.last
     focusSlot(deleted.selected)
   }
-  // Focus inside the snackbar (keyboard, screen reader) gives more time.
-  const [deletedFocus, setDeletedFocus] = useState(false)
   useEffect(() => {
-    if (!deleted) {
-      setDeletedFocus(false) // an unmounted focused button fires no blur
-      return
-    }
-    const id = setTimeout(() => setDeleted(null), deletedFocus ? DELETE_UNDO_FOCUS_MS : DELETE_UNDO_MS)
+    if (!deleted) return
+    const id = setTimeout(() => setDeleted(null), SNACKBAR_MS)
     return () => clearTimeout(id)
-  }, [deleted, deletedFocus])
+  }, [deleted])
 
   // Ctrl/Cmd+Z undoes, Ctrl+Y and Ctrl/Cmd+Shift+Z redo, wherever focus is
   // except in a text field (which keeps its own undo).
@@ -1663,8 +1655,6 @@ export function NoteEditor({
             <div
               role="status"
               className="snackbar snackbar-action"
-              onFocus={() => setDeletedFocus(true)}
-              onBlur={() => setDeletedFocus(false)}
             >
               <span>{t('editor.slotDeleted')}</span>
               <button type="button" className="snackbar-button" onClick={undoDelete}>

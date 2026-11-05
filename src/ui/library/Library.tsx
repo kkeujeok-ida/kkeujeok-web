@@ -22,11 +22,14 @@ import { NewNoteDialog } from './NewNoteDialog'
 import { noteHref } from './NoteEditor'
 import { requestResolve } from './resolveRequest'
 import type { FolderResult, FolderService, FolderView } from '../../library/folderService'
+import { SNACKBAR_MS } from '../snackbar'
 import { FolderPicker } from './FolderPicker'
 import { NOTE_DRAG } from './FolderTree'
 import { folderHref } from './useFolders'
 import { CoverArt, CoverDialog, coverUrl } from './CoverArt'
 import { NameDialog } from './NameDialog'
+import { ConfirmDialog } from '../ConfirmDialog'
+import { FOLDER_COLORS, getFolderColor, setFolderColor } from '../../library/folderColor'
 import { librarySearch } from '../../library/libraryRules'
 import { LIBRARY_SORTS, sortBy, useLibrary, type LibraryItem, type LibrarySort } from './useLibrary'
 
@@ -269,12 +272,15 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   const [moving, setMoving] = useState<Target | null>(null)
   const [newFolder, setNewFolder] = useState<HTMLElement | null | false>(false)
   const [movingFolder, setMovingFolder] = useState<{ id: string; from: HTMLElement | null } | null>(null)
+  const [renamingFolder, setRenamingFolder] = useState<{ id: string; from: HTMLElement | null } | null>(null)
+  const [deletingFolder, setDeletingFolder] = useState<{ id: string; from: HTMLElement | null } | null>(null)
+  const [, setColorTick] = useState(0) // the color lives in localStorage; this redraws
   const [dragFolder, setDragFolder] = useState<string | null>(null)
   const [overFolder, setOverFolder] = useState<string | null>(null)
   const [undo, setUndo] = useState<{ text: string; inverse?: FolderResult['inverse'] } | null>(null)
   useEffect(() => {
     if (!undo) return
-    const id = setTimeout(() => setUndo(null), 5000)
+    const id = setTimeout(() => setUndo(null), SNACKBAR_MS)
     return () => clearTimeout(id)
   }, [undo])
   // Focus goes back to the control that started a dialog; a card that moved away leaves it on the first card.
@@ -449,6 +455,15 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             ))}
           </>
         )}
+        {parentId !== null && (
+          <li className="cover-item">
+            <a className={`cover-card folder-card${overFolder === parentId ? ' is-over' : ''}`} href={folderHref(parentId === 'root' ? null : parentId)} aria-label={t('folder.up')} {...folderDrop(parentId)}>
+              <span className="folder-thumb" aria-hidden="true">
+                <span className="folder-thumb-label">../</span>
+              </span>
+            </a>
+          </li>
+        )}
         {status === 'ready' && items.length === 0 && noSubfolders && !scanning && inFolder && !q && (
           <li className="cover-status" role="status">
             {t('folder.empty')}
@@ -471,15 +486,6 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             </button>
           </li>
         )}
-        {parentId !== null && (
-          <li className="cover-item">
-            <a className={`cover-card folder-card${overFolder === parentId ? ' is-over' : ''}`} href={folderHref(parentId === 'root' ? null : parentId)} aria-label={t('folder.up')} {...folderDrop(parentId)}>
-              <span className="cover-thumb folder-thumb" aria-hidden="true">
-                <span className="folder-thumb-label">../</span>
-              </span>
-            </a>
-          </li>
-        )}
         {subfolders.map((f) => (
           <li key={f.id} className="cover-item">
             <a
@@ -494,9 +500,9 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
               onDragEnd={() => (setDragFolder(null), setOverFolder(null))}
               {...folderDrop(f.id)}
             >
-              <span className="cover-thumb folder-thumb" aria-hidden="true">
-                <svg className="icon folder-thumb-icon" viewBox="0 0 16 16">
-                  <path d="M2 4.5h4l1.5 1.5H14v6.5H2z" stroke="currentColor" strokeWidth="1" fill="none" />
+              <span className="folder-thumb" aria-hidden="true">
+                <svg className="icon folder-thumb-icon" viewBox="0 0 16 16" style={{ color: getFolderColor(f.id) ?? undefined }}>
+                  <path d="M2 4.5h4l1.5 1.5H14v6.5H2z" stroke="currentColor" strokeWidth="1" fill="currentColor" fillOpacity="0.25" />
                 </svg>
               </span>
               <span className="cover-text">
@@ -505,18 +511,14 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
               </span>
             </a>
             {folders && (
-              <div className="cover-menu">
-                <button
-                  type="button"
-                  className="btn cover-menu-button"
-                  aria-label={fmt(t('folder.moveCard'), { name: f.name })}
-                  onClick={(e) => setMovingFolder({ id: f.id, from: e.currentTarget })}
-                >
-                  <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
-                    <path d="M2 4.5h4l1.5 1.5H14v6.5H2z M8 8v3 M6.5 9.5L8 8l1.5 1.5" stroke="currentColor" strokeWidth="1.2" fill="none" />
-                  </svg>
-                </button>
-              </div>
+              <FolderMenu
+                name={f.name}
+                color={getFolderColor(f.id)}
+                onRename={(from) => setRenamingFolder({ id: f.id, from })}
+                onMove={(from) => setMovingFolder({ id: f.id, from })}
+                onDelete={(from) => setDeletingFolder({ id: f.id, from })}
+                onColor={(c) => (setFolderColor(f.id, c), setColorTick((n) => n + 1))}
+              />
             )}
           </li>
         ))}
@@ -580,6 +582,37 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             setMovingFolder(null)
             refocus(m.from)
             void moveFolderTo(m.id, target)
+          }}
+        />
+      )}
+      {renamingFolder && folders && folderView?.folder(renamingFolder.id) && (
+        <NameDialog
+          title={t('folder.rename')}
+          initial={folderView.folder(renamingFolder.id)!.name}
+          onClose={() => {
+            const from = renamingFolder.from
+            setRenamingFolder(null)
+            refocus(from)
+          }}
+          onSave={async (name) => (await folders.renameFolder(renamingFolder.id, name)).error}
+        />
+      )}
+      {deletingFolder && folders && folderView?.folder(deletingFolder.id) && (
+        <ConfirmDialog
+          body={folderView.noteCount(deletingFolder.id) === 0 ? t('folder.deleteBodyEmpty') : fmt(t('folder.deleteBody'), { n: folderView.noteCount(deletingFolder.id) })}
+          confirmLabel={t('folder.deleteConfirm')}
+          cancelLabel={t('library.cancel')}
+          destructive
+          onCancel={() => {
+            const from = deletingFolder.from
+            setDeletingFolder(null)
+            refocus(from)
+          }}
+          onConfirm={() => {
+            const d = deletingFolder
+            setDeletingFolder(null)
+            refocus(d.from)
+            void folders.deleteFolder(d.id).then((r) => r.error && setUndo({ text: t('folder.failed') }))
           }}
         />
       )}
@@ -985,6 +1018,98 @@ function NoteMenu({
               )}
             </>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The ⋯ button of a folder card: [이름 변경] [이동] [색상] [삭제]. [색상] shows the fixed colors; Esc closes and focus returns to the button. */
+function FolderMenu({ name, color, onRename, onMove, onDelete, onColor }: { name: string; color: string | null; onRename: (from: HTMLElement | null) => void; onMove: (from: HTMLElement | null) => void; onDelete: (from: HTMLElement | null) => void; onColor: (c: string | null) => void }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const [colors, setColors] = useState(false)
+  const button = useRef<HTMLButtonElement>(null)
+  const list = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (open) list.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+  }, [open])
+  useEffect(() => {
+    if (!open) return
+    const away = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('.cover-menu')) setOpen(false)
+    }
+    document.addEventListener('mousedown', away)
+    return () => document.removeEventListener('mousedown', away)
+  }, [open])
+  const close = () => {
+    setOpen(false)
+    setColors(false)
+    button.current?.focus()
+  }
+  const act = (fn: (from: HTMLElement | null) => void) => () => {
+    setOpen(false)
+    setColors(false)
+    fn(button.current)
+  }
+  return (
+    <div
+      className="cover-menu"
+      onKeyDown={(e) => {
+        if (!open) return
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          e.stopPropagation()
+          close()
+        } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault()
+          const items = [...list.current!.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')]
+          const at = items.indexOf(document.activeElement as HTMLElement)
+          items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
+        }
+      }}
+    >
+      <button
+        ref={button}
+        type="button"
+        className="btn cover-menu-button"
+        aria-label={fmt(t('folder.menu'), { name })}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => (setOpen(!open), setColors(false))}
+      >
+        ⋯
+      </button>
+      {open && (
+        <div ref={list} role="menu" className="cover-menu-list">
+          <button type="button" role="menuitem" className="btn" onClick={act(onRename)}>
+            {t('folder.rename')}
+          </button>
+          <button type="button" role="menuitem" className="btn" onClick={act(onMove)}>
+            {t('folder.move')}
+          </button>
+          <button type="button" role="menuitem" className="btn" aria-expanded={colors} onClick={() => setColors(!colors)}>
+            {t('folder.color')}
+          </button>
+          {colors && (
+            <div role="group" aria-label={t('folder.color')} className="folder-colors">
+              {[null, ...FOLDER_COLORS].map((c) => (
+                <button
+                  key={c ?? 'none'}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={c === color}
+                  aria-label={c ?? t('folder.colorDefault')}
+                  className="folder-color"
+                  style={{ background: c ?? 'var(--color-ink-secondary)' }}
+                  onClick={() => (onColor(c), close())}
+                />
+              ))}
+            </div>
+          )}
+          <button type="button" role="menuitem" className="btn" onClick={act(onDelete)}>
+            {t('folder.delete')}
+          </button>
         </div>
       )}
     </div>

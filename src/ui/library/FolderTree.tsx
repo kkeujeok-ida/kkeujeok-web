@@ -6,6 +6,7 @@ import { fmt, useI18n } from '../../i18n'
 import type { FolderResult, FolderService, FolderView } from '../../library/folderService'
 import { ConfirmDialog } from '../ConfirmDialog'
 import { FolderPicker } from './FolderPicker'
+import { SNACKBAR_MS } from '../snackbar'
 import { NameDialog } from './NameDialog'
 
 /** The top level (the root folder); also the target of a move to the top level. */
@@ -13,7 +14,6 @@ const ALL = 'root'
 /** The "모든 노트" row: every note, folders ignored. It is no folder and no move target. */
 export const ALL_NOTES = 'all'
 const LONG_PRESS_MS = 500
-const UNDO_MS = 5000
 /** The drag type of a note card (Story 7.8); its data is `{noteId, title}` as JSON. */
 export const NOTE_DRAG = 'application/x-kkeujeok-note'
 
@@ -58,7 +58,7 @@ export function FolderTree({
   useEffect(() => {
     if (current === ALL || current === ALL_NOTES) return
     setExpanded((prev) => {
-      const next = new Set(prev)
+      const next = new Set(prev).add(ALL)
       for (let p = view.folder(current)?.parentId, n = 0; p && p !== ALL && n <= view.folders.length; n++) {
         next.add(p)
         p = view.folder(p)?.parentId
@@ -76,7 +76,7 @@ export function FolderTree({
 
   useEffect(() => {
     if (!note) return
-    const id = setTimeout(() => setNote(null), UNDO_MS)
+    const id = setTimeout(() => setNote(null), SNACKBAR_MS)
     return () => clearTimeout(id)
   }, [note])
 
@@ -102,7 +102,7 @@ export function FolderTree({
       if (expanded.has(f.id) && depth <= view.folders.length) walk(f.id, depth + 1)
     }
   }
-  walk(ALL, 2)
+  if (expanded.has(ALL)) walk(ALL, 2) // Home starts closed: only its row shows
   const active = rows.some((r) => r.id === focusId) ? focusId : current
 
   const focusRow = (id: string) => {
@@ -152,10 +152,10 @@ export function FolderTree({
       case 'ArrowRight':
         e.preventDefault()
         if (kids.length === 0) return
-        return id === ALL || expanded.has(id) ? focusRow(kids[0]!.id) : toggle(id, true)
+        return expanded.has(id) ? focusRow(kids[0]!.id) : toggle(id, true)
       case 'ArrowLeft':
         e.preventDefault()
-        if (id !== ALL && id !== ALL_NOTES && expanded.has(id) && kids.length > 0) return toggle(id, false)
+        if (id !== ALL_NOTES && expanded.has(id) && kids.length > 0) return toggle(id, false)
         return void (id !== ALL && id !== ALL_NOTES && focusRow(view.folder(id)?.parentId ?? ALL))
       case 'Enter':
       case ' ':
@@ -179,7 +179,7 @@ export function FolderTree({
     const plain = isAllNotes || isTop // no folder: no menu, no dragging
     const label = isAllNotes ? t('folder.allNotes') : isTop ? t('folder.topLevel') : folder!.name
     const kids = isAllNotes ? [] : view.childrenOf(id)
-    const open = isTop || expanded.has(id)
+    const open = expanded.has(id)
     const canDrop = !isAllNotes && dragId !== null && dragId !== id && !view.isInside(id, dragId)
     return (
       <li
@@ -254,7 +254,7 @@ export function FolderTree({
             if (from && canDrop) void move(from, id)
           }}
         >
-          {kids.length > 0 && !plain ? (
+          {kids.length > 0 && !isAllNotes ? (
             <button
               type="button"
               className="btn tree-toggle"

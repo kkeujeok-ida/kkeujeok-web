@@ -2139,7 +2139,7 @@ describe('pen slots (story 5.3)', () => {
     expect(q('.snackbar-action')).toBeNull()
   })
 
-  test('deleting the last slot selects the new last one; the undo goes away after 5 s or another change', async () => {
+  test('deleting the last slot selects the new last one; the undo goes away after 4 s (the one snackbar time) or another change', async () => {
     await open()
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {
@@ -2147,7 +2147,7 @@ describe('pen slots (story 5.3)', () => {
       click(radios()[2]!)
       click(q('.pen-popover-delete')!)
       expect(checked()).toBe(1)
-      act(() => void vi.advanceTimersByTime(4900))
+      act(() => void vi.advanceTimersByTime(3900))
       expect(q('.snackbar-action')).not.toBeNull()
       act(() => void vi.advanceTimersByTime(200))
       expect(q('.snackbar-action')).toBeNull()
@@ -2155,23 +2155,6 @@ describe('pen slots (story 5.3)', () => {
       click(q('.pen-popover-delete')!)
       expect(q('.snackbar-action')).not.toBeNull()
       click(addBtn()) // another change drops the undo
-      expect(q('.snackbar-action')).toBeNull()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  test('focus in the delete snackbar keeps it for 15 s', async () => {
-    await open()
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    try {
-      click(radios()[0]!)
-      click(q('.pen-popover-delete')!)
-      act(() => void vi.advanceTimersByTime(1)) // the slot takes focus back
-      act(() => q<HTMLElement>('.snackbar-button')!.focus())
-      act(() => void vi.advanceTimersByTime(14900))
-      expect(q('.snackbar-action')).not.toBeNull()
-      act(() => void vi.advanceTimersByTime(200))
       expect(q('.snackbar-action')).toBeNull()
     } finally {
       vi.useRealTimers()

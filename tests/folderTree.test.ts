@@ -31,22 +31,31 @@ const view = new FolderView(
   { n1: 'b', n2: 'a' },
 )
 
-function mount() {
+function mount(openHome = true) {
   const deleteFolder = vi.fn(async () => ({}))
   const onSelect = vi.fn()
   const service = { deleteFolder } as unknown as FolderService
   const i18n = createI18n({ navigatorLanguage: 'ko-KR' })
   act(() => root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(FolderTree, { view, service, current: 'all', onSelect }))))
+  if (openHome) act(() => void host.querySelector<HTMLElement>('[data-id="root"] .tree-toggle')!.click()) // Home starts closed
   return { deleteFolder, onSelect }
 }
 const items = () => [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')]
 const key = (el: Element, k: string) => act(() => void el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })))
 
 describe('folder tree', () => {
+  test('Home starts closed: only the two top rows show, its toggle opens the folders', () => {
+    mount(false)
+    expect(items().map((i) => i.querySelector('.tree-label')!.textContent)).toEqual(['모든 노트', 'Home'])
+    expect(items()[1]!.getAttribute('aria-expanded')).toBe('false')
+    act(() => void host.querySelector<HTMLElement>('[data-id="root"] .tree-toggle')!.click())
+    expect(items().map((i) => i.querySelector('.tree-label')!.textContent)).toEqual(['모든 노트', 'Home', 'A', 'C'])
+  })
+
   test('is a tree of treeitems with levels, one tab stop and collapsed parents', () => {
     mount()
     expect(host.querySelector('[role="tree"]')).not.toBeNull()
-    expect(items().map((i) => i.querySelector('.tree-label')!.textContent)).toEqual(['모든 노트', '최상위', 'A', 'C']) // folders start closed: B is below A
+    expect(items().map((i) => i.querySelector('.tree-label')!.textContent)).toEqual(['모든 노트', 'Home', 'A', 'C']) // folders start closed: B is below A
     expect(items().map((i) => i.getAttribute('aria-level'))).toEqual(['1', '1', '2', '2'])
     expect(host.querySelector('.tree-menu-button')).toBeNull() // no ⋯ button (Story 18.5)
     expect(items().filter((i) => i.tabIndex === 0)).toHaveLength(1)
@@ -114,6 +123,7 @@ describe('folder tree', () => {
     const i18n = createI18n({ navigatorLanguage: 'ko-KR' })
     const service = { moveNote } as unknown as FolderService
     act(() => root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(FolderTree, { view, service, current: 'all', onSelect: vi.fn() }))))
+    act(() => void host.querySelector<HTMLElement>('[data-id="root"] .tree-toggle')!.click())
     const row = host.querySelectorAll<HTMLElement>('.tree-row')[3]! // C
     const data = { types: [NOTE_DRAG], getData: () => JSON.stringify({ noteId: 'n1', title: '내 노트' }) }
     const ev = (type: string) => Object.assign(new Event(type, { bubbles: true, cancelable: true }), { dataTransfer: data })
