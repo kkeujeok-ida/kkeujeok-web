@@ -13,18 +13,22 @@ export const TAIL_EDGE = 16 // tail centre to the bubble's corners, at the least
  * tool's centre along the bubble's edge (from its left or top), kept TAIL_EDGE off the corners; null (no tail) when the pulled
  * bubble covers the bar or the tail would leave the window.
  */
-export function placeBubble(bar: Box, tool: Box, size: { w: number; h: number }, win: { w: number; h: number }): Placement {
+export function placeBubble(bar: Box, tool: Box, size: { w: number; h: number }, win: { w: number; h: number }, flip = false): Placement {
   const fit = (v: number, s: number, max: number) => Math.max(BUBBLE_MARGIN, Math.min(v, max - BUBBLE_MARGIN - s))
   const w = Math.min(size.w, win.w - BUBBLE_MARGIN * 2)
   const vertical = bar.bottom - bar.top > bar.right - bar.left
   let side: Side, left: number, top: number, tail: number
+  // Left-handed: the opposite side, but only when it fits whole (else the bubble would cover the bar).
+  const room = (s: Side) => (s === 'right' ? bar.right + BUBBLE_GAP + w + BUBBLE_MARGIN <= win.w : s === 'left' ? bar.left - BUBBLE_GAP - w >= BUBBLE_MARGIN : s === 'down' ? bar.bottom + BUBBLE_GAP + size.h + BUBBLE_MARGIN <= win.h : bar.top - BUBBLE_GAP - size.h >= BUBBLE_MARGIN)
+  const opposite = { right: 'left', left: 'right', down: 'up', up: 'down' } as const
+  const choose = (s: Side): Side => (flip && room(opposite[s]) ? opposite[s] : s)
   if (vertical) {
-    side = (bar.left + bar.right) / 2 < win.w / 2 ? 'right' : 'left'
+    side = choose((bar.left + bar.right) / 2 < win.w / 2 ? 'right' : 'left')
     top = fit((tool.top + tool.bottom) / 2 - size.h / 2, size.h, win.h)
     left = fit(side === 'right' ? bar.right + BUBBLE_GAP : bar.left - BUBBLE_GAP - w, w, win.w)
     tail = (tool.top + tool.bottom) / 2 - top
   } else {
-    side = (bar.top + bar.bottom) / 2 > win.h / 2 ? 'up' : 'down'
+    side = choose((bar.top + bar.bottom) / 2 > win.h / 2 ? 'up' : 'down')
     left = fit((tool.left + tool.right) / 2 - w / 2, w, win.w)
     top = fit(side === 'down' ? bar.bottom + BUBBLE_GAP : bar.top - BUBBLE_GAP - size.h, size.h, win.h)
     tail = (tool.left + tool.right) / 2 - left

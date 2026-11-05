@@ -6,6 +6,7 @@ import type { Auth } from '../drive/auth'
 import { clearSessionHistories } from '../ops/sessionHistories'
 import { deleteNoteDatabase } from '../storage/noteDb'
 import { VISIBLE_TOOLS_MAX, VISIBLE_TOOLS_MIN, sharedVisibleTools } from '../storage/toolbarVisibleTools'
+import { getLeftHanded, setLeftHanded, subscribeLeftHanded } from '../storage/leftHanded'
 import { THEMES, getTheme, setTheme, subscribeTheme } from '../storage/theme'
 import { PenPaletteEditor } from './PenPaletteEditor'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -36,6 +37,7 @@ export function Settings({
 }) {
   const { t, choice, setChoice } = useI18n()
   const theme = useSyncExternalStore(subscribeTheme, getTheme)
+  const leftHanded = useSyncExternalStore(subscribeLeftHanded, getLeftHanded)
   const [action, setAction] = useState<Action | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<Key | null>(null)
@@ -142,6 +144,10 @@ export function Settings({
           </label>
         ))}
       </fieldset>
+      <label className="settings-group option">
+        <input type="checkbox" checked={leftHanded} onChange={(e) => setLeftHanded(e.target.checked)} />
+        <span>{t('settings.leftHanded')}</span>
+      </label>
       <div className="settings-group" role="group" aria-labelledby="visible-tools-label">
         <span id="visible-tools-label">{t('settings.visibleTools')}</span>
         <div className="settings-stepper">

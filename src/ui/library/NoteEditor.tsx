@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyEvent } from 'react'
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyEvent } from 'react'
 import { SNACKBAR_MS } from '../snackbar'
 import { fmt, useI18n, type Key } from '../../i18n'
 import { defaultFor, type Pen, type PenTool } from '../../model/pen'
@@ -8,6 +8,7 @@ import { elementClipboard } from '../../model/elementClipboard'
 import { isBlankText } from '../../model/textLayout'
 import { sessionHistory } from '../../ops/sessionHistories'
 import { auth } from '../../drive/auth'
+import { getLeftHanded, subscribeLeftHanded } from '../../storage/leftHanded'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
 import { acquireNoteLock } from '../../storage/noteLock'
 import { sharedPenSlots, type PenSlotsStore } from '../../storage/penSlots'
@@ -122,7 +123,7 @@ export function NoteEditor({
   receiver,
   images,
   lockWaitMs = LOCK_WAIT_MS,
-  panelSide = DEFAULT_PANEL_SIDE,
+  panelSide: panelSideProp,
 }: {
   noteId: string
   openStore?: () => NoteStore
@@ -144,10 +145,12 @@ export function NoteEditor({
   images?: ImageHost
   /** How long a held note lock is waited for before the note opens read-only (decision: 3 s). */
   lockWaitMs?: number
-  /** The side the page overview panel opens on: one value, so the left-handed setting (Epic 10) only changes this. */
+  /** Overrides the side the page overview panel opens on (default: the left-handed setting). */
   panelSide?: PanelSide
 }) {
   const { t } = useI18n()
+  const lefty = useSyncExternalStore(subscribeLeftHanded, getLeftHanded)
+  const panelSide = panelSideProp ?? (lefty ? 'left' : DEFAULT_PANEL_SIDE)
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [message, setMessage] = useState<{ key: WriterMessage; n: number } | null>(null)
   const [pens, setPens] = useState<Pen[]>(() => penStore.read())
@@ -1441,7 +1444,7 @@ export function NoteEditor({
                 </span>
               )}
               {menuOpen && (
-                <div ref={menu} role="menu" aria-label={t('editor.more')} className="editor-menu" onKeyDown={onMenuKeyDown}>
+                <div ref={menu} role="menu" aria-label={t('editor.more')} className="editor-menu" data-left-handed={lefty || undefined} onKeyDown={onMenuKeyDown}>
                   <div role="none" className="editor-menu-row">
                     <button
                       type="button"

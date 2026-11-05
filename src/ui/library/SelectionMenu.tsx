@@ -1,11 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
+import { getLeftHanded, subscribeLeftHanded } from '../../storage/leftHanded'
 import { fmt, useI18n } from '../../i18n'
 import { colorNameKey, inkColors } from '../../model/pen'
 import { ROTATE_GAP } from '../../render/selectionPainter'
 import type { SelectionBox } from './writer'
 
-/** The menu opens above the selection box (below when there is no room). The left-handed setting (Epic 10) flips this one value. */
-export const menuPrefersAbove = true
 /** Room kept between the box and the menu: the rotate handle (and its radius) hangs above the box. */
 const ABOVE_CLEARANCE = ROTATE_GAP + 12
 const BELOW_CLEARANCE = 12
@@ -46,6 +45,8 @@ export function SelectionMenu({ box, origin, ratioLock, onRatioLock, onScale, on
   onLeave: () => void
 }) {
   const { t } = useI18n()
+  // Opens above the selection box (below when there is no room); left-handed flips the preference.
+  const menuPrefersAbove = !useSyncExternalStore(subscribeLeftHanded, getLeftHanded)
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 340, h: 40 })
   const [pop, setPop] = useState<'color' | 'width' | null>(null)

@@ -36,4 +36,12 @@ describe('placeBubble', () => {
     const p = placeBubble(box(20, 12, 360, 48), box(100, 12, 48, 48), { w: 320, h: 760 }, win)
     expect(p.tail).toBeNull()
   })
+  test('left-handed: opposite side when it fits, else unchanged', () => {
+    const up = placeBubble(box(20, 12, 360, 48), box(100, 12, 48, 48), size, win, true)
+    expect(up.side).toBe('down') // no room above a top bar: stays below
+    const dn = placeBubble(box(20, 500, 360, 48), box(100, 500, 48, 48), size, { w: 400, h: 1200 }, true)
+    expect(dn.side).toBe('up') // bar in the upper half opens down normally; flipped to up
+    const wide = { w: 1000, h: 800 }
+    expect(placeBubble(box(500, 100, 48, 400), box(500, 300, 48, 48), size, wide, true).side).toBe('right')
+  })
 })

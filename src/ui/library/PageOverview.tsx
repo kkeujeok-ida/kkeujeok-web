@@ -9,7 +9,7 @@ import type { ImageHost } from '../../render/imageHost'
 import type { El } from '../../model/select'
 import { StrokePathCache, fitViewport, paintPage } from '../../render/pagePainter'
 
-/** Story 6.3: the page overview panel. The side it opens on is one value (the left-handed setting is Epic 10). */
+/** Story 6.3: the page overview panel. */
 export type PanelSide = 'left' | 'right'
 export const DEFAULT_PANEL_SIDE: PanelSide = 'right'
 /** Below this window width the panel overlays the canvas instead of taking room from it. */

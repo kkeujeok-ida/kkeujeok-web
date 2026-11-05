@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
+import { getLeftHanded, subscribeLeftHanded } from '../../storage/leftHanded'
 import { placeBubble, type Placement } from './bubblePlace'
 
 /** The tail's box: on the bubble's edge facing the bar (placeBubble keeps `tail` off the corners). */
@@ -24,6 +25,7 @@ export function PopoverShell({ anchor, tool, onClose, labelledBy, className, rel
   children: ReactNode
 }) {
   const box = useRef<HTMLDivElement>(null)
+  const lefty = useSyncExternalStore(subscribeLeftHanded, getLeftHanded)
   const [pos, setPos] = useState<Placement & { w: number; h: number }>()
   // Measured after render (the height depends on the content) and again on resize or when `relayout` changes.
   const place = () => {
@@ -31,9 +33,9 @@ export function PopoverShell({ anchor, tool, onClose, labelledBy, className, rel
     const b = box.current
     if (!anchor || !bar || !b) return
     const [w, h] = [b.offsetWidth, b.offsetHeight]
-    setPos({ ...placeBubble(bar, (anchor.querySelector(tool) ?? anchor).getBoundingClientRect(), { w, h }, { w: window.innerWidth, h: window.innerHeight }), w, h })
+    setPos({ ...placeBubble(bar, (anchor.querySelector(tool) ?? anchor).getBoundingClientRect(), { w, h }, { w: window.innerWidth, h: window.innerHeight }, lefty), w, h })
   }
-  useLayoutEffect(place, [anchor, relayout]) // eslint-disable-line react-hooks/exhaustive-deps -- place reads the current anchor
+  useLayoutEffect(place, [anchor, relayout, lefty]) // eslint-disable-line react-hooks/exhaustive-deps -- place reads the current anchor
   useEffect(() => {
     window.addEventListener('resize', place)
     return () => window.removeEventListener('resize', place)
