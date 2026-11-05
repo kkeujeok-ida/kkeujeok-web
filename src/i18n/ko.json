@@ -510,5 +510,7 @@
   "help.p.shiftWheel": "옆으로 스크롤해요",
   "help.p.middle": "끌어서 화면 옮기기",
   "help.p.oneFinger": "스타일러스가 감지된 뒤에는 화면을 옮겨요",
-  "help.p.twoFingers": "화면을 옮기고 확대해요"
+  "help.p.twoFingers": "화면을 옮기고 확대해요",
+  "hint.firstNote": "+로 첫 노트를 만들어 보세요",
+  "hint.penEdit": "선택한 펜을 한 번 더 누르면 색과 두께를 바꿀 수 있어요"
 }

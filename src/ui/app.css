@@ -2769,3 +2769,18 @@ h1 {
 .help-row dd { margin: 0; color: var(--color-ink-secondary); }
 .help kbd, .shortcut-sheet kbd { font: inherit; font-weight: 600; }
 .shortcut-sheet { max-height: 80vh; overflow-y: auto; }
+.one-line-hint {
+  margin: var(--spacing-2) 0 0;
+  color: var(--color-ink-secondary);
+  font-size: var(--typography-caption-font-size);
+  font-weight: var(--typography-caption-font-weight);
+}
+
+/* Beside the toolbar; the pointer passes through it. */
+.one-line-hint-pen {
+  position: fixed;
+  max-width: min(320px, calc(100vw - 24px));
+  margin: 0;
+  pointer-events: none;
+  z-index: 2;
+}

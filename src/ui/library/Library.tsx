@@ -35,6 +35,7 @@ import { CoverArt, CoverDialog, coverUrl } from './CoverArt'
 import { NameDialog } from './NameDialog'
 import { ConfirmDialog } from '../ConfirmDialog'
 import { FOLDER_COLORS, getFolderColor, setFolderColor } from '../../library/folderColor'
+import { hintSeen, markHint } from '../../storage/hints'
 import { librarySearch } from '../../library/libraryRules'
 import { LIBRARY_SORTS, sortBy, useLibrary, type LibraryItem, type LibrarySort } from './useLibrary'
 
@@ -169,6 +170,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     if (entering.current) return true
     try {
       const noteId = await lib.create({ ...v, folderId: inFolder ? folderId : null })
+      markHint('firstNote')
       if (!mounted.current) return true // the library went away; the note is saved
       entering.current = true
       setSheet(null)
@@ -320,6 +322,10 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   }, [folderView, folderId, q, sort, locale])
   const parentId = inFolder && folderView && !q ? (folderView.folder(folderId)?.parentId ?? 'root') : null
   const { status } = lib
+  // The first-note hint goes for good once the library has held a note.
+  useEffect(() => {
+    if (status === 'ready' && items.length > 0) markHint('firstNote')
+  }, [status, items.length])
   const offline = useOffline()
   type Target = { noteId: string; title: string; from: HTMLElement | null }
   const [renaming, setRenaming] = useState<Target | null>(null)
@@ -551,6 +557,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
               </span>
               <span className="cover-title">{t('library.newNote')}</span>
             </button>
+            {!hintSeen('firstNote') && <p className="one-line-hint">{t('hint.firstNote')}</p>}
           </li>
         )}
         {subfolders.map((f) => (

@@ -510,5 +510,7 @@
   "help.p.shiftWheel": "Scrolls sideways",
   "help.p.middle": "Drag to move the view",
   "help.p.oneFinger": "Moves the view once a stylus has been seen",
-  "help.p.twoFingers": "Move and zoom the view"
+  "help.p.twoFingers": "Move and zoom the view",
+  "hint.firstNote": "Tap + to create your first note",
+  "hint.penEdit": "Tap the selected pen again to change its color and width"
 }

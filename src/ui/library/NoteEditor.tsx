@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyEvent } from 'react'
 import { SNACKBAR_MS } from '../snackbar'
 import { fmt, useI18n, type Key } from '../../i18n'
 import { defaultFor, type Pen, type PenTool } from '../../model/pen'
@@ -8,6 +8,8 @@ import { elementClipboard } from '../../model/elementClipboard'
 import { isBlankText } from '../../model/textLayout'
 import { sessionHistory } from '../../ops/sessionHistories'
 import { auth } from '../../drive/auth'
+import { hintSeen, markHint } from '../../storage/hints'
+import { placeBubble } from './bubblePlace'
 import { ShortcutSheet } from '../ShortcutSheet'
 import { getLeftHanded, subscribeLeftHanded } from '../../storage/leftHanded'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
@@ -157,6 +159,10 @@ export function NoteEditor({
   const [pens, setPens] = useState<Pen[]>(() => penStore.read())
   const [recent, setRecent] = useState<string[]>(() => recentStore.read())
   const [popover, setPopover] = useState<number | null>(null)
+  // One-line hint beside the toolbar (Story 10.6): shown until the pen popover has been opened once on this device.
+  const [penHint, setPenHint] = useState(() => !hintSeen('penEdit'))
+  const hintEl = useRef<HTMLParagraphElement>(null)
+  const [hintAt, setHintAt] = useState<{ left: number; top: number }>()
   const popoverOpen = useRef(false)
   const [eraserPop, setEraserPop] = useState(false)
   popoverOpen.current = popover !== null || eraserPop
@@ -718,6 +724,15 @@ export function NoteEditor({
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
   }, [loaded])
+
+  // Follows the toolbar: re-measured after every render (a dock change, a drag or a resize all re-render).
+  useLayoutEffect(() => {
+    const bar = toolbar.current?.getBoundingClientRect()
+    const h = hintEl.current
+    if (!penHint || !bar || !h) return
+    const p = placeBubble(bar, bar, { w: h.offsetWidth, h: h.offsetHeight }, { w: window.innerWidth, h: window.innerHeight })
+    setHintAt((o) => (o && o.left === p.left && o.top === p.top ? o : { left: p.left, top: p.top }))
+  })
 
   // '?' on the canvas or the toolbar opens the shortcut sheet (not while typing or under a dialog).
   const [sheet, setSheet] = useState(false)
@@ -1396,6 +1411,8 @@ export function NoteEditor({
                 setTool('pen')
                 setPens(penStore.read()) // another tab may have changed it
                 setRecent(recentStore.read())
+                markHint('penEdit')
+                setPenHint(false)
                 setPopover(i)
               }}
               canUndo={loaded.writer.canUndo}
@@ -1679,6 +1696,11 @@ export function NoteEditor({
           <div role="status" className="snackbar">
             {message ? t(MESSAGE_KEY[message.key]) : ''}
           </div>
+          {penHint && !readOnly && (
+            <p ref={hintEl} className="one-line-hint one-line-hint-pen" style={hintAt ?? { visibility: 'hidden' }}>
+              {t('hint.penEdit')}
+            </p>
+          )}
           {sheet && <ShortcutSheet onClose={() => setSheet(false)} />}
           {deleted && (
             <div
