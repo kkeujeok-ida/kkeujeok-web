@@ -326,6 +326,13 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
+  // PDF background rules (Story 9.1) arrive with the web stories 9.3, 9.5, 9.7.
+  'pdf.pageBox',
+  'pdf.pageMatrix',
+  'pdf.import',
+  'pdf.pageDisplay',
+  'pdf.pageOps',
+  'pdf.exportStructure',
   // Trash rules (Story 14.1) arrive with the web stories 14.3, 7.8.
   'trash.restoreNote',
   'trash.restoreFolder',
@@ -380,7 +387,8 @@ function loadFixtures(dir: string, pending: string[] = PENDING): Map<string, Cas
   const seen = new Set<string>()
   for (const file of readdirSync(dir)) {
     // Generator scripts, not fixtures.
-    if (file === 'README.md' || file === 'tools') continue
+    // test/pdf holds the sample PDF files and their manifest.
+    if (file === 'README.md' || file === 'tools' || file === 'pdf') continue
     const bad = (why: string) => new Error(`Bad fixture ${file}: ${why}`)
     // Anything else in the folder (a subfolder, "x.JSON", "x.json.bak") would
     // otherwise be skipped without a word.
