@@ -129,7 +129,7 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
     setSettingsOpen(false)
     setDrawer(false)
   }
-  const tree = folderService && <FolderTree view={view} service={folderService} current={folderId ?? 'all'} onSelect={selectFolder} />
+  const tree = folderService && <FolderTree view={view} service={folderService} current={trashOpen ? '' : (folderId ?? 'all')} onSelect={selectFolder} />
   const [settingsOpen, setSettingsOpen] = useState(false)
   const settingsButton = useRef<HTMLButtonElement>(null)
   const wasOpen = useRef(false)

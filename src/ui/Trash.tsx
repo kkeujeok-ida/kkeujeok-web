@@ -98,11 +98,17 @@ export function Trash({ service, onChanged }: { service: TrashService; onChanged
   const [armed, setArmed] = useState<string | null>(null)
   const [toast, setToast] = useState('')
 
+  // Loads can overlap; only the newest answer is shown.
+  const loadSeq = useRef(0)
   const load = useCallback(async () => {
+    const mine = ++loadSeq.current
     try {
-      setEntries(await service.list())
+      const list = await service.list()
+      if (mine !== loadSeq.current) return
+      setEntries(list)
       setError(false)
     } catch {
+      if (mine !== loadSeq.current) return
       setEntries(null) // no stale rows after a failed load
       setError(true)
     }
@@ -115,7 +121,7 @@ export function Trash({ service, onChanged }: { service: TrashService; onChanged
   }, [toast])
 
   const say = (r: TrashOutcome, e?: TrashEntry) =>
-    setToast(r === 'done' ? `${e?.title ?? ''} ${t('trash.restored')}`.trim() : r === 'rootFallback' ? t('trash.restoredRoot') : r === 'gone' ? t('trash.gone') : t('trash.failed'))
+    setToast(r === 'done' || r === 'already' ? `${e?.title ?? ''} ${t('trash.restored')}`.trim() : r === 'rootFallback' ? t('trash.restoredRoot') : r === 'gone' ? t('trash.gone') : t('trash.failed'))
 
   /** True when the item is back (or gone). */
   async function restore(e: TrashEntry): Promise<boolean> {
@@ -146,8 +152,11 @@ export function Trash({ service, onChanged }: { service: TrashService; onChanged
 
   async function empty() {
     setArmed(null)
-    const left = await service.empty(entries ?? [])
-    if (left.length > 0) setToast(t('trash.failed'))
+    try {
+      if ((await service.empty(entries ?? [])).length > 0) setToast(t('trash.failed'))
+    } catch {
+      setToast(t('trash.failed'))
+    }
     await load()
   }
 

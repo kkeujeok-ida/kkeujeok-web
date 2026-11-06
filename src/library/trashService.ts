@@ -24,7 +24,7 @@ export type TrashEntry = {
   noteCount: number
 }
 
-export type TrashOutcome = 'done' | 'gone' | 'rootFallback' | 'failed'
+export type TrashOutcome = 'done' | 'already' | 'gone' | 'rootFallback' | 'failed'
 
 const is404 = (e: unknown) => e instanceof DriveError && e.kind === 'http' && e.status === 404
 
@@ -125,8 +125,9 @@ export function createTrashService(deps: { drive: DriveClient; device: Pick<Sync
         rootFileId: root,
         origin,
       })
-      // `already`: another device restored it, so it is gone from this list too.
-      if ('gone' in r || 'already' in r) return 'gone'
+      if ('gone' in r) return 'gone'
+      // Another device restored it: it is back, not gone.
+      if ('already' in r) return 'already'
       await drive.update(e.fileId, { addParents: r.request.addParents, removeParents: r.request.removeParents, appProperties: r.request.appProperties })
       return r.rootFallback ? 'rootFallback' : 'done'
     },

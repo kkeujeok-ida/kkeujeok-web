@@ -36,6 +36,17 @@ async function setup(o: { open?: string[]; locks?: LockManager | undefined; flus
 const unsentNote = (e: Env, id = NID) => e.store.writeNote(mkNote({ noteId: id }))
 const driveCount = (e: Env, id = NID) => e.drive.byKkeujeokId(id).length
 
+describe('delete', () => {
+  test('deleteNote tells the other tabs (trashedHere) once the mark is written', async () => {
+    const { e } = await setup()
+    await unsentNote(e)
+    const sent: string[] = []
+    const c = createUploadCoordinator({ store: e.store, uploader: e.uploader, log: e.deps.log, allowed: e.deps.allowed, online: () => false, flushOpen: async () => {}, openIds: () => [], locks: undefined, notifyTrashed: (id) => void sent.push(id) })
+    await c.deleteNote(NID)
+    expect(sent).toEqual([NID])
+  })
+})
+
 describe('triggers', () => {
   test('noteClosed uploads a note with unsent changes', async () => {
     const { e, coordinator } = await setup({ locks: undefined })

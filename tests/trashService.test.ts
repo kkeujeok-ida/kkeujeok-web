@@ -42,7 +42,7 @@ describe('trash service', () => {
 
     expect(await svc.restore(list[0]!)).toBe('rootFallback')
     expect(e.drive.byKkeujeokId('n-new')[0]!.parents).toEqual(['ROOT'])
-    expect(await svc.restore(list[0]!)).toBe('gone') // already restored
+    expect(await svc.restore(list[0]!)).toBe('already') // restored elsewhere: back, not gone
   })
 
   test('purge and empty set trashed=true, never delete; one failure stays listed', async () => {
