@@ -88,7 +88,7 @@ const confirm = () =>
     dialogButtons()[1]!.click()
     await new Promise((r) => setTimeout(r, 30))
   })
-const openSettings = () => act(() => host.querySelector<HTMLButtonElement>('nav > button')!.click())
+const openSettings = () => act(() => host.querySelector<HTMLButtonElement>('nav > button:last-of-type')!.click())
 
 describe('settings entries', () => {
   test('hidden when signed out, shown when signed in', async () => {

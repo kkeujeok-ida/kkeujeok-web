@@ -213,6 +213,110 @@ function trash(i: TrashInput, folder: boolean): TrashResult | RuleError {
 export const trashNoteRule = (i: TrashInput) => trash(i, false)
 export const trashFolderRule = (i: TrashInput) => trash(i, true)
 
+const TS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+const NOTE_MIME = 'application/vnd.kkeujeok.kkj'
+const FOLDER_MIME = 'application/vnd.google-apps.folder'
+
+export type RestoreInput = {
+  item: { id?: string; fileId: string; parentFileId: string; parentId: string; trashed: boolean; appProperties?: Record<string, string> }
+  trashbinFileId: string
+  rootFileId: string
+  origin: { fileId: string; inTrash: boolean } | null
+}
+export type RestoreResult =
+  | { gone: true }
+  | { already: true }
+  | { destination: 'origin' | 'root'; rootFallback: boolean; request: { fileId: string; addParents: string; removeParents: string; appProperties: { trashedFrom: null; trashedAt: null } } }
+
+/** `trash.restoreNote` and `trash.restoreFolder` (one rule). */
+export function trashRestoreRule(i: RestoreInput): RestoreResult {
+  const { item } = i
+  if (item.trashed) return { gone: true }
+  if (item.parentId !== 'trashbin') return { already: true }
+  const tf = item.appProperties?.trashedFrom
+  const from = typeof tf === 'string' && tf !== '' ? tf : 'root'
+  let destination: 'origin' | 'root' = 'root'
+  let rootFallback = false
+  if (from === 'root') {
+    // origin was the top level
+  } else if (from !== 'trashbin' && i.origin && !i.origin.inTrash) destination = 'origin'
+  else rootFallback = true
+  return {
+    destination,
+    rootFallback,
+    request: {
+      fileId: item.fileId,
+      addParents: destination === 'origin' ? i.origin!.fileId : i.rootFileId,
+      removeParents: item.parentFileId,
+      appProperties: { trashedFrom: null, trashedAt: null },
+    },
+  }
+}
+
+/** `trash.purgeItem`: `trashed=true`, never `files.delete`. */
+export function trashPurgeRule({ item }: { item: { fileId: string; parentId: string; trashed: boolean } }): { request: { fileId: string; trashed: true } } | { already: true } | RuleError {
+  if (item.trashed) return { already: true }
+  if (item.parentId !== 'trashbin') return { error: 'notInTrash' }
+  return { request: { fileId: item.fileId, trashed: true } }
+}
+
+/** `trash.emptyTrash` */
+export function trashEmptyRule({ items, failed }: { items: { id: string; fileId: string; trashed: boolean }[]; failed: string[] }) {
+  const requests: { id: string; fileId: string; trashed: true }[] = []
+  const remaining: string[] = []
+  const done: string[] = []
+  for (const it of items) {
+    if (!it.trashed) requests.push({ id: it.id, fileId: it.fileId, trashed: true })
+    if (!it.trashed && failed.includes(it.id)) remaining.push(it.id)
+    else done.push(it.id)
+  }
+  return { requests, remaining, done }
+}
+
+export type TrashListEntry = { kind: 'note' | 'folder'; id: string; fileId: string; trashedAt: string; trashedFrom: string | null; noteCount?: number }
+
+/** `trash.list` */
+export function trashListRule({ items, noteCounts }: { items: { id: string; mimeType?: string; modifiedTime?: string; appProperties?: Record<string, string> }[]; noteCounts: Record<string, number> }): { entries: TrashListEntry[] } {
+  const out: TrashListEntry[] = []
+  for (const f of items) {
+    const p = f.appProperties ?? {}
+    const kid = p.kkeujeokId
+    if (typeof kid !== 'string' || kid === '') continue
+    const kind = f.mimeType === NOTE_MIME ? 'note' : f.mimeType === FOLDER_MIME ? 'folder' : null
+    if (!kind) continue
+    const e: TrashListEntry = {
+      kind,
+      id: kid,
+      fileId: f.id,
+      trashedAt: typeof p.trashedAt === 'string' && TS.test(p.trashedAt) ? p.trashedAt : f.modifiedTime!,
+      trashedFrom: typeof p.trashedFrom === 'string' && p.trashedFrom !== '' ? p.trashedFrom : null,
+    }
+    if (kind === 'folder') e.noteCount = noteCounts[kid] || 0
+    out.push(e)
+  }
+  out.sort((a, b) => cmp(b.trashedAt, a.trashedAt) || cmp(a.id, b.id))
+  return { entries: out }
+}
+
+const ACCESS: Record<string, string[]> = {
+  library: ['edit', 'metaChange', 'upload', 'download'],
+  pendingTrash: ['upload', 'download', 'restore'],
+  trashed: ['download', 'restore', 'purge'],
+}
+const ACTIONS = ['edit', 'metaChange', 'upload', 'download', 'restore', 'purge']
+/** `trash.access` */
+export function trashAccessRule({ state, action }: { state: string; action: string }): { allowed: boolean } | RuleError {
+  if (!Object.hasOwn(ACCESS, state) || !ACTIONS.includes(action)) return { error: 'invalidInput' }
+  return { allowed: ACCESS[state]!.includes(action) }
+}
+
+/** `trash.remoteTrashed` */
+export function trashRemoteRule({ unsent, open, pending }: { unsent: boolean; open: boolean; pending: boolean }) {
+  if (pending) return { local: 'remove', restore: false, banner: false, notify: false }
+  if (unsent) return { local: 'keep', restore: true, banner: false, notify: true }
+  return { local: 'remove', restore: false, banner: open, notify: false }
+}
+
 /** `library.normalize` key: NFC, then each code point lower-cased on its own (no final-sigma context). */
 export const libraryKey = (text: string): string => [...text.normalize('NFC')].map((c) => c.toLowerCase()).join('')
 export const libraryNormalize = (i: { text: string }) => ({ key: libraryKey(i.text) })

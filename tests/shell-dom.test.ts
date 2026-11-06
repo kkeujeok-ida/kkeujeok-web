@@ -31,7 +31,7 @@ const setWidth = (w: number) =>
     Object.defineProperty(window, 'innerWidth', { value: w, configurable: true })
     window.dispatchEvent(new Event('resize'))
   })
-const settingsButton = () => host.querySelector<HTMLButtonElement>('nav > button')!
+const settingsButton = () => host.querySelector<HTMLButtonElement>('nav > button:last-of-type')!
 
 beforeEach(() => {
   host = document.createElement('div')

@@ -16,3 +16,7 @@ export function driveDuplicatesRule(input: {
 /** Spec `drive.assetsFolder`: `drive.duplicates` with `kkeujeokId` fixed to `assets` (the folder is merged, unlike the asset files). */
 export const driveAssetsFolderRule = (input: { items: { id: string; createdTime: string }[] }) =>
   driveDuplicatesRule({ kkeujeokId: 'assets', items: input.items })
+
+/** Spec `drive.trashbinFolder`: `drive.duplicates` with `kkeujeokId` fixed to `trashbin`. */
+export const driveTrashbinFolderRule = (input: { items: { id: string; createdTime: string }[] }) =>
+  driveDuplicatesRule({ kkeujeokId: 'trashbin', items: input.items })

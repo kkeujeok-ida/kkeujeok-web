@@ -9,6 +9,11 @@ import { FOLDER_ICON, FolderTree } from './library/FolderTree'
 import { ALL_NOTES_HREF, folderHref, parseFolderRoute, useFolders } from './library/useFolders'
 import type { FolderService } from '../library/folderService'
 import { SNACKBAR_MS } from './snackbar'
+import { TRASH_HREF, Trash } from './Trash'
+import { type TrashService, createTrashService } from '../library/trashService'
+import { createAuthedDrive } from '../drive/authedDrive'
+import { createSyncDeviceStore } from '../storage/syncDevice'
+import { openNoteDb } from '../storage/noteDb'
 import { NoteEditor, parseNoteRoute } from './library/NoteEditor'
 import { auth as defaultAuth, type Auth } from '../drive/auth'
 import { defaultRootFolder, type RootFolderStore } from '../drive/rootFolderStore'
@@ -49,7 +54,7 @@ function useHash(): string {
 // No router library: the path alone picks the static policy page or the shell.
 export type SyncUiProps = Pick<ComponentProps<typeof SyncUiProvider>, 'status' | 'net' | 'exportLog' | 'versions'>
 
-export function App({ auth = defaultAuth, root, uploads, receiver, gate, unsentIds, syncUi, folders }: { auth?: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; gate?: GateDeps; unsentIds?: () => Promise<string[] | null>; syncUi?: SyncUiProps; folders?: FolderService }) {
+export function App({ auth = defaultAuth, root, uploads, receiver, gate, unsentIds, syncUi, folders, trash }: { auth?: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; gate?: GateDeps; unsentIds?: () => Promise<string[] | null>; syncUi?: SyncUiProps; folders?: FolderService; trash?: TrashService }) {
   const { token, notice, busy, expired, restoring } = useSyncExternalStore(auth.subscribe, auth.getState, auth.getState)
   // Story 11.8: a reload signs in again silently; test stand-ins of Auth may not have `restore`.
   useEffect(() => void auth.restore?.(), [auth])
@@ -59,14 +64,14 @@ export function App({ auth = defaultAuth, root, uploads, receiver, gate, unsentI
   // No token but expired: the silent sign-in failed; the shell opens (local notes) with the [다시 로그인] banner.
   return (token || expired) && !busy ? (
     <AccountGate auth={auth} {...(gate && { deps: gate })}>
-      <Shell auth={auth} root={root} uploads={uploads} receiver={receiver} folders={folders} {...(unsentIds && { unsentIds })} {...(syncUi && { syncUi })} />
+      <Shell auth={auth} root={root} uploads={uploads} receiver={receiver} folders={folders} trash={trash} {...(unsentIds && { unsentIds })} {...(syncUi && { syncUi })} />
     </AccountGate>
   ) : (
     <SignIn auth={auth} notice={notice} />
   )
 }
 
-function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverProp, folders: foldersProp, unsentIds, syncUi }: { auth: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; folders?: FolderService; unsentIds?: () => Promise<string[] | null>; syncUi?: SyncUiProps }) {
+function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverProp, folders: foldersProp, trash: trashProp, unsentIds, syncUi }: { auth: Auth; root?: RootFolderStore; uploads?: UploadCoordinator; receiver?: NoteReceiver; folders?: FolderService; trash?: TrashService; unsentIds?: () => Promise<string[] | null>; syncUi?: SyncUiProps }) {
   const root = useMemo(() => rootProp ?? defaultRootFolder(auth), [rootProp, auth])
   // Uploads run on the real Drive only with the default root; a given root (tests) needs a given coordinator.
   const uploads = useMemo(
@@ -88,6 +93,11 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
   const images = useMemo(() => (rootProp ? undefined : defaultImageHost(auth, root)), [rootProp, auth, root])
   // The folders (Story 7.6): real Drive only with the default root, like uploads.
   const folderService = useMemo(() => foldersProp ?? (rootProp ? undefined : defaultFolderService(auth, root)), [foldersProp, rootProp, auth, root])
+  // The app trash (Story 14.3): Drive only, real Drive only with the default root.
+  const trashService = useMemo(
+    () => trashProp ?? (folderService && !rootProp ? createTrashService({ drive: createAuthedDrive(auth), device: createSyncDeviceStore(openNoteDb()), folders: folderService }) : undefined),
+    [trashProp, folderService, rootProp, auth],
+  )
   const { view, loaded, revived } = useFolders(folderService, root, receiver)
   const [reviveShown, setReviveShown] = useState(false)
   useEffect(() => {
@@ -100,6 +110,7 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
   const expanded = useSidebarExpanded()
   const hash = useHash()
   const noteId = parseNoteRoute(hash)
+  const trashOpen = hash === TRASH_HREF && !!trashService
   const routeFolder = parseFolderRoute(hash)
   // Story 18.5: the address without a folder shows the top level; `#/all` is "모든 노트". null = all notes (also without folders).
   const folderId = !folderService || hash === ALL_NOTES_HREF ? null : routeFolder !== null && view.has(routeFolder) ? routeFolder : 'root'
@@ -171,6 +182,14 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
             )
           )}
         </div>
+        {trashService && (
+          <button type="button" className="btn side-item" aria-current={trashOpen && !settingsOpen ? 'page' : undefined} onClick={() => ((window.location.hash = TRASH_HREF), setSettingsOpen(false))}>
+            <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 4h10M6 4V2.5h4V4M4.5 4l.5 9.5h6l.5-9.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+            </svg>
+            <span className={hidden}>{t('sidebar.trash')}</span>
+          </button>
+        )}
         <button
           ref={settingsButton}
           type="button"
@@ -187,6 +206,8 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
       <main className="content">
         {settingsOpen ? (
           <Settings auth={auth} onClose={() => setSettingsOpen(false)} {...(unsentIds && { unsentIds })} />
+        ) : trashOpen ? (
+          <Trash service={trashService} onChanged={() => void folderService?.refresh().catch(() => {})} />
         ) : noteId ? (
           <NoteEditor key={noteId} noteId={noteId} uploads={uploads} receiver={receiver} images={images} />
         ) : (

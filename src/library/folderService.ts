@@ -466,6 +466,10 @@ export function createFolderService(deps: FolderServiceDeps) {
       const root = (await device.read()).rootFolderId
       return root ? ensureItem('trashbin', '.trashbin', root) : null
     },
+    /** Story 14.3: the folder has a `trashFolder` entry that is not sent yet (it counts as in the trash). */
+    async trashPending(id: string): Promise<boolean> {
+      return (await load()).ops.some((o) => o.kind === 'trashFolder' && o.id === id)
+    },
     /** How many notes another device deleted although this one had unsent changes, revived since the last call (the notice). */
     async takeRevived(): Promise<number> {
       let n = 0

@@ -65,7 +65,7 @@ async function mount(unsentIds?: () => Promise<string[] | null>) {
     root.render(createElement(I18nContext.Provider, { value: i18n }, createElement(App, { auth, ...(unsentIds && { unsentIds }) }))),
   )
   await act(async () => void (await auth.signIn()))
-  act(() => host.querySelector<HTMLButtonElement>('nav > button')!.click())
+  act(() => host.querySelector<HTMLButtonElement>('nav > button:last-of-type')!.click())
   return auth
 }
 const btn = (label: string) => [...host.querySelectorAll('button')].find((b) => b.textContent === label)!
@@ -230,7 +230,7 @@ describe('logout with unsent changes', () => {
     act(() => btn('Close').click())
     await act(async () => release([N1]))
     expect(dialog()).toBeNull()
-    act(() => host.querySelector<HTMLButtonElement>('nav > button')!.click())
+    act(() => host.querySelector<HTMLButtonElement>('nav > button:last-of-type')!.click())
     expect(dialog()).toBeNull()
   })
 })

@@ -19,7 +19,7 @@ import { pageOutOfBounds } from '../src/model/pageBounds'
 import { selectLasso, selectRect, selectTap, type El, type P } from '../src/model/select'
 import { dockAtPointer } from '../src/ui/library/toolbarDock'
 import { placeBubble } from '../src/ui/library/bubblePlace'
-import { driveAssetsFolderRule } from '../src/drive/duplicates'
+import { driveAssetsFolderRule, driveTrashbinFolderRule } from '../src/drive/duplicates'
 import { assetState, imageAccept, imageInitialSize, imageUploadPlan, referencedAssets } from '../src/model/imageRules'
 import { pdfImport, pdfPageBox, pdfPageDisplay, pdfPageMatrix, pdfPagePoint, type PdfImportIn } from '../src/model/pdfRules'
 import { invertBackground, invertColor, invertHighlighter, invertInk, invertLayers, invertPaper } from '../src/model/invert'
@@ -39,7 +39,7 @@ import { driveFileNameRule, driveRemoteTitleRule, listSummaryRule } from '../src
 import { exportFileName, exportPlan, exportRange } from '../src/export/exportRules'
 import { restoreNote, restorePage } from '../src/ops/restore'
 import { keepForeverRule, versionListRule } from '../src/sync/versionList'
-import { libraryCreateFolder, libraryFolderName, libraryMoveFolder, libraryMoveNote, libraryNormalize, librarySearch, librarySort, libraryRenameFolder, libraryRenameNote, librarySetCover, libraryCoverResolve, libraryTree, trashFolderRule, trashNoteRule } from '../src/library/libraryRules'
+import { libraryCreateFolder, libraryFolderName, libraryMoveFolder, libraryMoveNote, libraryNormalize, librarySearch, librarySort, libraryRenameFolder, libraryRenameNote, librarySetCover, libraryCoverResolve, libraryTree, trashFolderRule, trashNoteRule, trashRestoreRule, trashPurgeRule, trashEmptyRule, trashListRule, trashAccessRule, trashRemoteRule } from '../src/library/libraryRules'
 
 // `tolerance` is the fixture file's top-level value, copied onto each case.
 type Case = { name: string; input: unknown; expected: unknown; tolerance?: number }
@@ -334,6 +334,14 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'library.tree': ({ input, expected }) => void expect(libraryTree(input as Parameters<typeof libraryTree>[0])).toEqual(expected),
   'trash.trashNote': ({ input, expected }) => void expect(trashNoteRule(input as Parameters<typeof trashNoteRule>[0])).toEqual(expected),
   'trash.trashFolder': ({ input, expected }) => void expect(trashFolderRule(input as Parameters<typeof trashFolderRule>[0])).toEqual(expected),
+  'trash.restoreNote': ({ input, expected }) => void expect(trashRestoreRule(input as Parameters<typeof trashRestoreRule>[0])).toEqual(expected),
+  'trash.restoreFolder': ({ input, expected }) => void expect(trashRestoreRule(input as Parameters<typeof trashRestoreRule>[0])).toEqual(expected),
+  'trash.purgeItem': ({ input, expected }) => void expect(trashPurgeRule(input as Parameters<typeof trashPurgeRule>[0])).toEqual(expected),
+  'trash.emptyTrash': ({ input, expected }) => void expect(trashEmptyRule(input as Parameters<typeof trashEmptyRule>[0])).toEqual(expected),
+  'trash.list': ({ input, expected }) => void expect(trashListRule(input as Parameters<typeof trashListRule>[0])).toEqual(expected),
+  'trash.access': ({ input, expected }) => void expect(trashAccessRule(input as Parameters<typeof trashAccessRule>[0])).toEqual(expected),
+  'trash.remoteTrashed': ({ input, expected }) => void expect(trashRemoteRule(input as Parameters<typeof trashRemoteRule>[0])).toEqual(expected),
+  'drive.trashbinFolder': ({ input, expected }) => void expect(driveTrashbinFolderRule(input as Parameters<typeof driveTrashbinFolderRule>[0])).toEqual(expected),
   'export.range': ({ input, expected }) => void expect(exportRange(input as Parameters<typeof exportRange>[0])).toEqual(expected),
   'export.fileName': ({ input, expected }) => void expect(exportFileName(input as Parameters<typeof exportFileName>[0])).toEqual(expected),
   'export.plan': ({ input, expected }) => void expect(exportPlan(input as Parameters<typeof exportPlan>[0])).toEqual(expected),
@@ -355,15 +363,6 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
-  // Trash rules (Story 14.1) arrive with the web stories 14.3, 7.8.
-  'trash.restoreNote',
-  'trash.restoreFolder',
-  'trash.purgeItem',
-  'trash.emptyTrash',
-  'trash.list',
-  'trash.access',
-  'trash.remoteTrashed',
-  'drive.trashbinFolder',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
 
