@@ -45,7 +45,9 @@ export function exportFileName({ title }: { title: string }): { name: string } {
 }
 
 export type PlanElement =
-  | { id: string; kind: 'pen'; color: string; polygons: 1 }
+  | { id: string; kind: 'pen' | 'fountain'; color: string; polygons: 1 }
+  | { id: string; kind: 'pencil'; color: string; polygons: 1; texture: 'alpha' }
+  | { kind: 'raster'; width_px: number; height_px: number }
   | { id: string; kind: 'highlighter'; color: string; polygons: number; opacity: 0.4; blend: 'multiply' }
   | { id: string; kind: 'text'; x: number; y: number; width: number; height: number; rotation: number; lines: string[]; colors: string[] }
   | { id: string; kind: 'image'; x: number; y: number; width: number; height: number; rotation: number; asset: string; ext: string }
@@ -61,6 +63,9 @@ export type PlanInput = {
   range: Omit<RangeInput, 'pageCount'>
   localAssets: Iterable<string>
 }
+
+/** A page with an answer tape is exported as one raster (spec/export.md "Answer tape"). */
+export const hasTape = (p: { elements: ReadonlyArray<Record<string, any>> }): boolean => p.elements.some((e) => e?.type === 'stroke' && e.tool === 'tape')
 
 const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const isWs = (c: string) => trimTitle(c) === ''
@@ -101,18 +106,22 @@ export function exportPlan({ note, range, localAssets }: PlanInput): PlanResult 
     const elements: PlanElement[] = [], omitted: string[] = []
     // A PDF page has no paper and no background path: only the ink counts (the original page is the ground).
     const pdf = isPdfBackground(p.background) ? p.background : null
-    if (pdf) pdfAssets.add(pdf.asset)
+    const raster = hasTape(p as { elements: Record<string, any>[] })
+    if (pdf && !raster) pdfAssets.add(pdf.asset)
     let min = pdf ? 0 : 1 + (bg.lines.length + bg.dots.length > 0 ? 1 : 0), max = pdf ? 0 : 1 + bg.lines.length + bg.dots.length
     let images = 0
     for (const e of p.elements as El[]) {
       if (!visible(e, p.width, p.height)) { omitted.push(e.id as string); continue }
+      if (raster) continue
       if (e.type === 'stroke') {
         const hl = e.tool === 'highlighter'
         const polys = hl ? highlighterOutline(e.width as number, e.points as number[][]).length : 1
         min += 1; max += polys
         elements.push(hl
           ? { id: e.id as string, kind: 'highlighter', color: e.color as string, polygons: polys, opacity: 0.4, blend: 'multiply' }
-          : { id: e.id as string, kind: 'pen', color: e.color as string, polygons: 1 })
+          : e.tool === 'pencil'
+            ? { id: e.id as string, kind: 'pencil', color: e.color as string, polygons: 1, texture: 'alpha' }
+            : { id: e.id as string, kind: e.tool === 'fountain' ? 'fountain' : 'pen', color: e.color as string, polygons: 1 })
       } else if (e.type === 'text') {
         elements.push(textEntry(e, fonts))
       } else if (e.type === 'image') {
@@ -120,9 +129,15 @@ export function exportPlan({ note, range, localAssets }: PlanInput): PlanResult 
         elements.push({ id: e.id as string, kind: 'image', x: e.x as number, y: e.y as number, width: e.width as number, height: e.height as number, rotation: (e.rotation as number) || 0, asset: e.asset as string, ext: e.ext as string })
       }
     }
+    if (raster) {
+      min = max = 0
+      images = 1
+      elements.length = 0
+      elements.push({ kind: 'raster', width_px: Math.ceil(p.width * 2.5), height_px: Math.ceil(p.height * 2.5) })
+    }
     pages.push({
       number: n, id: p.id, width: p.width, height: p.height, orientation: p.width > p.height ? 'landscape' : 'portrait',
-      ...(pdf ? { background: 'pdf', pdf: { asset: pdf.asset, page: pdf.page } } : { paper: bg.paper, background: patternOf(p.background) }),
+      ...(pdf ? { background: 'pdf', ...(!raster && { pdf: { asset: pdf.asset, page: pdf.page } }) } : { paper: bg.paper, background: patternOf(p.background) }),
       lines: pdf ? 0 : bg.lines.length, dots: pdf ? 0 : bg.dots.length, shapes: { min, max }, images, omitted, elements,
     })
   }

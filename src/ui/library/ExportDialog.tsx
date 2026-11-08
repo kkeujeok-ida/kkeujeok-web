@@ -63,7 +63,7 @@ export function ExportDialog({ mode: purpose = 'export', note, current, images, 
     setPhase({ kind: 'making', done: 0, total: 'pages' in checked ? checked.pages.length : 0 })
     try {
       // pdf-lib and fontkit load only when an export starts
-      const [{ buildPdf, ExportCancelled: Cancelled }, { loadFonts, webpToPng }] = await Promise.all([import('../../export/pdfExport'), import('../../export/browserAssets')])
+      const [{ buildPdf, ExportCancelled: Cancelled }, { loadFonts, webpToPng }, { renderPageRaster }] = await Promise.all([import('../../export/pdfExport'), import('../../export/browserAssets'), import('../../export/pageRaster')])
       cancelled = Cancelled
       const store = sharedAssetStore()
       // Asset first: a byte file this device lacks is fetched (the asset sync) and waited for, unless offline.
@@ -80,7 +80,7 @@ export function ExportDialog({ mode: purpose = 'export', note, current, images, 
         },
       }
       const r = await buildPdf({
-        note, range, assets, fonts: loadFonts, webpToPng, signal: ac.signal,
+        note, range, assets, fonts: loadFonts, webpToPng, rasterPage: (p, w, h, a) => renderPageRaster(p as never, w, h, a), signal: ac.signal,
         onProgress: (done, total) => setPhase({ kind: 'making', done, total }),
       })
       if (!r.ok) return setPhase({ kind: 'failed', missing: r.error === 'assetMissing', pdf: !!r.pdfAssets?.length })

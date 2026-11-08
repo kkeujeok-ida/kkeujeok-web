@@ -12,7 +12,8 @@ import { isPdfBackground, patternOf } from '../model/pdfRules'
 import { fontAdvances } from '../model/textMetrics'
 import { highlighterOutline, windAlike } from '../render/highlighterOutline'
 import { pageBackground } from '../render/pageBackground'
-import { strokeOutlineFor } from '../render/strokeOutline'
+import { pencilDensity } from '../render/pencilTexture'
+import { meanPressure, strokeOutlineFor } from '../render/strokeOutline'
 import { exportPlan, type PlanInput, type PlanResult, type RangeError } from './exportRules'
 
 type El = Record<string, any>
@@ -27,6 +28,8 @@ export type PdfJob = {
   fonts: () => Promise<PdfFonts>
   /** WebP is not a PDF image type: the client turns it into PNG bytes. */
   webpToPng?: (bytes: Uint8Array) => Promise<Uint8Array>
+  /** PNG bytes of a tape page at w x h px (spec "Answer tape"); none makes a tape page fail. */
+  rasterPage?: (page: El, w: number, h: number, assets: AssetSource) => Promise<Uint8Array | null>
   onProgress?: (done: number, total: number) => void
   signal?: AbortSignal
 }
@@ -138,7 +141,7 @@ export async function buildPdf(job: PdfJob): Promise<PdfResult> {
   const grounds = new Map<string, PDFEmbeddedPage>()
   const wanted = plan.pages.flatMap((pp) => {
     const bg = job.note.pages[pp.number - 1]!.background
-    return isPdfBackground(bg) ? [bg] : []
+    return isPdfBackground(bg) && pp.pdf ? [bg] : [] // a tape page draws its PDF into the raster
   })
   const embedFrom = async (i: number) => {
     const first = wanted[i]!
@@ -170,10 +173,22 @@ export async function buildPdf(job: PdfJob): Promise<PdfResult> {
   for (const pp of plan.pages) {
     const np = job.note.pages[pp.number - 1] as El
     const page = doc.addPage([pp.width, pp.height])
+    const first = pp.elements[0]
+    if (first?.kind === 'raster') {
+      // one flat picture, nothing else
+      const png = await job.rasterPage?.(np, first.width_px, first.height_px, job.assets)
+      gone()
+      if (!png) throw new Error(`raster of page ${pp.number} failed`)
+      page.drawImage(await doc.embedPng(png), { x: 0, y: 0, width: pp.width, height: pp.height })
+      job.onProgress?.(++done, plan.pages.length)
+      await tick()
+      gone()
+      continue
+    }
     const fontName = new Map<PDFFont, PDFName>()
     const nameOf = (f: PDFFont) => fontName.get(f) ?? (fontName.set(f, page.node.newFontDictionary(f.name, f.ref)), fontName.get(f)!)
     const gs = page.node.newExtGState('Mul', multiply)
-    const keep = new Map(pp.elements.map((e) => [e.id, e]))
+    const keep = new Map(pp.elements.flatMap((e) => (e.kind === 'raster' ? [] : [[e.id, e] as const])))
     // Everything below is in the note's y-down space; the clip is the page.
     const ops: PDFOperator[] = []
     const ref = isPdfBackground(np.background) ? np.background : null
@@ -201,9 +216,17 @@ export async function buildPdf(job: PdfJob): Promise<PdfResult> {
     for (const e of np.elements as El[]) {
       const pe = keep.get(e.id)
       if (!pe) continue
-      if (pe.kind === 'pen') {
+      if (pe.kind === 'pen' || pe.kind === 'fountain' || pe.kind === 'pencil') {
         const poly = strokeOutlineFor(e.tool, e.width, e.usePressure, e.points, 'normal') // a file does not depend on a device setting
-        if (poly.length) { ops.push(fillRgb(e.color)); polygon(ops, poly); ops.push(fill()) }
+        if (poly.length) {
+          // pencil: one path at the mean density alpha, never cells (spec "Pencil")
+          const a = pe.kind === 'pencil' ? pencilDensity(meanPressure(e.usePressure, e.points, 'normal')).density : 1
+          ops.push(pushGraphicsState())
+          if (a !== 1) ops.push(setGraphicsState(page.node.newExtGState('Pc', doc.context.register(doc.context.obj({ Type: 'ExtGState', ca: a })))))
+          ops.push(fillRgb(e.color))
+          polygon(ops, poly)
+          ops.push(fill(), popGraphicsState())
+        }
       } else if (pe.kind === 'highlighter') {
         // all rectangles of one stroke are one layer: one fill, one alpha
         ops.push(pushGraphicsState(), setGraphicsState(gs), fillRgb(e.color))
