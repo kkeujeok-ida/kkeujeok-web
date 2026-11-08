@@ -863,6 +863,17 @@ h1 {
   background: transparent;
 }
 
+/* The conflict banner's [해결하기] is a filled button so it is not missed. */
+.editor-banner .btn-primary {
+  border-radius: var(--components-button-primary-rounded);
+  background: var(--components-button-primary-background);
+  color: var(--components-button-primary-text);
+}
+
+.editor-banner .btn-primary[aria-disabled='true'] {
+  background: var(--color-ink-disabled);
+}
+
 .editor-corner .btn {
   min-width: 32px;
   min-height: 32px;

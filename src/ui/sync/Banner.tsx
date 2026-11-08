@@ -95,7 +95,7 @@ export function Banner({
   } else if (kind === 'conflictReadOnly' && noteId !== undefined) {
     const resolve = ui?.resolve
     action = (
-      <button type="button" className="btn" aria-disabled={!resolve} onClick={() => resolve?.(noteId)}>
+      <button type="button" className="btn btn-primary" aria-disabled={!resolve} onClick={() => resolve?.(noteId)}>
         {t('banner.conflict.resolve')}
       </button>
     )
