@@ -46,7 +46,7 @@
   "settings.theme": "테마",
   "settings.theme.light": "라이트",
   "settings.theme.dark": "다크",
-  "settings.theme.alldark": "올 다크 (페이지·필기도 반전)",
+  "settings.theme.alldark": "올 다크",
   "settings.logout": "로그아웃",
   "settings.disconnect": "연결 해제",
   "dialog.cancel": "취소",

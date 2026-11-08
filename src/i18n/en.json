@@ -46,7 +46,7 @@
   "settings.theme": "Theme",
   "settings.theme.light": "Light",
   "settings.theme.dark": "Dark",
-  "settings.theme.alldark": "All Dark (page and writing inverted)",
+  "settings.theme.alldark": "All Dark",
   "settings.logout": "Log out",
   "settings.disconnect": "Disconnect",
   "dialog.cancel": "Cancel",
