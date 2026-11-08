@@ -2884,49 +2884,6 @@ h1 {
 .btn, .dialog, .snackbar, .editor-banner, .sync-banner, .conflict-sheet { overflow-wrap: anywhere; }
 
 /* Story 14.3: the app trash */
-.trash-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.trash-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--spacing-2);
-  padding: var(--spacing-2) var(--spacing-3);
-  border: 1px solid var(--color-border-hairline);
-  border-radius: var(--rounded-sm);
-}
-
-.trash-main {
-  display: flex;
-  flex: 1 1 12rem;
-  flex-direction: column;
-  min-width: 0;
-  min-height: var(--spacing-hit-min-web);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-ink-primary);
-  font: inherit;
-  text-align: start;
-}
-
-button.trash-main {
-  cursor: pointer;
-}
-
-.trash-meta {
-  color: var(--color-ink-secondary);
-  font-size: var(--typography-caption-font-size);
-  line-height: var(--typography-caption-line-height);
-}
-
 .trash-pages {
   display: flex;
   flex-direction: column;
@@ -2945,6 +2902,24 @@ button.trash-main {
 .trash-banner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-3);
+  gap: var(--spacing-2);
+  /* A compact chip in the brand color at the end of the title row, as wide as it needs. */
+  width: fit-content;
+  margin-inline-start: auto;
+  padding: var(--spacing-1) var(--spacing-3);
+  border-radius: var(--rounded-sm);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+}
+
+.trash-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.trash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
 }

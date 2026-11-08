@@ -7,6 +7,31 @@ import type { Note } from '../model/note'
 import { StrokePathCache, paintPage } from '../render/pagePainter'
 import type { TrashEntry, TrashOutcome, TrashService } from '../library/trashService'
 import { SNACKBAR_MS } from './snackbar'
+import { LIBRARY_LAYOUTS, LIBRARY_SIZES, sharedLibraryView, type LibraryView } from '../storage/libraryView'
+import { LIBRARY_SORTS, type LibrarySort } from './library/useLibrary'
+import { libraryKey } from '../library/libraryRules'
+
+const SORT_KEY = 'kkeujeok.librarySort' // the library's choice carries over
+const asSort = (v: string | null): LibrarySort => ((LIBRARY_SORTS as readonly string[]).includes(v ?? '') ? (v as LibrarySort) : 'editedDesc')
+function readSort(): LibrarySort {
+  try {
+    return asSort(localStorage.getItem(SORT_KEY))
+  } catch {
+    return 'editedDesc'
+  }
+}
+
+/** Folders before notes; names by name, the time sorts by the day of the delete. */
+function sortEntries(list: TrashEntry[], sort: LibrarySort): TrashEntry[] {
+  const desc = sort === 'nameDesc' || sort === 'createdDesc' || sort === 'editedDesc'
+  const byName = sort === 'nameAsc' || sort === 'nameDesc'
+  const dir = desc ? -1 : 1
+  return [...list].sort((a, b) => {
+    if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1
+    const c = byName ? libraryKey(a.title).localeCompare(libraryKey(b.title)) : a.trashedAt.localeCompare(b.trashedAt)
+    return c !== 0 ? dir * c : a.id < b.id ? -1 : 1
+  })
+}
 
 export const TRASH_HREF = '#/trash'
 
@@ -63,17 +88,17 @@ function TrashNoteView({ entry, service, onBack, onRestore }: { entry: TrashEntr
   }
   return (
     <section className="trash-view" aria-label={entry.title}>
-      <div className="editor-banner trash-banner" role="status">
-        <span>{t('trash.noteBanner')}</span>
-        <button type="button" className="btn" disabled={busy} onClick={restore}>
-          {t('trash.restore')}
-        </button>
-      </div>
       <div className="library-toolbar">
         <button type="button" className="btn" onClick={onBack}>
           {t('trash.back')}
         </button>
         <h1 className="library-heading">{entry.title}</h1>
+        <div className="editor-banner trash-banner" role="status">
+          <span>{t('trash.noteBanner')}</span>
+          <button type="button" className="btn" disabled={busy} onClick={restore}>
+            {t('trash.restore')}
+          </button>
+        </div>
       </div>
       {state === 'loading' ? null : typeof state === 'string' ? (
         <p role="alert">{state === 'failed' ? t('trash.loadFailed') : t('trash.cannotOpen')}</p>
@@ -97,6 +122,11 @@ export function Trash({ service, onChanged }: { service: TrashService; onChanged
   // The id of the row asking for the second press, or 'all'.
   const [armed, setArmed] = useState<string | null>(null)
   const [toast, setToast] = useState('')
+  const [view, setView] = useState<LibraryView>(() => sharedLibraryView().read())
+  const [sort, setSort] = useState<LibrarySort>(readSort)
+  const [query, setQuery] = useState('')
+  const q = libraryKey(query.trim())
+  const shown = sortEntries((entries ?? []).filter((e) => !q || libraryKey(e.title).includes(q)), sort)
 
   // Loads can overlap; only the newest answer is shown.
   const loadSeq = useRef(0)
@@ -173,11 +203,52 @@ export function Trash({ service, onChanged }: { service: TrashService; onChanged
   }
 
   return (
-    <section className="trash" aria-labelledby="trash-title">
+    <section className="trash library" aria-labelledby="trash-title">
       <div className="library-toolbar">
         <h1 id="trash-title" className="library-heading">
           {t('trash.title')}
         </h1>
+        <select
+          className="field-input library-view"
+          aria-label={t('library.view')}
+          value={`${view.layout}:${view.size}`}
+          onChange={(e) => {
+            const [layout, size] = e.target.value.split(':') as [LibraryView['layout'], LibraryView['size']]
+            setView({ layout, size })
+            sharedLibraryView().write({ layout, size })
+          }}
+        >
+          {LIBRARY_LAYOUTS.flatMap((layout) =>
+            LIBRARY_SIZES.map((size) => (
+              <option key={`${layout}:${size}`} value={`${layout}:${size}`}>
+                {`${t(`library.view.${size}`)} ${t(`library.view.${layout}`)}`}
+              </option>
+            )),
+          )}
+        </select>
+        <select
+          className="field-input library-sort"
+          aria-label={t('library.sort')}
+          value={sort}
+          onChange={(e) => {
+            const v = e.target.value as LibrarySort
+            setSort(v)
+            try {
+              localStorage.setItem(SORT_KEY, v)
+            } catch {
+              /* not stored; the choice holds for this visit */
+            }
+          }}
+        >
+          {LIBRARY_SORTS.map((s) => (
+            <option key={s} value={s}>
+              {t(`library.sort.${s}`)}
+            </option>
+          ))}
+        </select>
+        <div className="library-search is-open" role="search">
+          <input type="search" className="field-input" aria-label={t('library.searchHint')} placeholder={t('library.searchHint')} value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
         {entries && entries.length > 0 &&
           (armed === 'all' ? (
             <>
@@ -196,45 +267,66 @@ export function Trash({ service, onChanged }: { service: TrashService; onChanged
       </div>
       {error && <p role="alert">{t('trash.loadFailed')}</p>}
       {entries && entries.length === 0 && <p>{t('trash.empty')}</p>}
-      {entries && entries.length > 0 && (
-        <ul className="trash-list">
-          {entries.map((e) => {
+      {entries && entries.length > 0 && shown.length === 0 && (
+        <p role="status" className="cover-status">
+          {t('library.searchNoResults').replace('{q}', query.trim())}
+        </p>
+      )}
+      {shown.length > 0 && (
+        <ul className="cover-grid" data-layout={view.layout} data-size={view.size}>
+          {shown.map((e) => {
             const kind = t(e.isFolder ? 'trash.kindFolder' : 'trash.kindNote')
             const label = t('trash.itemLabel').replace('{name}', e.title).replace('{kind}', kind).replace('{date}', date(e.trashedAt))
-            return (
-              <li key={e.id} className="trash-item" onKeyDown={(ev) => onKey(ev, e)}>
+            const meta = e.isFolder ? `${t('trash.notes').replace('{n}', String(e.noteCount))} · ${date(e.trashedAt)}` : `${kind} · ${date(e.trashedAt)}`
+            const body = (
+              <>
                 {e.isFolder ? (
-                  <div className="trash-main" tabIndex={0} role="group" aria-label={label}>
-                    <span className="trash-title">{e.title}</span>
-                    <span className="trash-meta">
-                      {t('trash.notes').replace('{n}', String(e.noteCount))} · {date(e.trashedAt)}
-                    </span>
+                  <span className="folder-thumb" aria-hidden="true">
+                    <svg className="icon folder-thumb-icon" viewBox="0 0 16 16">
+                      <path d="M2 4.5h4l1.5 1.5H14v6.5H2z" stroke="currentColor" strokeWidth="1" fill="currentColor" fillOpacity="0.25" />
+                    </svg>
+                  </span>
+                ) : (
+                  <span className="cover-thumb-wrap">
+                    <span className="cover-thumb" aria-hidden="true" />
+                  </span>
+                )}
+                <span className="cover-text">
+                  <span className="cover-title">{e.title}</span>
+                  <span className="cover-date">{meta}</span>
+                </span>
+              </>
+            )
+            return (
+              <li key={e.id} className="cover-item trash-item" onKeyDown={(ev) => onKey(ev, e)}>
+                {e.isFolder ? (
+                  <div className="cover-card folder-card trash-main" tabIndex={0} role="group" aria-label={label}>
+                    {body}
                   </div>
                 ) : (
-                  <button type="button" className="trash-main" aria-label={label} onClick={() => setViewing(e)}>
-                    <span className="trash-title">{e.title}</span>
-                    <span className="trash-meta">
-                      {kind} · {date(e.trashedAt)}
-                    </span>
+                  <button type="button" className="cover-card trash-main" aria-label={label} onClick={() => setViewing(e)}>
+                    {body}
                   </button>
                 )}
-                <button type="button" className="btn" onClick={() => void restore(e)}>
-                  {t('trash.restore')}
-                </button>
-                {armed === e.id ? (
-                  <>
-                    <button type="button" className="btn btn-destructive" autoFocus onClick={() => void purge(e)}>
-                      {t('trash.purgeConfirm')}
-                    </button>
-                    <button type="button" className="btn" onClick={() => setArmed(null)}>
-                      {t('trash.cancel')}
-                    </button>
-                  </>
-                ) : (
-                  <button type="button" className="btn" onClick={() => setArmed(e.id)}>
-                    {t('trash.purge')}
+                <div className="trash-actions">
+                  <button type="button" className="btn" onClick={() => void restore(e)}>
+                    {t('trash.restore')}
                   </button>
-                )}
+                  {armed === e.id ? (
+                    <>
+                      <button type="button" className="btn btn-destructive" autoFocus onClick={() => void purge(e)}>
+                        {t('trash.purgeConfirm')}
+                      </button>
+                      <button type="button" className="btn" onClick={() => setArmed(null)}>
+                        {t('trash.cancel')}
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" className="btn" onClick={() => setArmed(e.id)}>
+                      {t('trash.purge')}
+                    </button>
+                  )}
+                </div>
               </li>
             )
           })}
