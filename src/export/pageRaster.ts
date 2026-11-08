@@ -68,7 +68,8 @@ export async function renderPageRaster(page: Page, wPx: number, hPx: number, ass
       ...(ground && { pdf: { labels: { downloading: '', failed: '' }, state: () => 'ready' as const, retry() {}, paint: (ctx: CanvasRenderingContext2D, p: { width: number; height: number }) => ctx.drawImage(ground!, 0, 0, p.width, p.height) } }),
     }
     const draw = () => {
-      s.ctx.clearRect(0, 0, wPx, hPx)
+      s.ctx.fillStyle = '#fff' // opaque, also the sub-pixel edge strip (no alpha plane in the PNG)
+      s.ctx.fillRect(0, 0, wPx, hPx)
       paintPage(s.ctx, page, { scale: 2.5, offsetX: 0, offsetY: 0 }, cache, null, null, src, null, false)
     }
     cache.textures.onReady = () => {} // a texture is only looked up when someone listens
