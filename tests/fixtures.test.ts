@@ -381,6 +381,15 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // each story removes its rule here when it adds the runner.
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
+  // Epic 24 pen kinds (Story 24.1): the runners arrive with Story 24.3 (pen.*,
+  // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
+  'stroke.outline.fountain',
+  'stroke.outline.pencil',
+  'stroke.outline.tape',
+  'stroke.texture.pencil',
+  'note.penKinds',
+  'pen.kinds',
+  'pen.switchKind',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
 
