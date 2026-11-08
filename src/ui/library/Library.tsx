@@ -538,16 +538,6 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             </a>
           </li>
         )}
-        {status === 'ready' && items.length === 0 && noSubfolders && !scanning && inFolder && !q && (
-          <li className="cover-status" role="status">
-            {t('folder.empty')}
-          </li>
-        )}
-        {status === 'ready' && items.length === 0 && !scanning && q && (
-          <li className="cover-status" role="status">
-            {fmt(t('library.searchNoResults'), { q })}
-          </li>
-        )}
         {status === 'ready' && items.length === 0 && noSubfolders && !scanning && !q && (
           <li>
             <button type="button" className="cover-card" onClick={(e) => openSheet(e.currentTarget)}>
@@ -559,6 +549,16 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
               <span className="cover-title">{t('library.newNote')}</span>
             </button>
             {!hintSeen('firstNote') && <p className="one-line-hint">{t('hint.firstNote')}</p>}
+          </li>
+        )}
+        {status === 'ready' && items.length === 0 && noSubfolders && !scanning && inFolder && !q && (
+          <li className="cover-status" role="status">
+            {t('folder.empty')}
+          </li>
+        )}
+        {status === 'ready' && items.length === 0 && !scanning && q && (
+          <li className="cover-status" role="status">
+            {fmt(t('library.searchNoResults'), { q })}
           </li>
         )}
         {subfolders.map((f) => (
