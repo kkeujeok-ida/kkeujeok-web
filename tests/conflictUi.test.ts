@@ -23,6 +23,7 @@ import { NID, PA, PB, mkNote } from './uploadHarness'
 class FakePath {
   moveTo() {}
   lineTo() {}
+  quadraticCurveTo() {}
   closePath() {}
 }
 ;(globalThis as { Path2D?: unknown }).Path2D = FakePath

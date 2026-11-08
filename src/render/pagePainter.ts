@@ -13,7 +13,7 @@ import { drawableImage, paintImage, type ImageSource } from './imagePainter'
 import { dotHex, inkHex, invertLayers, lineHex, paperHex } from '../model/invert'
 import { isAllDark } from '../storage/theme'
 import { drawableText, paintTextBox } from './textPainter'
-import { PENCIL_CELL, PencilTextures, pencilDensity, pencilTouches, type PencilDraw } from './pencilTexture'
+import { PENCIL_GRAIN_SCALE, PencilTextures, pencilDensity } from './pencilTexture'
 import { meanPressure } from './strokeOutline'
 
 /** page point = (local - offset) / scale. Only 2.12 (zoom/pan) changes it. */
@@ -145,7 +145,7 @@ const strokePath = (s: Pick<Stroke, 'tool' | 'width' | 'usePressure' | 'points'>
 /** Outlines of finished strokes by stroke id, so a repaint rebuilds none. */
 export class StrokePathCache {
   private byId = new Map<string, { key: string; path: Path2D }>()
-  /** Cell images of pencil strokes; set `textures.onReady` to repaint when one is built (a one-off painter leaves it unset: polygons only). */
+  /** The pencil grain tile; set `textures.onReady` to repaint when it is loaded. */
   readonly textures = new PencilTextures()
 
   pathOf(s: Stroke): Path2D {
@@ -160,12 +160,11 @@ export class StrokePathCache {
   /** Forgets strokes that are no longer on the page. */
   keepOnly(ids: ReadonlySet<string>): void {
     for (const id of this.byId.keys()) if (!ids.has(id)) this.byId.delete(id)
-    this.textures.keepOnly(ids)
   }
 
-  /** Frees the texture images; call when the owner is done with the cache. */
+  /** Kept for callers; the shared tile needs no freeing. */
   dispose(): void {
-    this.textures.dispose()
+    this.textures.onReady = null
   }
 }
 
@@ -176,9 +175,6 @@ export function eraserPreviewOpacity(el: Element): number {
   const n = parseFloat(getComputedStyle(el).getPropertyValue('--components-eraser-preview-opacity'))
   return (previewOpacity = n >= 0 && n <= 1 ? n : 0.35)
 }
-
-/** Alpha of the plain pencil polygon: while the pen is down, while cells build, and for a stroke too big for a texture. */
-const pencilAlpha = (s: Pick<Stroke, 'usePressure' | 'points'>) => pencilDensity(meanPressure(s.usePressure, s.points)).density
 
 const MAX_BACKGROUND_ITEMS = 100000
 const COLOR = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/
@@ -203,31 +199,52 @@ const fill = (ctx: CanvasRenderingContext2D, path: Path2D, color: unknown, tool?
   ctx.restore()
 }
 
-// Scratch canvas for tinting a texture: the cache holds colourless cells, the colour is composited here.
+// Scratch canvas for one pencil stroke: the polygon in the stroke colour, cut by the grain tile.
 let scratch: HTMLCanvasElement | OffscreenCanvas | null = null
-function tinted(d: PencilDraw, color: string): CanvasImageSource {
-  if (!scratch) scratch = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(d.w, d.h) : document.createElement('canvas')
-  if (scratch.width < d.w) scratch.width = d.w
-  if (scratch.height < d.h) scratch.height = d.h
+const MAX_SIDE = 4096
+
+/** Fills a pencil stroke through the grain tile, anchored at its first point so the grain moves with the stroke. Falls back to the plain alpha polygon (no tile, or a huge area). */
+function fillPencil(ctx: CanvasRenderingContext2D, path: Path2D, s: Pick<Stroke, 'color' | 'width' | 'usePressure' | 'points'>, tile: CanvasImageSource | null, view: { x0: number; y0: number; x1: number; y1: number }, alpha: number, dark: boolean) {
+  const density = pencilDensity(meanPressure(s.usePressure, s.points)).density
+  const plain = () => fill(ctx, path, s.color, 'pencil', alpha * density, dark)
+  if (!tile || s.points.length === 0) return plain()
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const p of s.points) {
+    x0 = Math.min(x0, p[0]!); x1 = Math.max(x1, p[0]!)
+    y0 = Math.min(y0, p[1]!); y1 = Math.max(y1, p[1]!)
+  }
+  const r = s.width * 1.5 + 1
+  x0 = Math.max(x0 - r, view.x0); y0 = Math.max(y0 - r, view.y0); x1 = Math.min(x1 + r, view.x1); y1 = Math.min(y1 + r, view.y1)
+  if (x1 <= x0 || y1 <= y0) return
+  const m = ctx.getTransform()
+  const dx0 = Math.floor(m.a * x0 + m.e), dy0 = Math.floor(m.d * y0 + m.f)
+  const w = Math.ceil(m.a * x1 + m.e) - dx0, h = Math.ceil(m.d * y1 + m.f) - dy0
+  if (w <= 0 || h <= 0) return
+  if (w > MAX_SIDE || h > MAX_SIDE) return plain()
+  if (!scratch) scratch = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : document.createElement('canvas')
+  if (scratch.width < w) scratch.width = w
+  if (scratch.height < h) scratch.height = h
   const c = scratch.getContext('2d') as CanvasRenderingContext2D
+  const col = typeof s.color === 'string' && COLOR.test(s.color) ? s.color : '#000000'
+  c.setTransform(1, 0, 0, 1, 0, 0)
   c.globalCompositeOperation = 'source-over'
   c.clearRect(0, 0, scratch.width, scratch.height)
-  c.fillStyle = color
-  c.fillRect(0, 0, d.w, d.h)
+  c.setTransform(m.a, 0, 0, m.d, m.e - dx0, m.f - dy0)
+  c.fillStyle = dark ? inkHex(col.slice(0, 7)) : col
+  c.fill(path, 'nonzero')
+  c.setTransform(1, 0, 0, 1, 0, 0)
   c.globalCompositeOperation = 'destination-in'
-  c.drawImage(d.image, 0, 0)
-  return scratch
-}
-
-/** Draws a ready pencil texture in the stroke colour (All Dark: inverted like a pen); `alpha` is the eraser fade. */
-function fillPencil(ctx: CanvasRenderingContext2D, d: PencilDraw, color: unknown, alpha: number, dark: boolean) {
-  const c = typeof color === 'string' && COLOR.test(color) ? color : '#000000'
-  const src = tinted(d, dark ? inkHex(c.slice(0, 7)) : c)
+  const pat = c.createPattern(tile, 'repeat')
+  if (!pat) return plain()
+  const k = PENCIL_GRAIN_SCALE
+  const f = s.points[0]!
+  pat.setTransform(new DOMMatrix([m.a * k, 0, 0, m.d * k, m.a * f[0]! + m.e - dx0, m.d * f[1]! + m.f - dy0]))
+  c.fillStyle = pat
+  c.fillRect(0, 0, w, h)
   ctx.save()
-  if (d.m) ctx.transform(d.m[0]!, d.m[1]!, -d.m[1]!, d.m[0]!, d.m[2]!, d.m[3]!)
-  ctx.globalAlpha = alpha
-  ctx.imageSmoothingEnabled = false
-  ctx.drawImage(src, 0, 0, d.w, d.h, d.dst.x, d.dst.y, d.dst.w, d.dst.h)
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.globalAlpha = alpha * density
+  ctx.drawImage(scratch, 0, 0, w, h, dx0, dy0, w, h)
   ctx.restore()
 }
 
@@ -315,10 +332,8 @@ export function paintPage(
       }
     }
     const ink = dark ? inkHex : undefined
-    // Pencil textures: cells are drawn at one device pixel or more per cell; off-screen strokes are not built.
     let dpr = 1
     try { dpr = ctx.getTransform().a / scale || 1 } catch { /* a context without a transform */ }
-    const texturesOn = scale * dpr * PENCIL_CELL >= 1
     const cw = ctx.canvas?.width, ch = ctx.canvas?.height
     const view = cw && ch ? { x0: -offsetX / scale, y0: -offsetY / scale, x1: (cw / dpr - offsetX) / scale, y1: (ch / dpr - offsetY) / scale } : { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity }
     let drafted = false
@@ -341,7 +356,6 @@ export function paintPage(
           ctx.clip(hole, 'evenodd')
         }
         const fa = fade?.ids.has(e.id) ? fade.alpha : 1
-        const tex = e.tool === 'pencil' && texturesOn && pencilTouches(e, view) ? cache.textures.lookup(e) : null
         if (e.tool === 'tape' && openTapes?.has(e.id)) {
           ctx.save()
           ctx.globalAlpha = 0.6 * fa
@@ -349,8 +363,8 @@ export function paintPage(
           ctx.strokeStyle = COLOR.test(e.color) ? e.color : '#000000'
           ctx.stroke(cache.pathOf(e))
           ctx.restore()
-        } else if (tex) fillPencil(ctx, tex, e.color, fa, dark)
-        else fill(ctx, cache.pathOf(e), e.color, e.tool, e.tool === 'pencil' ? fa * pencilAlpha(e) : fa, dark)
+        } else if (e.tool === 'pencil') fillPencil(ctx, cache.pathOf(e), e, cache.textures.tile, view, fa, dark)
+        else fill(ctx, cache.pathOf(e), e.color, e.tool, fa, dark)
         if (pcs) ctx.restore()
       } catch {
         // one bad element must not hide the rest
@@ -366,7 +380,8 @@ export function paintPage(
     cache.keepOnly(ids)
     if (live && isValidStroke(live)) {
       try {
-        fill(ctx, strokePath(live), live.color, live.tool, live.tool === 'pencil' ? pencilAlpha(live) : 1, dark)
+        if (live.tool === 'pencil') fillPencil(ctx, strokePath(live), live, cache.textures.tile, view, 1, dark)
+        else fill(ctx, strokePath(live), live.color, live.tool, 1, dark)
       } catch {
         // the stroke in progress is skipped for this frame
       }

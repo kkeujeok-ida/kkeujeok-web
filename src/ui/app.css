@@ -2120,7 +2120,7 @@ h1 {
   min-height: var(--spacing-hit-min-web);
   padding: 0 var(--spacing-3);
   border: 0;
-  border-bottom: 3px solid transparent;
+  border-radius: var(--rounded-sm);
   background: none;
   color: var(--color-ink-primary);
   font: inherit;
@@ -2128,7 +2128,7 @@ h1 {
 }
 
 .pen-tool-switch [aria-checked='true'] {
-  border-bottom-color: var(--components-pen-slot-selected-indicator);
+  background: var(--color-accent-soft);
 }
 
 .pen-palette {
@@ -2992,12 +2992,26 @@ h1 {
   color: var(--components-button-primary-text);
 }
 
+.pressure-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--spacing-3);
+}
+
+.pressure-sliders {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 220px;
+  gap: var(--spacing-2);
+}
+
 .pressure-pad {
   display: block;
-  width: 100%;
-  max-width: 320px;
-  height: 80px;
-  margin-top: var(--spacing-2);
+  width: 220px;
+  height: 220px;
+  margin: var(--spacing-2) 0;
   border: 1px solid var(--color-border-hairline);
   border-radius: var(--rounded-sm);
   background: var(--color-surface-raised);

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { fmt, useI18n } from '../../i18n'
 import { PEN_PALETTE, PEN_WIDTH, colorNameKey, paletteFamily, snapWidth, type Pen, type PenTool } from '../../model/pen'
+import { penGlyphD } from '../../model/penGlyph'
 import { sharedPenPalette } from '../../storage/penPalette'
 import { highlighterOutline, windAlike } from '../../render/highlighterOutline'
 import { strokeOutlineFor } from '../../render/strokeOutline'
@@ -12,9 +13,7 @@ const H = 72
 const AMP = 8
 const MARGIN = 32 // room for the round caps
 const SCALE = 3 // the preview is drawn this much thicker than the page
-const ROW_BASE: PenTool[] = ['pen', 'highlighter']
-const ROW_KINDS: PenTool[] = ['fountain', 'pencil', 'tape']
-const TOOLS = [...ROW_BASE, ...ROW_KINDS]
+const TOOLS: PenTool[] = ['pen', 'highlighter', 'fountain', 'pencil', 'tape']
 
 // A wave whose pressure rises and falls: flat when "use pressure" is off. The highlighter is the chisel rectangles in one path.
 function previewPath(pen: Pen): string {
@@ -161,7 +160,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
           />
         ) : (
           <>
-        {[ROW_BASE, ROW_KINDS].map((row, r) => (
+        {[TOOLS].map((row, r) => (
           <div key={r} className="pen-tool-switch" role="radiogroup" aria-label={t('editor.toolKind')}>
             {row.map((k, i) => {
               const pick = () => onChange({ tool: k }) // the same kind again resets the width (pen.switchKind)
@@ -187,13 +186,9 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
                     }
                   }}
                 >
-                  {r === 0 ? (
-                    <svg viewBox="0 0 20 36" width="12" height="22" aria-hidden="true">
-                      <path d={k === 'highlighter' ? 'M3 0V36L17 28V0M3 22.3H17' : 'M3 0V22.3L10 36L17 22.3V0M3 22.3H17'} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
-                    </svg>
-                  ) : (
-                    t(`editor.tool.${k}`)
-                  )}
+                  <svg viewBox="0 0 20 36" width="12" height="22" aria-hidden="true">
+                    <path d={penGlyphD(k)} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
+                  </svg>
                 </button>
               )
             })}

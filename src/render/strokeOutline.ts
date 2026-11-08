@@ -192,10 +192,22 @@ export const strokeOutlineFor = (
         ? strokeOutline(width, usePressure, points, curve, 0.5, 1, false, true)
         : strokeOutline(width, usePressure, points, curve)
 
-/** The polygon as a path; fill it with the non-zero rule. */
+/** The polygon as a path (fill non-zero). Long outlines go through the edge midpoints as quadratic curves, so no corner shows; a 4-point tape square stays square. */
 export function outlinePath(polygon: readonly (readonly number[])[]): Path2D {
   const path = new Path2D()
-  polygon.forEach((p, i) => (i === 0 ? path.moveTo(p[0]!, p[1]!) : path.lineTo(p[0]!, p[1]!)))
-  if (polygon.length > 0) path.closePath()
+  const n = polygon.length
+  if (n < 8) {
+    polygon.forEach((p, i) => (i === 0 ? path.moveTo(p[0]!, p[1]!) : path.lineTo(p[0]!, p[1]!)))
+    if (n > 0) path.closePath()
+    return path
+  }
+  const mid = (i: number, j: number): [number, number] => [(polygon[i]![0]! + polygon[j]![0]!) / 2, (polygon[i]![1]! + polygon[j]![1]!) / 2]
+  const [x0, y0] = mid(n - 1, 0)
+  path.moveTo(x0, y0)
+  for (let i = 0; i < n; i++) {
+    const [mx, my] = mid(i, (i + 1) % n)
+    path.quadraticCurveTo(polygon[i]![0]!, polygon[i]![1]!, mx, my)
+  }
+  path.closePath()
   return path
 }

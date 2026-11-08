@@ -26,6 +26,7 @@ import { NID, PA, PB, foreignEdit, mkNote, stroke } from './uploadHarness'
 class FakePath {
   moveTo() {}
   lineTo() {}
+  quadraticCurveTo() {}
   closePath() {}
 }
 let fills = 0

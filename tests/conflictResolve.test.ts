@@ -31,6 +31,7 @@ import { type Env, NID, PA, PB, bytesOf, foreignEdit, makeEnv, mkNote, stroke, w
 class FakePath {
   moveTo() {}
   lineTo() {}
+  quadraticCurveTo() {}
   closePath() {}
 }
 ;(globalThis as { Path2D?: unknown }).Path2D = FakePath

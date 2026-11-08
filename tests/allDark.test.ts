@@ -7,6 +7,7 @@ import { THEME_KEY, applyTheme, readTheme } from '../src/storage/theme'
 class FakePath {
   moveTo() {}
   lineTo() {}
+  quadraticCurveTo() {}
   closePath() {}
   rect() {}
   addPath() {}

@@ -11,6 +11,9 @@ class FakePath {
   lineTo(x: number, y: number) {
     this.subpaths[this.subpaths.length - 1]!.push([x, y])
   }
+  quadraticCurveTo(_cx: number, _cy: number, x: number, y: number) {
+    this.subpaths[this.subpaths.length - 1]!.push([x, y])
+  }
   closePath() {}
 }
 ;(globalThis as { Path2D?: unknown }).Path2D = FakePath

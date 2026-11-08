@@ -30,7 +30,7 @@ import { layoutText, type LineBox } from '../src/model/textLayout'
 import { snapScale } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
 import { strokeOutline, strokeOutlineFor } from '../src/render/strokeOutline'
-import { PENCIL_CELL, pencilDensity, pencilGrain, pencilSeed } from '../src/render/pencilTexture'
+import { pencilDensity } from '../src/render/pencilTexture'
 import { hasUnsentRule } from '../src/sync/hasUnsent'
 import { checkLogEntry } from '../src/sync/syncLogEntry'
 import { driveDuplicatesRule } from '../src/drive/duplicates'
@@ -242,19 +242,12 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'stroke.outline.tape': ({ input, expected, tolerance }) =>
     outlineCase((w, u, p) => strokeOutlineFor('tape', w, u, p), input, expected, tolerance),
   'stroke.texture.pencil': ({ input, expected, tolerance }) => {
-    const i = input as { fn: string; id: string; seed: number; i: number; j: number; q: number; x: number; y: number }
-    const e = expected as Record<string, number | boolean>
-    if (i.fn === 'seed') expect({ seed: pencilSeed(i.id) }).toEqual(e)
-    else if (i.fn === 'grain') expect({ grain: pencilGrain(i.seed, i.i, i.j) }).toEqual(e)
-    else if (i.fn === 'density') {
-      const d = pencilDensity(i.q)
-      expect(d.threshold).toBe(e.threshold)
-      expect(Math.abs(d.density - (e.density as number))).toBeLessThanOrEqual(tolerance! + 1e-9)
-    } else {
-      const ci = Math.floor(i.x / PENCIL_CELL), cj = Math.floor(i.y / PENCIL_CELL)
-      const grain = pencilGrain(i.seed, ci, cj)
-      expect({ i: ci, j: cj, grain, inked: grain < pencilDensity(i.q).threshold }).toEqual(e)
-    }
+    const i = input as { fn: string; q: number }
+    const e = expected as { density: number; threshold: number }
+    if (i.fn !== 'density') throw new Error(`unknown fn ${i.fn}`)
+    const d = pencilDensity(i.q)
+    expect(d.threshold).toBe(e.threshold)
+    expect(Math.abs(d.density - e.density)).toBeLessThanOrEqual(tolerance! + 1e-9)
   },
   'stroke.outline.highlighter': ({ input, expected, tolerance }) => {
     const i = input as { width: number; points: number[][] }

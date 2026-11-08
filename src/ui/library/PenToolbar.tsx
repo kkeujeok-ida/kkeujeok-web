@@ -1,3 +1,4 @@
+import { penGlyphD } from '../../model/penGlyph'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
 import { colorNameKey, type Pen } from '../../model/pen'
 import { fmt, useI18n } from '../../i18n'
@@ -270,7 +271,7 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, to
             >
               <svg className="pen-nib" viewBox="0 0 20 36" aria-hidden="true">
                 <path
-                  d={pen.tool === 'highlighter' ? 'M3 0V36L17 28V0M3 22.3H17' : 'M3 0V22.3L10 36L17 22.3V0M3 22.3H17'}
+                  d={penGlyphD(pen.tool)}
                   fill="none"
                   stroke={pen.color}
                   strokeWidth="1.75"

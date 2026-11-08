@@ -125,25 +125,63 @@ export function PressureCurveSetting() {
           </label>
         ))}
       </div>
-      <svg
-        className="pressure-graph"
-        width={SIZE}
-        height={SIZE}
-        role="img"
-        aria-label={t('settings.pressureCurve.graph')}
-        onPointerDown={graphDown}
-        onPointerMove={graphMove}
-        onPointerUp={() => (drag.current = -1)}
-        onPointerCancel={() => (drag.current = -1)}
-      >
-        {[1, 2, 3].map((i) => (
-          <path key={i} className="grid" d={`M${(SIZE * i) / 4} 0V${SIZE}M0 ${(SIZE * i) / 4}H${SIZE}`} />
-        ))}
-        <polyline className="curve" points={line} />
-        {p.map((q, i) => (
-          <circle key={i} className={i === selected ? 'dot is-selected' : 'dot'} cx={q[0] * SIZE} cy={(1 - q[1]) * SIZE} r={i === selected ? 8 : 6} />
-        ))}
-      </svg>
+      <div className="pressure-row">
+        <svg
+          className="pressure-graph"
+          width={SIZE}
+          height={SIZE}
+          role="img"
+          aria-label={t('settings.pressureCurve.graph')}
+          onPointerDown={graphDown}
+          onPointerMove={graphMove}
+          onPointerUp={() => (drag.current = -1)}
+          onPointerCancel={() => (drag.current = -1)}
+        >
+          {[1, 2, 3].map((i) => (
+            <path key={i} className="grid" d={`M${(SIZE * i) / 4} 0V${SIZE}M0 ${(SIZE * i) / 4}H${SIZE}`} />
+          ))}
+          <polyline className="curve" points={line} />
+          {p.map((q, i) => (
+            <circle key={i} className={i === selected ? 'dot is-selected' : 'dot'} cx={q[0] * SIZE} cy={(1 - q[1]) * SIZE} r={i === selected ? 8 : 6} />
+          ))}
+        </svg>
+        <div className="pressure-sliders">
+  {selected >= 0 &&
+          ([0, 1] as const).map((axis) => (
+            <label key={axis} className="option">
+              <span>{t(axis ? 'settings.pressureCurve.out' : 'settings.pressureCurve.in')}</span>
+              <input
+                type="range"
+                className="setting-range"
+                min={axis ? prev[1] : prev[0] + EPS}
+                max={axis ? next[1] : next[0] - EPS}
+                step={0.01}
+                value={p[selected]![axis]}
+                onChange={(e) => edit(axis, Number(e.target.value))}
+              />
+              <output>{p[selected]![axis].toFixed(2)}</output>
+            </label>
+          ))}
+        </div>
+        <canvas
+          ref={pad}
+          className="pressure-pad"
+          role="img"
+          aria-label={t('settings.pressureCurve.pad')}
+          width={440}
+          height={440}
+          onPointerDown={(e) => {
+            if (e.pointerType !== 'pen') return // a finger or mouse leaves the pad alone
+            e.currentTarget.setPointerCapture(e.pointerId)
+            pts.current = []
+            setDrawing(true)
+            add(e)
+          }}
+          onPointerMove={(e) => drawing && e.pointerType === 'pen' && add(e)}
+          onPointerUp={() => setDrawing(false)}
+          onPointerCancel={() => setDrawing(false)}
+        />
+      </div>
       <div className="pressure-graph-actions">
         <button type="button" className="btn" disabled={p.length >= MAX_INNER} onClick={addMid}>
           {t('settings.pressureCurve.add')}
@@ -162,40 +200,6 @@ export function PressureCurveSetting() {
           {t('settings.pressureCurve.reset')}
         </button>
       </div>
-      {selected >= 0 &&
-        ([0, 1] as const).map((axis) => (
-          <label key={axis} className="option">
-            <span>{t(axis ? 'settings.pressureCurve.out' : 'settings.pressureCurve.in')}</span>
-            <input
-              type="range"
-              className="setting-range"
-              min={axis ? prev[1] : prev[0] + EPS}
-              max={axis ? next[1] : next[0] - EPS}
-              step={0.01}
-              value={p[selected]![axis]}
-              onChange={(e) => edit(axis, Number(e.target.value))}
-            />
-            <output>{p[selected]![axis].toFixed(2)}</output>
-          </label>
-        ))}
-      <canvas
-        ref={pad}
-        className="pressure-pad"
-        role="img"
-        aria-label={t('settings.pressureCurve.pad')}
-        width={640}
-        height={160}
-        onPointerDown={(e) => {
-          if (e.pointerType !== 'pen') return // a finger or mouse leaves the pad alone
-          e.currentTarget.setPointerCapture(e.pointerId)
-          pts.current = []
-          setDrawing(true)
-          add(e)
-        }}
-        onPointerMove={(e) => drawing && e.pointerType === 'pen' && add(e)}
-        onPointerUp={() => setDrawing(false)}
-        onPointerCancel={() => setDrawing(false)}
-      />
     </fieldset>
   )
 }

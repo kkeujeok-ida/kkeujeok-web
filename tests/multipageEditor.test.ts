@@ -24,6 +24,7 @@ const PC = '01926f3a-0000-7000-8000-0000000000b3'
 class FakePath {
   moveTo() {}
   lineTo() {}
+  quadraticCurveTo() {}
   closePath() {}
 }
 ;(globalThis as { Path2D?: unknown }).Path2D = FakePath

@@ -40,6 +40,9 @@ class FakePath {
   lineTo(x: number, y: number) {
     this.ops.push(`L${x},${y}`)
   }
+  quadraticCurveTo(_cx: number, _cy: number, x: number, y: number) {
+    this.ops.push(`L${x},${y}`)
+  }
   closePath() {
     this.ops.push('Z')
   }
@@ -1808,13 +1811,13 @@ describe('pen pressure toggle', () => {
     const seen: string[] = []
     let ev = tab(first)
     expect(ev.defaultPrevented).toBe(true)
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 6; i++) {
       const el = document.activeElement as HTMLElement
       seen.push(el.closest('.pen-palette') ? 'palette' : el.closest('.pen-recent') ? 'recent' : el.className || el.getAttribute('role')!)
       ev = tab(el)
     }
-    // tool, kind, palette, (recent is empty), slider, down, up, switch, delete, back to the tool
-    expect(seen).toEqual(['radio', 'palette', 'pen-width-slider', 'pen-step pen-step-down', 'pen-step', 'pen-popover-switch', 'pen-popover-delete'])
+    // tools and kinds (one row), palette, (recent is empty), slider, down, up, switch, delete, back to the tool
+    expect(seen).toEqual(['palette', 'pen-width-slider', 'pen-step pen-step-down', 'pen-step', 'pen-popover-switch', 'pen-popover-delete'])
     expect(document.activeElement).toBe(first)
     tab(first, true)
     expect(document.activeElement).toBe(q('.pen-popover-delete'))
@@ -2412,8 +2415,9 @@ describe('pen popover (story 5.5)', () => {
 
   test('kind buttons: fountain keeps the color, tape falls back to the highlighter palette; keyboard works', async () => {
     const { slots } = await open()
-    const kinds = () => qa('.pen-tool-switch')[1]!.querySelectorAll<HTMLElement>('[role="radio"]')
-    expect([...kinds()].map((b) => b.textContent)).toEqual(['만년필', '연필', '정답지 테이프'])
+    const all = () => qa('.pen-tool-switch [role="radio"]')
+    const kinds = () => all().slice(2)
+    expect(all().map((b) => b.getAttribute('aria-label'))).toEqual(['펜', '형광펜', '만년필', '연필', '정답지 테이프'])
     click(kinds()[0]!)
     expect(slotList(slots)[0]).toEqual({ tool: 'fountain', color: '#000000', width: 1.5, usePressure: true })
     expect(slider().getAttribute('max')).toBe('8')
