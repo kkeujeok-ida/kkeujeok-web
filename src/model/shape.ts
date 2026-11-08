@@ -94,3 +94,82 @@ export function transformShape(s: Shape, f: (x: number, y: number) => [number, n
   o.rotation = round2((((o.rotation + turn) % 360) + 360) % 360) % 360
   return true
 }
+
+const dist = (ax: number, ay: number, bx: number, by: number) => Math.hypot(ax - bx, ay - by)
+
+function segDist(px: number, py: number, a: number[], b: number[]): number {
+  const dx = b[0]! - a[0]!, dy = b[1]! - a[1]!
+  const l2 = dx * dx + dy * dy
+  const t = l2 === 0 ? 0 : Math.min(1, Math.max(0, ((px - a[0]!) * dx + (py - a[1]!) * dy) / l2))
+  return dist(px, py, a[0]! + t * dx, a[1]! + t * dy)
+}
+
+/** `shape.recognize` (spec/shape.md): the shape a held stroke is turned into, or null when nothing fits. Same steps as the Android `recognizeShape`. */
+export function recognizeShape(points: readonly number[][]): Shape | null {
+  const p: number[][] = []
+  for (const q of points) if (p.length === 0 || dist(q[0]!, q[1]!, p[p.length - 1]![0]!, p[p.length - 1]![1]!) >= 0.01) p.push([q[0]!, q[1]!])
+  if (p.length < 8) return null
+  const x0 = Math.min(...p.map((q) => q[0]!)), x1 = Math.max(...p.map((q) => q[0]!))
+  const y0 = Math.min(...p.map((q) => q[1]!)), y1 = Math.max(...p.map((q) => q[1]!))
+  const w = x1 - x0, h = y1 - y0, diag = Math.hypot(w, h)
+  if (diag < 30) return null
+  if (dist(p[0]![0]!, p[0]![1]!, p[p.length - 1]![0]!, p[p.length - 1]![1]!) > 0.25 * diag) return null
+  const path = [...p, p[0]!]
+  let len = 0
+  for (let i = 1; i < path.length; i++) len += dist(path[i - 1]![0]!, path[i - 1]![1]!, path[i]![0]!, path[i]![1]!)
+  if (len < 1.8 * diag) return null
+  const s: number[][] = []
+  let seg = 1, acc = 0
+  for (let i = 0; i < 64; i++) {
+    const target = (len * i) / 64
+    while (seg < path.length - 1 && acc + dist(path[seg - 1]![0]!, path[seg - 1]![1]!, path[seg]![0]!, path[seg]![1]!) < target) {
+      acc += dist(path[seg - 1]![0]!, path[seg - 1]![1]!, path[seg]![0]!, path[seg]![1]!)
+      seg++
+    }
+    const a = path[seg - 1]!, b = path[seg]!
+    const sl = dist(a[0]!, a[1]!, b[0]!, b[1]!)
+    const t = sl === 0 ? 0 : Math.min(1, Math.max(0, (target - acc) / sl))
+    s.push([a[0]! + (b[0]! - a[0]!) * t, a[1]! + (b[1]! - a[1]!) * t])
+  }
+  const rms = (f: (q: number[]) => number) => Math.sqrt(s.reduce((m, q) => m + f(q) ** 2, 0) / s.length)
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2
+  const eCircle = w > 0 && h > 0 ? rms((q) => dist((q[0]! - cx) / (w / 2), (q[1]! - cy) / (h / 2), 0, 0) - 1) : Infinity
+  const eRect = rms((q) => Math.min(Math.abs(q[0]! - x0), Math.abs(q[0]! - x1), Math.abs(q[1]! - y0), Math.abs(q[1]! - y1))) / diag
+  // Convex hull (monotone chain, collinear dropped) of S, indices kept.
+  const idx = s.map((_, i) => i).sort((a, b) => s[a]![0]! - s[b]![0]! || s[a]![1]! - s[b]![1]!)
+  const cross = (o: number, a: number, b: number) => (s[a]![0]! - s[o]![0]!) * (s[b]![1]! - s[o]![1]!) - (s[a]![1]! - s[o]![1]!) * (s[b]![0]! - s[o]![0]!)
+  const half = (order: number[]) => {
+    const r: number[] = []
+    for (const i of order) {
+      while (r.length >= 2 && cross(r[r.length - 2]!, r[r.length - 1]!, i) <= 0) r.pop()
+      r.push(i)
+    }
+    r.pop()
+    return r
+  }
+  const hull = [...half(idx), ...half([...idx].reverse())].sort((a, b) => a - b)
+  let best = -1
+  let tri: number[] = []
+  for (let i = 0; i < hull.length; i++)
+    for (let j = i + 1; j < hull.length; j++)
+      for (let k = j + 1; k < hull.length; k++) {
+        const a = Math.abs(cross(hull[i]!, hull[j]!, hull[k]!))
+        if (a > best) {
+          best = a
+          tri = [hull[i]!, hull[j]!, hull[k]!]
+        }
+      }
+  const eTri = tri.length < 3 ? Infinity : rms((q) => Math.min(...[0, 1, 2].map((i) => segDist(q[0]!, q[1]!, s[tri[i]!]!, s[tri[(i + 1) % 3]!]!)))) / diag
+  const scores = [eCircle / 0.1, eRect / 0.05, eTri / 0.05]
+  let kind = 0
+  for (let i = 1; i < 3; i++) if (scores[i]! < scores[kind]!) kind = i
+  if (!(scores[kind]! <= 1)) return null
+  if (kind === 2) return { kind: 'triangle', vertices: tri.map((i) => [round2(s[i]![0]!), round2(s[i]![1]!)]) }
+  let bx = x0, by = y0, bw = w, bh = h
+  if (kind === 0 && Math.abs(w - h) <= 0.15 * Math.max(w, h)) {
+    bw = bh = (w + h) / 2
+    bx = cx - bw / 2
+    by = cy - bh / 2
+  }
+  return { kind: kind === 0 ? 'circle' : 'rect', x: round2(bx), y: round2(by), width: round2(bw), height: round2(bh), rotation: 0 }
+}

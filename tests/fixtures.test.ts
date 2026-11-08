@@ -15,7 +15,7 @@ import { resources } from '../src/i18n'
 import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
 import { brushResolve } from '../src/model/brush'
 import { smoothPoints } from '../src/model/smooth'
-import { shapeFromDrag, shapePoints } from '../src/model/shape'
+import { recognizeShape, shapeFromDrag, shapePoints } from '../src/model/shape'
 import { lineSnapEnd, straightenActive, type StraightenInput } from '../src/model/straighten'
 import { highlighterOutline } from '../src/render/highlighterOutline'
 import { History } from '../src/ops/history'
@@ -299,6 +299,16 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
       for (const j of [0, 1]) expect(Math.abs(p[j]! - want[k]![j]!)).toBeLessThanOrEqual(tolerance! + 1e-12)
     }
   },
+  'shape.recognize': ({ input, expected, tolerance }) => {
+    const got = recognizeShape((input as { points: number[][] }).points)
+    const want = (expected as { shape: Record<string, unknown> | null }).shape
+    if (!want) return void expect(got).toBeNull()
+    expect(got!.kind).toBe(want.kind)
+    const flat = (m: Record<string, unknown>) => (m.vertices ? (m.vertices as number[][]).flat() : ['x', 'y', 'width', 'height'].map((k) => m[k] as number))
+    const a = flat(got!), b = flat(want)
+    expect(a).toHaveLength(b.length)
+    a.forEach((v, k) => expect(Math.abs(v - b[k]!)).toBeLessThanOrEqual(tolerance! + 1e-12))
+  },
   'shape.fromDrag': ({ input, expected, tolerance }) => {
     const i = input as { kind: string; from: number[]; to: number[]; lockRatio: boolean }
     const got = shapeFromDrag(i.kind, i.from, i.to, i.lockRatio)
@@ -453,7 +463,6 @@ const PENDING: string[] = [
   'note.shape',
   'shape.resize',
   'shape.rotate',
-  'shape.recognize',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
 

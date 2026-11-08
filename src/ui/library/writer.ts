@@ -7,7 +7,7 @@ import { getStraighten } from '../../storage/straighten'
 import { pageOutOfBounds } from '../../model/pageBounds'
 import { TAPE_TAP_SLOP, isTapeTap, tapeAt } from '../../model/tapeHit'
 import { strokeOutlineFor } from '../../render/strokeOutline'
-import { shapeFromDrag, shapePoints, type Shape, type ShapeKind } from '../../model/shape'
+import { recognizeShape, shapeFromDrag, shapePoints, type Shape, type ShapeKind } from '../../model/shape'
 import { elementClipboard } from '../../model/elementClipboard'
 import { isTextBox, selectLasso, selectRect, selectTap, selectionBounds, selectionFrame, type Bounds, type El } from '../../model/select'
 import { cpIndex, formatAt, formatRange, retextRuns, type TextFormat } from '../../model/textEdit'
@@ -61,7 +61,7 @@ export type WriterMessage =
 
 /** `ox`, `oy`: where the page of the stroke starts in the continuous scroll; `points` are in that page's coordinates. */
 /** Line straightening state of one stroke (pen-feel.md pen.straighten): `anchor` is the still-detection anchor, `dead` once a second pointer came. */
-type Hold = { anchor: number[] | null; timer: ReturnType<typeof setTimeout> | undefined; active: boolean; dead: boolean }
+type Hold = { /** A recognized shape shown while held (shape.recognize); `flash` briefly thickens it. */ shape?: Shape; flash?: boolean; anchor: number[] | null; timer: ReturnType<typeof setTimeout> | undefined; active: boolean; dead: boolean }
 type Drawing = { line?: boolean; /** Shape tool: the kind being dragged, and whether Shift locks the ratio. */ shape?: string; lock?: boolean;  id: number; strokeId: string; type: string; t0: number; points: number[][]; pageId: string; ox: number; oy: number; hold?: Hold }
 const POINTER_TYPES = ['pen', 'mouse', 'touch']
 /** A second finger this soon after the first turns the stroke into a gesture. */
@@ -1561,6 +1561,11 @@ export class Writer {
 
   /** The stroke a drawing shows and stores; null for a shape drag under 4 pt (no stroke). */
   private strokeOf(d: Drawing): Stroke | null {
+    const held = d.hold?.shape
+    if (held) {
+      const st = this.build(shapePoints(held)!, d.strokeId, true, held)
+      return d.hold!.flash ? { ...st, width: st.width * 1.6 } : st
+    }
     if (!d.shape) return this.build(this.shown(d), d.strokeId, !!(d.hold?.active || d.line))
     const shape = shapeFromDrag(d.shape, d.points[0]!, d.points[d.points.length - 1]!, !!d.lock)
     const points = shape && shapePoints(shape)
@@ -1644,6 +1649,10 @@ export class Writer {
     const k = this.viewport.scale
     if (h.anchor && Math.hypot((p[0]! - h.anchor[0]!) * k, (p[1]! - h.anchor[1]!) * k) <= HOLD_DISTANCE) return
     h.anchor = p
+    if (h.shape) { // moving on ends the preview; the next hold checks again
+      h.shape = undefined
+      this.redraw()
+    }
     clearTimeout(h.timer)
     h.timer = setTimeout(() => this.holdFire(d), HOLD_MS)
   }
@@ -1651,6 +1660,17 @@ export class Writer {
   private holdFire(d: Drawing): void {
     const h = d.hold
     if (this.drawing !== d || !h?.anchor || h.dead || h.active) return
+    const found = recognizeShape(d.points) // shapes first, then the line rule
+    if (found && shapePoints(found)) {
+      h.shape = found
+      h.flash = true
+      setTimeout(() => {
+        h.flash = false
+        if (this.drawing === d) this.redraw()
+      }, 150)
+      navigator.vibrate?.(15)
+      return this.redraw()
+    }
     const k = this.viewport.scale
     const samples = d.points.map((q) => [q[3]!, q[0]! * k, q[1]! * k])
     if (!straightenActive({ enabled: true, tool: this.pen().tool, palm: false, secondPointer: false, at: h.anchor[3]! + HOLD_MS, samples })) return
@@ -1664,6 +1684,10 @@ export class Writer {
     if (!h || h.dead) return
     clearTimeout(h.timer)
     h.dead = true
+    if (h.shape) {
+      h.shape = undefined
+      this.redraw()
+    }
     if (h.active) {
       h.active = false
       this.redraw()
