@@ -752,7 +752,11 @@ export class Writer {
         if (!b) {
           const poly = strokeOutlineFor('tape', e.width, false, e.points)
           if (poly.length === 0) continue
-          b = { left: Math.min(...poly.map((p) => p[0]!)), right: Math.max(...poly.map((p) => p[0]!)), top: Math.min(...poly.map((p) => p[1]!)), bottom: Math.max(...poly.map((p) => p[1]!)) }
+          b = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity }
+          for (const p of poly) { // no spread: a long tape would overflow the call stack
+            b.left = Math.min(b.left, p[0]!); b.right = Math.max(b.right, p[0]!)
+            b.top = Math.min(b.top, p[1]!); b.bottom = Math.max(b.bottom, p[1]!)
+          }
           this.tapeBox.set(e, b)
         }
         const left = v.offsetX + (b.left + s.x) * v.scale
