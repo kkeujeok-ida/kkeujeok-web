@@ -13,7 +13,7 @@ import { round2 } from '../src/model/number'
 import { PEN_DEFAULTS, PEN_PALETTE, PEN_WIDTH, colorNameKey, defaultPenSlots, type PenTool } from '../src/model/pen'
 import { resources } from '../src/i18n'
 import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
-import { smoothPoints, type SmoothLevel } from '../src/model/smooth'
+import { smoothPoints } from '../src/model/smooth'
 import { straightenActive, type StraightenInput } from '../src/model/straighten'
 import { highlighterOutline } from '../src/render/highlighterOutline'
 import { History } from '../src/ops/history'
@@ -230,7 +230,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     expect(Math.abs(radiusFactor(q) - want.factor)).toBeLessThanOrEqual(tolerance!)
   },
   'stroke.smooth': ({ input, expected, tolerance }) => {
-    const i = input as { level: SmoothLevel; points: number[][] }
+    const i = input as { level: number; points: number[][] }
     const got = smoothPoints(i.points, i.level)
     const want = expected as number[][]
     expect(got).toHaveLength(want.length)

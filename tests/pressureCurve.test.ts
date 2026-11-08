@@ -17,6 +17,7 @@ describe('pen.pressureCurve fixture', () => {
 describe('curve setting', () => {
   test('invalid stored values are normal', () => {
     expect(parseCurve('[0.8,0.1,0.2,0.5]')).toBe('normal')
+    expect(parseCurve('[0.3,0.6,0.6]')).toBe('normal')
     expect(parseCurve('[2,0,0,0]')).toBe('normal')
     expect(parseCurve('"bogus"')).toBe('normal')
     expect(parseCurve('{')).toBe('normal')
@@ -28,6 +29,7 @@ describe('curve setting', () => {
     const m = new Map<string, string>()
     const st = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
     expect(setPressureCurve([0.8, 0.1, 0.2, 0.5], st)).toBe(false)
+    expect(setPressureCurve([0.3, 0.6, 0.6], st)).toBe(false)
     expect(m.size).toBe(0)
     expect(setPressureCurve('firm', st)).toBe(true)
     expect(m.get(PRESSURE_CURVE_KEY)).toBe('"firm"')

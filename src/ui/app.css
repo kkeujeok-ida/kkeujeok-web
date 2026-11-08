@@ -2992,3 +2992,43 @@ h1 {
   color: var(--color-ink-primary);
   touch-action: none;
 }
+
+.pressure-graph {
+  display: block;
+  margin: var(--spacing-2) 0;
+  border: 1px solid var(--color-border-hairline);
+  background: var(--color-surface-raised);
+  touch-action: none;
+}
+
+.pressure-graph .grid {
+  fill: none;
+  stroke: var(--color-border-hairline);
+}
+
+.pressure-graph .curve {
+  fill: none;
+  stroke: var(--color-ink-primary);
+  stroke-width: 2;
+}
+
+.pressure-graph .dot {
+  fill: var(--color-surface-raised);
+  stroke: var(--color-ink-primary);
+  stroke-width: 2;
+}
+
+.pressure-graph .dot.is-selected {
+  stroke: var(--color-accent-text);
+}
+
+.pressure-graph-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.setting-range {
+  width: 200px;
+  max-width: 100%;
+}

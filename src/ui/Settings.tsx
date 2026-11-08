@@ -11,7 +11,7 @@ import { getLeftHanded, setLeftHanded, subscribeLeftHanded } from '../storage/le
 import { THEMES, getTheme, setTheme, subscribeTheme } from '../storage/theme'
 import { Help } from './Help'
 import { PenPaletteEditor } from './PenPaletteEditor'
-import { SMOOTH_LEVELS } from '../model/smooth'
+import { SMOOTH_MAX } from '../model/smooth'
 import { getSmooth, setSmooth, subscribeSmooth } from '../storage/smooth'
 import { PressureCurveSetting } from './PressureCurveSetting'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -171,14 +171,19 @@ export function Settings({
       </label>
       <fieldset className="settings-group">
         <legend>{t('settings.smooth')}</legend>
-        <div className="segmented">
-          {SMOOTH_LEVELS.map((v) => (
-            <label key={v} className="segmented-option">
-              <input type="radio" name="smooth" value={v} checked={smooth === v} onChange={() => setSmooth(v)} />
-              <span>{t(`settings.smooth.${v}`)}</span>
-            </label>
-          ))}
-        </div>
+        <label className="option">
+          <input
+            type="range"
+            className="setting-range"
+            min={0}
+            max={SMOOTH_MAX}
+            step={1}
+            value={smooth}
+            aria-valuetext={smooth === 0 ? t('settings.smooth.off') : String(smooth)}
+            onChange={(e) => setSmooth(Number(e.target.value))}
+          />
+          <output>{smooth}</output>
+        </label>
       </fieldset>
       <div className="settings-group" role="group" aria-labelledby="visible-tools-label">
         <span id="visible-tools-label">{t('settings.visibleTools')}</span>

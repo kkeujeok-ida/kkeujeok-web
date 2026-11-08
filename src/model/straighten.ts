@@ -1,6 +1,6 @@
 // spec rule `pen.straighten` (pen-feel.md): holding the pen still turns the stroke into a straight line.
 export const HOLD_MS = 500
-export const HOLD_DISTANCE = 4 // CSS px on the web
+export const HOLD_DISTANCE = 8 // CSS px on the web
 
 export type StraightenInput = {
   enabled: boolean

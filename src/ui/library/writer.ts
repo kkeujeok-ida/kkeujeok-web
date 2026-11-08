@@ -48,7 +48,6 @@ import { SaveQueue, markUnsaved, trackSave } from '../../storage/saveQueue'
 export type WriterMessage =
   | 'saveFailed'
   | 'strokeNotAdded'
-  | 'straightened'
   | 'historyNotApplied'
   | 'imageTooLarge'
   | 'imageConverted'
@@ -666,7 +665,7 @@ export class Writer {
     const vp = this.viewport
     for (const id of [...this.caches.keys()]) if (!this.history.note.pages.some((p) => p.id === id)) this.caches.delete(id)
     this.images?.watch(this.history.note)
-    const live = this.drawing ? this.build(this.shown(this.drawing), this.drawing.strokeId) : null
+    const live = this.drawing ? this.build(this.shown(this.drawing), this.drawing.strokeId, !!this.drawing.hold?.active) : null
     const draft = this.edit ? { pageId: this.edit.pageId, id: this.edit.id, el: this.draftEl(this.edit) } : null
     for (const s of this.slots().list) {
       // A page that is off screen is not painted.
@@ -1471,9 +1470,9 @@ export class Writer {
     this.setSelection(slot.page.id, ids)
   }
 
-  private build(points: number[][], id: string): Stroke {
+  private build(points: number[][], id: string, straight = false): Stroke {
     const pen = this.pen()
-    return { id, type: 'stroke', tool: pen.tool, color: pen.color, width: pen.width, usePressure: pen.usePressure, points }
+    return { id, type: 'stroke', tool: pen.tool, color: pen.color, width: pen.width, usePressure: pen.usePressure && !straight, points }
   }
 
   private local(x: number, y: number): [number, number] {
@@ -1556,7 +1555,6 @@ export class Writer {
     const samples = d.points.map((q) => [q[3]!, q[0]! * k, q[1]! * k])
     if (!straightenActive({ enabled: true, tool: this.pen().tool, palm: false, secondPointer: false, at: h.anchor[3]! + HOLD_MS, samples })) return
     h.active = true
-    this.message('straightened')
     this.redraw()
   }
 
@@ -1920,7 +1918,7 @@ export class Writer {
     this.drawing = null
     if (d?.hold) clearTimeout(d.hold.timer)
     if (this.readOnly || !d) return this.releaseStrokeWaiters(null)
-    const err = this.history.doOp({ op: 'addStroke', pageId: d.pageId, stroke: this.build(this.shown(d), d.strokeId) }, this.ctx())
+    const err = this.history.doOp({ op: 'addStroke', pageId: d.pageId, stroke: this.build(this.shown(d), d.strokeId, !!d.hold?.active) }, this.ctx())
     this.redraw()
     if (err) this.message('strokeNotAdded')
     else {

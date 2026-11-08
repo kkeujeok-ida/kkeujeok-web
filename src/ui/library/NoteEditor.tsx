@@ -89,7 +89,6 @@ export const RECEIVE_WAIT_TEXT_MS = 1000
 const MESSAGE_KEY: Record<WriterMessage, Key> = {
   saveFailed: 'editor.saveFailed',
   strokeNotAdded: 'editor.strokeNotAdded',
-  straightened: 'editor.straightened',
   historyNotApplied: 'editor.historyNotApplied',
   imageTooLarge: 'editor.imageTooLarge',
   imageConverted: 'editor.imageConverted',
