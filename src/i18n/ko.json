@@ -565,5 +565,19 @@
   "trash.cannotOpen": "열 수 없음",
   "trash.back": "휴지통으로 돌아가기",
   "trash.cancel": "취소",
-  "trash.pageLabel": "{n}쪽"
+  "trash.pageLabel": "{n}쪽",
+  "editor.brush.advanced": "고급 브러시 설정",
+  "editor.brush.pressureOwn": "이 펜 전용 필압 곡선",
+  "editor.brush.tiltTarget": "기울기가 바꾸는 것",
+  "editor.brush.tilt.none": "없음",
+  "editor.brush.tilt.size": "굵기",
+  "editor.brush.tilt.opacity": "농도",
+  "editor.brush.opacity": "농도",
+  "editor.brush.texture": "질감",
+  "editor.brush.texture.none": "매끈하게",
+  "editor.brush.texture.pencil": "연필 결",
+  "brush.tiltCurve.graph": "기울기 곡선 그래프. 방향키로 점을 옮기거나 끌어서 옮겨요",
+  "brush.tiltCurve.in": "기울기",
+  "brush.tiltCurve.out": "효과",
+  "brush.tiltCurve.pad": "기울기 시험판. 펜을 여러 각도로 세워 그어 보세요"
 }

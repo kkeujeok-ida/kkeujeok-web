@@ -25,7 +25,10 @@ function parse(raw: string | null | undefined): Pen[] | null {
     if (typeof color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(color)) return null
     if (typeof width !== 'number' || !(width >= PEN_WIDTH[tool].min && width <= PEN_WIDTH[tool].max)) return null
     if (typeof usePressure !== 'boolean') return null
-    pens.push({ tool, color, width, usePressure })
+    // A bad `brush` is dropped, never the whole list.
+    const brush = (e as Record<string, unknown>).brush
+    const ok = !!brush && typeof brush === 'object' && !Array.isArray(brush) && Object.keys(brush).length > 0
+    pens.push({ tool, color, width, usePressure, ...(ok ? { brush: brush as Record<string, unknown> } : {}) })
   }
   return pens
 }
@@ -35,7 +38,7 @@ export type PenSlotsStore = ReturnType<typeof createPenSlots>
 export function createPenSlots(storage: Store | undefined = browserStorage()) {
   // What this session wrote wins over the stored value, even when saving it failed.
   let session: Pen[] | null = null
-  const copy = (l: readonly Pen[]) => l.map((p) => ({ ...p }))
+  const copy = (l: readonly Pen[]) => l.map((p) => ({ ...p, ...(p.brush && { brush: structuredClone(p.brush) }) }))
   return {
     /** The default slots when nothing valid is stored. */
     read(): Pen[] {
@@ -49,7 +52,7 @@ export function createPenSlots(storage: Store | undefined = browserStorage()) {
     write(slots: readonly Pen[]): void {
       session = copy(slots)
       try {
-        storage?.setItem(PEN_SLOTS_KEY, JSON.stringify(slots.map(({ tool, color, width, usePressure }) => ({ tool, color, width, usePressure }))))
+        storage?.setItem(PEN_SLOTS_KEY, JSON.stringify(slots.map(({ tool, color, width, usePressure, brush }) => ({ tool, color, width, usePressure, ...(brush && { brush }) }))))
       } catch {
         // kept for this session only
       }

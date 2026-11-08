@@ -565,5 +565,19 @@
   "trash.cannotOpen": "Cannot open",
   "trash.back": "Back to the trash",
   "trash.cancel": "Cancel",
-  "trash.pageLabel": "Page {n}"
+  "trash.pageLabel": "Page {n}",
+  "editor.brush.advanced": "Advanced brush settings",
+  "editor.brush.pressureOwn": "Own pressure curve",
+  "editor.brush.tiltTarget": "Tilt changes",
+  "editor.brush.tilt.none": "Nothing",
+  "editor.brush.tilt.size": "Width",
+  "editor.brush.tilt.opacity": "Opacity",
+  "editor.brush.opacity": "Opacity",
+  "editor.brush.texture": "Texture",
+  "editor.brush.texture.none": "Plain",
+  "editor.brush.texture.pencil": "Pencil grain",
+  "brush.tiltCurve.graph": "Tilt curve graph. Move a point with the arrow keys or drag it",
+  "brush.tiltCurve.in": "Tilt",
+  "brush.tiltCurve.out": "Effect",
+  "brush.tiltCurve.pad": "Tilt test pad. Draw with a pen held at different angles"
 }

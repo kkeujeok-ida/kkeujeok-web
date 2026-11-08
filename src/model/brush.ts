@@ -56,3 +56,20 @@ export function brushAlphaFactor(tool: unknown, brush: unknown, points: readonly
   }
   return a
 }
+
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+export type BrushPatch = Partial<Record<'pressureCurve' | 'tiltCurve' | 'tiltTarget' | 'opacity' | 'texture', unknown>>
+
+/**
+ * `brush` with `patch` applied, keeping only what differs from the tool default (spec/brush.md).
+ * A `null` value clears a parameter. Unknown parameters stay. `undefined` when nothing is left.
+ */
+export function patchBrush(tool: unknown, brush: unknown, patch: BrushPatch): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = brush && typeof brush === 'object' && !Array.isArray(brush) ? { ...(brush as Record<string, unknown>) } : {}
+  const d = brushResolve(tool, undefined) as Record<string, unknown>
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null || v === undefined || (k !== 'pressureCurve' && sameJson(v, d[k]))) delete out[k]
+    else out[k] = v
+  }
+  return Object.keys(out).length ? out : undefined
+}

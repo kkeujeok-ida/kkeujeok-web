@@ -3058,3 +3058,24 @@ h1 {
   width: 200px;
   max-width: 100%;
 }
+
+.pen-advanced-toggle {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--spacing-hit-min-web);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.pen-advanced-body {
+  display: grid;
+  gap: var(--spacing-2);
+  max-height: 50vh;
+  overflow-y: auto;
+}

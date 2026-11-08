@@ -9,6 +9,8 @@ export type Pen = {
   color: string // `#rrggbb`, written to strokes as is
   width: number // pt
   usePressure: boolean
+  /** Optional brush settings (spec/brush.md), only what differs from the tool default; copied into each new stroke. */
+  brush?: Record<string, unknown>
 }
 
 export const defaultPen: Pen = { tool: 'pen', color: '#000000', width: 2.0, usePressure: true }

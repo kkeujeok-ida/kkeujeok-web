@@ -1,3 +1,4 @@
+import { PenAdvanced } from './PenAdvanced'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { fmt, useI18n } from '../../i18n'
 import { PEN_PALETTE, PEN_WIDTH, colorNameKey, paletteFamily, snapWidth, type Pen, type PenTool } from '../../model/pen'
@@ -62,6 +63,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
   const cells = useRef<(HTMLButtonElement | null)[]>([])
   const recents = useRef<(HTMLButtonElement | null)[]>([])
   const titleId = useId()
+  const [advOpen, setAdvOpen] = useState(false)
   const labelId = useId()
   const widthId = useId()
   const live = useRef({ onChange, onRecent })
@@ -139,7 +141,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
   }
 
   return (
-    <PopoverShell anchor={anchor} tool={tool} onClose={onClose} labelledBy={titleId} className="pen-popover" relayout={`${pen.tool}${recent.length}${picking}`}>
+    <PopoverShell anchor={anchor} tool={tool} onClose={onClose} labelledBy={titleId} className="pen-popover" relayout={`${pen.tool}${recent.length}${picking}${advOpen}${pen.brush ? JSON.stringify(pen.brush).length : 0}`}>
         {picking ? (
           <ColorWheelPicker
             color={color}
@@ -287,6 +289,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
             </span>
           </button>
         )}
+        <PenAdvanced pen={pen} onChange={onChange} open={advOpen} onToggle={() => setAdvOpen(!advOpen)} />
         <svg className="pen-preview" viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
           <path d={previewPath(pen)} fill={pen.color} fillOpacity={pen.tool === 'highlighter' ? 0.4 : undefined} />
         </svg>
