@@ -5,6 +5,7 @@ import { isPdfBackground, patternOf } from '../model/pdfRules'
 import { isValidStroke, type Page, type Stroke } from '../model/note'
 import { pageBackground } from './pageBackground'
 import { outlinePath, strokeOutlineFor } from './strokeOutline'
+import { brushAlphaFactor, brushResolve, tiltSizeFactor } from '../model/brush'
 import { getPressureCurve } from '../storage/pressureCurve'
 import { smoothPoints } from '../model/smooth'
 import { getSmooth } from '../storage/smooth'
@@ -134,13 +135,23 @@ function cacheKey(s: Stroke): string {
   // A cheap digest of every point, so an edit in the middle invalidates too.
   let h = 0
   for (const p of pts) h = (Math.imul(h, 31) + Math.round(p[0]! * 100) + Math.imul(Math.round(p[1]! * 100), 7) + Math.round(p[2]! * 100)) | 0
-  return [s.id, s.tool, pts.length, s.width, s.usePressure ? 1 : 0, JSON.stringify(getPressureCurve()), getSmooth(), first?.[0], first?.[1], last?.[0], last?.[1], h].join('|')
+  return [s.id, s.tool, pts.length, s.width, s.usePressure ? 1 : 0, JSON.stringify(getPressureCurve()), JSON.stringify(s.brush ?? null), getSmooth(), first?.[0], first?.[1], last?.[0], last?.[1], h].join('|')
 }
 
-const strokePath = (s: Pick<Stroke, 'tool' | 'width' | 'usePressure' | 'points'>): Path2D => {
+const strokePath = (s: Pick<Stroke, 'tool' | 'width' | 'usePressure' | 'points'> & { brush?: unknown }): Path2D => {
   const pts = smoothPoints(s.points, getSmooth()) // screen only: export and print call the outlines directly
-  return s.tool === 'highlighter' ? highlighterPath(highlighterOutline(s.width, pts)) : outlinePath(strokeOutlineFor(s.tool, s.width, s.usePressure, pts))
+  if (s.tool === 'highlighter') return highlighterPath(highlighterOutline(s.width, pts))
+  if (s.brush === undefined) return outlinePath(strokeOutlineFor(s.tool, s.width, s.usePressure, pts))
+  const b = brushResolve(s.tool, s.brush)
+  const size = b.tiltTarget === 'size' ? (p: readonly number[]) => tiltSizeFactor(p, b.tiltCurve) : undefined
+  return outlinePath(strokeOutlineFor(s.tool, s.width, s.usePressure, pts, b.pressureCurve ?? undefined, size))
 }
+
+/** Layer alpha of a stroke from its brush, and whether it is drawn through the pencil grain. */
+const brushDraw = (s: { tool?: unknown; brush?: unknown; points: readonly (readonly number[])[] }) => ({
+  alpha: brushAlphaFactor(s.tool, s.brush, s.points),
+  grain: s.tool === 'highlighter' || s.tool === 'tape' ? false : s.brush === undefined ? s.tool === 'pencil' : brushResolve(s.tool, s.brush).texture === 'pencil',
+})
 
 /** Outlines of finished strokes by stroke id, so a repaint rebuilds none. */
 export class StrokePathCache {
@@ -363,8 +374,11 @@ export function paintPage(
           ctx.strokeStyle = COLOR.test(e.color) ? e.color : '#000000'
           ctx.stroke(cache.pathOf(e))
           ctx.restore()
-        } else if (e.tool === 'pencil') fillPencil(ctx, cache.pathOf(e), e, cache.textures.tile, view, fa, dark)
-        else fill(ctx, cache.pathOf(e), e.color, e.tool, fa, dark)
+        } else {
+          const bd = brushDraw(e)
+          if (e.tool === 'pencil' || bd.grain) fillPencil(ctx, cache.pathOf(e), e, bd.grain ? cache.textures.tile : null, view, fa * bd.alpha, dark)
+          else fill(ctx, cache.pathOf(e), e.color, e.tool, fa * bd.alpha, dark)
+        }
         if (pcs) ctx.restore()
       } catch {
         // one bad element must not hide the rest
@@ -380,8 +394,9 @@ export function paintPage(
     cache.keepOnly(ids)
     if (live && isValidStroke(live)) {
       try {
-        if (live.tool === 'pencil') fillPencil(ctx, strokePath(live), live, cache.textures.tile, view, 1, dark)
-        else fill(ctx, strokePath(live), live.color, live.tool, 1, dark)
+        const bd = brushDraw(live)
+        if (live.tool === 'pencil' || bd.grain) fillPencil(ctx, strokePath(live), live, bd.grain ? cache.textures.tile : null, view, bd.alpha, dark)
+        else fill(ctx, strokePath(live), live.color, live.tool, bd.alpha, dark)
       } catch {
         // the stroke in progress is skipped for this frame
       }

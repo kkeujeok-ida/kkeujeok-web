@@ -13,6 +13,7 @@ import { round2 } from '../src/model/number'
 import { PEN_DEFAULTS, PEN_PALETTE, PEN_WIDTH, colorNameKey, defaultPenSlots, paletteFamily, switchKind, type Pen, type PenTool } from '../src/model/pen'
 import { resources } from '../src/i18n'
 import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
+import { brushResolve } from '../src/model/brush'
 import { smoothPoints } from '../src/model/smooth'
 import { straightenActive, type StraightenInput } from '../src/model/straighten'
 import { highlighterOutline } from '../src/render/highlighterOutline'
@@ -128,6 +129,10 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'note.formatVersion': noteFormatVersion,
   'note.penKinds': noteFormatVersion,
   'note.brush': noteFormatVersion,
+  'brush.resolve': ({ input, expected }) => {
+    const i = input as { tool: string; brush?: unknown }
+    expect({ params: brushResolve(i.tool, i.brush) }).toEqual(expected)
+  },
   'note.title': ({ input, expected }) => {
     const i = input as { title: string; existingTitles: string[] }
     const t = normalizeTitle(i.title, i.existingTitles)
@@ -421,7 +426,6 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
-  'brush.resolve',
   'shape.points',
   'shape.fromDrag',
   'shape.resize',

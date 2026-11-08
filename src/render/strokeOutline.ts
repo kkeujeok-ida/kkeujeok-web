@@ -25,12 +25,14 @@ export function strokeSamples(
   usePressure: boolean,
   points: readonly (readonly number[])[],
   curve: PressureCurve = getPressureCurve(),
-): { x: number[]; y: number[]; q: number[]; length: number } {
+  sizeOf?: (p: readonly number[]) => number,
+): { x: number[]; y: number[]; q: number[]; m: number[]; length: number } {
   const useCurve = usePressure && points.some((p) => p[2] !== 0.5) ? curve : null
   // 1. Prepare: dedupe against the last kept point.
   const xs: number[] = []
   const ys: number[] = []
   const qs: number[] = []
+  const ms: number[] = []
   for (const p of points) {
     const x = p[0]!
     const y = p[1]!
@@ -38,12 +40,13 @@ export function strokeSamples(
     xs.push(x)
     ys.push(y)
     qs.push(pressure(usePressure, p, useCurve))
+    ms.push(sizeOf ? sizeOf(p) : 1)
   }
-  if (xs.length < 2) return { x: xs, y: ys, q: qs, length: 0 }
+  if (xs.length < 2) return { x: xs, y: ys, q: qs, m: ms, length: 0 }
 
   // 3. Smooth x, y and q; the ends stay.
   for (let pass = 0; pass < SMOOTHING_PASSES; pass++) {
-    for (const a of [xs, ys, qs]) {
+    for (const a of sizeOf ? [xs, ys, qs, ms] : [xs, ys, qs]) {
       const old = a.slice()
       for (let i = 1; i < a.length - 1; i++) {
         a[i] = old[i]! + SMOOTHING_FACTOR * ((old[i - 1]! + old[i + 1]!) / 2 - old[i]!)
@@ -61,12 +64,14 @@ export function strokeSamples(
   const sx: number[] = []
   const sy: number[] = []
   const sq: number[] = []
+  const sm: number[] = []
   let seg = 1
   for (let i = 0; i <= n; i++) {
     if (i === n) {
       sx.push(xs[xs.length - 1]!)
       sy.push(ys[ys.length - 1]!)
       sq.push(qs[qs.length - 1]!)
+      sm.push(ms[ms.length - 1]!)
       break
     }
     const target = (total * i) / n
@@ -76,8 +81,9 @@ export function strokeSamples(
     sx.push(xs[seg - 1]! + (xs[seg]! - xs[seg - 1]!) * t)
     sy.push(ys[seg - 1]! + (ys[seg]! - ys[seg - 1]!) * t)
     sq.push(qs[seg - 1]! + (qs[seg]! - qs[seg - 1]!) * t)
+    sm.push(ms[seg - 1]! + (ms[seg]! - ms[seg - 1]!) * t)
   }
-  return { x: sx, y: sy, q: sq, length: total }
+  return { x: sx, y: sy, q: sq, m: sm, length: total }
 }
 
 /** Mean drawing pressure of `points`: the flat alpha of a pencil polygon fallback. */
@@ -101,16 +107,17 @@ export function strokeOutline(
   maxRatio = MAX_RATIO,
   taper = false,
   flat = false,
+  sizeOf?: (p: readonly number[]) => number,
 ): number[][] {
-  const smp = strokeSamples(usePressure, points, curve)
-  const { x: sx, y: sy, q: sq, length: total } = smp
+  const smp = strokeSamples(usePressure, points, curve, sizeOf)
+  const { x: sx, y: sy, q: sq, m: sm, length: total } = smp
   if (sx.length === 0) return []
 
   const radius = (q: number) => flat ? width / 2 : (width / 2) * (q < 0.5 ? minRatio + (1 - minRatio) * (q / 0.5) : 1 + (maxRatio - 1) * ((q - 0.5) / 0.5))
 
   // 2. One point: a 16-point circle.
   if (sx.length === 1) {
-    const r = radius(sq[0]!)
+    const r = radius(sq[0]!) * sm[0]!
     if (flat) return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([dx, dy]) => [round2(sx[0]! + dx! * r), round2(sy[0]! + dy! * r)])
     return Array.from({ length: 16 }, (_, k) => [
       round2(sx[0]! + r * Math.cos((2 * Math.PI * k) / 16)),
@@ -158,12 +165,12 @@ export function strokeOutline(
   const left: number[][] = []
   const right: number[][] = []
   for (let i = 0; i <= n; i++) {
-    const r = radius(sq[i]!) * g[i]!
+    const r = radius(sq[i]!) * g[i]! * sm[i]!
     left.push([sx[i]! - r * ty[i]!, sy[i]! + r * tx[i]!])
     right.push([sx[i]! + r * ty[i]!, sy[i]! - r * tx[i]!])
   }
-  const rEnd = radius(sq[n]!) * g[n]!
-  const rStart = radius(sq[0]!) * g[0]!
+  const rEnd = radius(sq[n]!) * g[n]! * sm[n]!
+  const rStart = radius(sq[0]!) * g[0]! * sm[0]!
   const endCap: number[][] = []
   const startCap: number[][] = []
   for (let k = 1; k < (flat ? 0 : CAP_SEGMENTS); k++) {
@@ -183,14 +190,15 @@ export const strokeOutlineFor = (
   usePressure: boolean,
   points: readonly (readonly number[])[],
   curve?: PressureCurve,
+  sizeOf?: (p: readonly number[]) => number,
 ): number[][] =>
   tool === 'fountain'
-    ? strokeOutline(width, usePressure, points, curve, 0.2, 1.6, true)
+    ? strokeOutline(width, usePressure, points, curve, 0.2, 1.6, true, false, sizeOf)
     : tool === 'pencil'
-      ? strokeOutline(width, usePressure, points, curve, 0.6, 1.3)
+      ? strokeOutline(width, usePressure, points, curve, 0.6, 1.3, false, false, sizeOf)
       : tool === 'tape'
         ? strokeOutline(width, usePressure, points, curve, 0.5, 1, false, true)
-        : strokeOutline(width, usePressure, points, curve)
+        : strokeOutline(width, usePressure, points, curve, MIN_RATIO, MAX_RATIO, false, false, sizeOf)
 
 /** The polygon as a path (fill non-zero). Long outlines go through the edge midpoints as quadratic curves, so no corner shows; a 4-point tape square stays square. */
 export function outlinePath(polygon: readonly (readonly number[])[]): Path2D {
