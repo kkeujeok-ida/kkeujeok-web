@@ -19,6 +19,7 @@ export function flattenFolders(view: FolderView): { folder: LibraryFolder; depth
 
 export function FolderPicker({
   name,
+  title: given,
   view,
   disabled = new Set(),
   selected,
@@ -27,6 +28,8 @@ export function FolderPicker({
 }: {
   /** The name of what moves, for the title. */
   name: string
+  /** Replaces the title built from `name` (a move of several items). */
+  title?: string
   view: FolderView
   disabled?: ReadonlySet<string>
   /** The current place (`root` = top level). */
@@ -54,7 +57,7 @@ export function FolderPicker({
     }
   }
   const rows = [{ id: 'root', label: t('folder.topLevel'), depth: 0 }, ...flattenFolders(view).map(({ folder, depth }) => ({ id: folder.id, label: folder.name, depth: depth + 1 }))]
-  const title = fmt(t('folder.moveTitle'), { name })
+  const title = given ?? fmt(t('folder.moveTitle'), { name })
   return (
     <div className="dialog-scrim" onKeyDown={onKeyDown}>
       <div ref={box} className="dialog folder-picker" role="dialog" aria-modal="true" aria-label={title}>

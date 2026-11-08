@@ -4,6 +4,7 @@ import 'fake-indexeddb/auto'
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { librarySelection } from '../src/library/libraryRules'
 import { I18nContext, createI18n } from '../src/i18n'
 import type { Note } from '../src/model/note'
 import { createNote } from '../src/ops/ops'
@@ -783,5 +784,22 @@ describe('card menu (Story 7.8)', () => {
     const n = (await s.loadNote('a'))!.note!
     expect(n.meta.title).toBe('새 이름')
     expect(n.metaSeq).toBeGreaterThan(1)
+  })
+})
+
+describe('librarySelection (23.10)', () => {
+  const folders = [
+    { id: 'F', parentId: 'root' },
+    { id: 'G', parentId: 'F' },
+    { id: 'H', parentId: 'root' },
+  ]
+  const noteFolder = { n: 'F', m: 'root', k: 'G' }
+  test('a folder below a selected folder and a note inside one go along', () => {
+    const r = librarySelection({ folders, selectedFolders: ['F', 'G'], selectedNotes: ['n', 'm', 'k'], noteFolder })
+    expect(r).toEqual({ folderIds: ['F'], noteIds: ['m'] })
+  })
+  test('deleted folders and notes are dropped', () => {
+    const r = librarySelection({ folders, selectedFolders: ['H', 'gone'], selectedNotes: ['m', 'gone'], noteFolder })
+    expect(r).toEqual({ folderIds: ['H'], noteIds: ['m'] })
   })
 })

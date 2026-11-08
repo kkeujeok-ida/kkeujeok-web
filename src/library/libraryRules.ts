@@ -384,3 +384,25 @@ export function librarySearch({ query, titles }: { query: string; titles: { note
   const q = libraryKey(trimTitle(query))
   return { noteIds: titles.filter((t) => libraryKey(t.title).includes(q)).map((t) => t.noteId) }
 }
+
+/**
+ * Multi-select (Story 23.10): what a bulk move or delete acts on. Only folders and notes that still exist;
+ * a folder below another selected folder, and a note inside a selected folder, go along with that folder.
+ */
+export function librarySelection(i: {
+  folders: { id: string; parentId: string }[]
+  selectedFolders: Iterable<string>
+  selectedNotes: Iterable<string>
+  noteFolder: Readonly<Record<string, string | null>>
+}): { folderIds: string[]; noteIds: string[] } {
+  const parent = new Map(i.folders.map((f) => [f.id, f.parentId]))
+  const inside = (id: string | null | undefined, anc: string) => {
+    for (let n = 0, p = id; p != null && p !== 'root' && n <= parent.size; n++, p = parent.get(p)) if (p === anc) return true
+    return false
+  }
+  const live = [...i.selectedFolders].filter((id) => parent.has(id))
+  return {
+    folderIds: live.filter((id) => !live.some((o) => o !== id && inside(id, o))),
+    noteIds: [...i.selectedNotes].filter((id) => id in i.noteFolder && !live.some((f) => inside(i.noteFolder[id], f))),
+  }
+}

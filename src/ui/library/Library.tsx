@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKey, type MouseEvent as ReactMouse, type PointerEvent as ReactPointer } from 'react'
 import type { NoteReceiver, ReceiveState } from '../../sync/noteReceiver'
 import type { Page } from '../../model/note'
 import { isPdfBackground } from '../../model/pdfRules'
@@ -38,7 +38,7 @@ import { NameDialog } from './NameDialog'
 import { ConfirmDialog } from '../ConfirmDialog'
 import { FOLDER_COLORS, getFolderColor, setFolderColor } from '../../library/folderColor'
 import { hintSeen, markHint } from '../../storage/hints'
-import { librarySearch } from '../../library/libraryRules'
+import { librarySearch, librarySelection } from '../../library/libraryRules'
 import { LIBRARY_SORTS, sortBy, useLibrary, type LibraryItem, type LibrarySort } from './useLibrary'
 
 // One per page session, so what was created last wins over a failed save.
@@ -98,7 +98,8 @@ function formatDate(ms: number | null, locale: string): string {
   }
 }
 
-const SORT_KEY = 'kkeujeok.librarySort'
+const LONG_PRESS_MS = 500
+const SORT_KEY ='kkeujeok.librarySort'
 const DEFAULT_SORT: LibrarySort = 'editedDesc'
 const asSort = (v: string | null | undefined): LibrarySort | null => (LIBRARY_SORTS as readonly string[]).includes(v ?? '') ? (v as LibrarySort) : null
 function readSort(): LibrarySort {
@@ -357,22 +358,26 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     // The card goes at once; the upload and the Drive move run on.
     await uploads.deleteNote(noteId, () => void lib.reload())
     if (!mounted.current) return
-    setUndo({
-      text: fmt(t('library.noteDeletedSnack'), { name: title }),
-      label: t('trash.restore'),
-      onUndo: () => {
-        void (async () => {
-          if (await uploads.cancelDelete?.(noteId)) return void lib.reload()
-          try {
-            await trash?.restoreById(noteId)
-          } catch {
-            // the next refresh shows what is there
-          }
-          void folders?.refresh().catch(() => {})
-          void lib.reload()
-        })()
-      },
-    })
+    setUndo({ text: fmt(t('library.noteDeletedSnack'), { name: title }), label: t('trash.restore'), onUndo: () => void restoreNote(noteId) })
+  }
+  async function restoreNote(noteId: string) {
+    if (await uploads?.cancelDelete?.(noteId)) return void lib.reload()
+    try {
+      await trash?.restoreById(noteId)
+    } catch {
+      // the next refresh shows what is there
+    }
+    void folders?.refresh().catch(() => {})
+    void lib.reload()
+  }
+  async function restoreFolder(id: string) {
+    if (await folders?.cancelTrashFolder(id)) return
+    try {
+      await trash?.restoreById(id, true)
+    } catch {
+      // the next refresh shows what is there
+    }
+    void folders?.refresh().catch(() => {})
   }
   async function moveTo(t0: Target, target: string) {
     if (!folders) return
@@ -386,12 +391,141 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     if (r.error) return setUndo({ text: t('folder.failed') })
     if (r.inverse) setUndo({ text: fmt(t('folder.moved'), { name: folderView?.folder(id)?.name ?? '' }), inverse: r.inverse })
   }
-  // A folder card or `../` takes a dragged folder (never into itself or below it) and a dragged note.
+  // Story 23.10: notes and folders in one selection. A long press or Space on a card starts it; a click toggles while it lasts.
+  const [selNotes, setSelNotes] = useState<ReadonlySet<string>>(new Set())
+  const [selFolders, setSelFolders] = useState<ReadonlySet<string>>(new Set())
+  const [movingSel, setMovingSel] = useState(false)
+  const [deletingSel, setDeletingSel] = useState(false)
+  const [dragSel, setDragSel] = useState(false)
+  const liveNotes = items.filter((i) => selNotes.has(i.noteId)).map((i) => i.noteId)
+  const liveFolders = subfolders.filter((f) => selFolders.has(f.id)).map((f) => f.id)
+  const selCount = liveNotes.length + liveFolders.length
+  const selecting = selCount > 0
+  const clearSel = () => (setSelNotes(new Set()), setSelFolders(new Set()))
+  useEffect(() => {
+    if (!selecting && (selNotes.size > 0 || selFolders.size > 0)) clearSel()
+  }, [selecting, selNotes, selFolders])
+  useEffect(clearSel, [folderId])
+  useEffect(() => {
+    if (!selecting) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented && !e.isComposing && !document.querySelector('.dialog-scrim')) clearSel()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [selecting])
+  // What a bulk action acts on: a folder below another selected one goes along with it.
+  const selTargets = () =>
+    librarySelection({ folders: folderView?.folders ?? [], selectedFolders: liveFolders, selectedNotes: liveNotes, noteFolder: folderView?.noteFolder ?? {} })
+  // Folders that cannot take the selection: a selected folder and everything below it.
+  const blockedTargets = (folderIds: string[]) => new Set(folderView ? folderView.folders.filter((g) => folderIds.some((f) => folderView.isInside(g.id, f))).map((g) => g.id) : [])
+  const toggleSel = (kind: 'note' | 'folder', id: string) =>
+    (kind === 'note' ? setSelNotes : setSelFolders)((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  const press = useRef<{ timer?: ReturnType<typeof setTimeout>; x: number; y: number; fired: boolean }>({ x: 0, y: 0, fired: false })
+  const pressCancel = () => clearTimeout(press.current.timer)
+  useEffect(() => pressCancel, [])
+  const selFor = (kind: 'note' | 'folder', id: string) => {
+    const selected = (kind === 'note' ? selNotes : selFolders).has(id)
+    const toggle = () => toggleSel(kind, id)
+    return {
+      on: selecting,
+      selected,
+      cancel: pressCancel,
+      drag: setDragSel,
+      /** True when the click was a selection gesture (the link must not open). */
+      click: (e: ReactMouse) => {
+        if (!press.current.fired && !selecting) return false
+        press.current.fired = false
+        e.preventDefault()
+        if (selecting) toggle()
+        return true
+      },
+      onKey: (e: ReactKey) => {
+        if (e.target !== e.currentTarget || e.altKey || e.ctrlKey || e.metaKey || !(e.key === ' ' || (e.key === 'Enter' && selecting))) return false
+        e.preventDefault()
+        toggle()
+        return true
+      },
+      press: {
+        onPointerDown: (e: ReactPointer) => {
+          if (e.button !== 0) return
+          pressCancel()
+          press.current.fired = false
+          press.current.x = e.clientX
+          press.current.y = e.clientY
+          press.current.timer = setTimeout(() => {
+            press.current.fired = true
+            toggle()
+          }, LONG_PRESS_MS)
+        },
+        onPointerMove: (e: ReactPointer) => {
+          if (Math.hypot(e.clientX - press.current.x, e.clientY - press.current.y) > 10) pressCancel()
+        },
+        onPointerUp: pressCancel,
+        onPointerCancel: pressCancel,
+        onPointerLeave: pressCancel,
+        onContextMenu: (e: ReactMouse) => press.current.fired && e.preventDefault(),
+      },
+    }
+  }
+  // Folders first, then notes; each stored inverse is kept for [되돌리기]. A failed item does not stop the rest.
+  async function moveSelected(to: string) {
+    if (!folders) return
+    const { folderIds, noteIds } = selTargets()
+    clearSel()
+    const inverses: NonNullable<FolderResult['inverse']>[] = []
+    let failed = 0
+    const tally = (r: FolderResult) => (r.error ? failed++ : r.inverse && inverses.push(r.inverse))
+    for (const id of folderIds) tally(await folders.moveFolder(id, to))
+    for (const id of noteIds) tally(await folders.moveNote(id, to))
+    const total = folderIds.length + noteIds.length
+    const lost = failed ? ` ${fmt(t('library.itemsFailed'), { n: String(failed) })}` : ''
+    if (failed === total) return setUndo({ text: t('folder.failed') + lost })
+    const name = to === 'root' ? t('folder.topLevel') : (folderView?.folder(to)?.name ?? '')
+    setUndo({
+      text: fmt(t('library.itemsMoved'), { n: String(total - failed), name }) + lost,
+      onUndo: () =>
+        void (async () => {
+          for (const inv of inverses.reverse()) await folders.undo(inv)
+        })(),
+    })
+  }
+  async function deleteSelected() {
+    const { folderIds, noteIds } = selTargets()
+    clearSel()
+    const doneFolders: string[] = []
+    const doneNotes: string[] = []
+    let failed = 0
+    for (const id of folderIds) {
+      const r = await folders?.deleteFolder(id)
+      if (r && !r.error) doneFolders.push(id)
+      else failed++
+    }
+    for (const id of noteIds) {
+      if (!uploads) failed++
+      else (await uploads.deleteNote(id, () => void lib.reload()), doneNotes.push(id))
+    }
+    if (!mounted.current) return
+    const n = doneFolders.length + doneNotes.length
+    const lost = failed ? ` ${fmt(t('library.itemsFailed'), { n: String(failed) })}` : ''
+    if (n === 0) return setUndo({ text: t('folder.failed') + lost })
+    setUndo({
+      text: fmt(t('library.itemsDeleted'), { n: String(n) }) + lost,
+      label: t('trash.restore'),
+      onUndo: () => void Promise.all([...doneFolders.map(restoreFolder), ...doneNotes.map(restoreNote)]),
+    })
+  }
+  // A folder card or `../` takes a dragged folder (never into itself or below it) and a dragged note; a dragged selection goes whole.
   const folderDrop = (target: string) => {
-    const ok = dragFolder !== null && dragFolder !== target && !!folderView && !folderView.isInside(target, dragFolder) && folderView.folder(dragFolder)?.parentId !== target
+    const selOk = dragSel && !blockedTargets(selTargets().folderIds).has(target)
+    const ok =dragFolder !== null && dragFolder !== target && !!folderView && !folderView.isInside(target, dragFolder) && folderView.folder(dragFolder)?.parentId !== target
     return {
       onDragOver: (e: React.DragEvent) => {
-        if (!ok && !(dragFolder === null && e.dataTransfer.types.includes(NOTE_DRAG))) return
+        if (dragSel ? !selOk : !ok && !(dragFolder === null && e.dataTransfer.types.includes(NOTE_DRAG))) return
         e.preventDefault()
         setOverFolder(target)
       },
@@ -399,6 +533,11 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       onDrop: (e: React.DragEvent) => {
         e.preventDefault()
         setOverFolder(null)
+        if (dragSel) {
+          setDragSel(false)
+          if (selOk) void moveSelected(target)
+          return
+        }
         const raw = dragFolder === null ? e.dataTransfer.getData(NOTE_DRAG) : ''
         if (raw) {
           try {
@@ -422,6 +561,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       className="library"
       aria-label={t('library.label')}
       aria-busy={status === 'loading'}
+      onClick={(e) => selecting && !(e.target as HTMLElement).closest('a, button, input, select, .dialog-scrim') && clearSel()}
       onDragOver={(e) => e.dataTransfer.types.includes('Files') && e.preventDefault()}
       onDrop={(e) => {
         if (!e.dataTransfer.types.includes('Files')) return
@@ -494,6 +634,24 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           )}
         </div>
       </div>
+      {selecting && (
+        <div className="select-bar" role="toolbar" aria-label={t('library.label')}>
+          <span className="select-count">{fmt(t('library.selectedCount'), { n: String(selCount) })}</span>
+          {folders && folderView && (
+            <button type="button" className="btn" onClick={() => setMovingSel(true)}>
+              {t('library.selectMove')}
+            </button>
+          )}
+          {(uploads || folders) && (
+            <button type="button" className="btn" onClick={() => setDeletingSel(true)}>
+              {t('library.selectDelete')}
+            </button>
+          )}
+          <button type="button" className="btn" onClick={clearSel}>
+            {t('library.selectCancel')}
+          </button>
+        </div>
+      )}
       {unsaved && (
         <p role="status" className="cover-status">
           {t('library.saveFailed')}
@@ -580,18 +738,27 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             {fmt(t('library.searchNoResults'), { q })}
           </li>
         )}
-        {subfolders.map((f) => (
+        {subfolders.map((f) => {
+          const sel = selFor('folder', f.id)
+          return (
           <li key={f.id} className="cover-item">
             <a
               className={`cover-card folder-card${overFolder === f.id ? ' is-over' : ''}`}
               href={folderHref(f.id)}
               draggable={!!folders}
+              aria-selected={sel.on ? sel.selected : undefined}
+              data-selected={sel.selected || undefined}
+              {...sel.press}
+              onClick={sel.click}
+              onKeyDown={sel.onKey}
               onDragStart={(e) => {
+                sel.cancel()
                 e.dataTransfer.setData('text/plain', f.id)
                 e.dataTransfer.effectAllowed = 'move'
-                setDragFolder(f.id)
+                if (sel.selected) setDragSel(true)
+                else (setDragSel(false), setDragFolder(f.id))
               }}
-              onDragEnd={() => (setDragFolder(null), setOverFolder(null))}
+              onDragEnd={() => (setDragFolder(null), setDragSel(false), setOverFolder(null))}
               {...folderDrop(f.id)}
             >
               <span className="folder-thumb" aria-hidden="true">
@@ -604,6 +771,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
                 <span className="cover-date">{fmt(t('folder.cardNotes'), { n: String(folderView!.noteCount(f.id)) })}</span>
               </span>
             </a>
+            {sel.on && <SelectMark selected={sel.selected} />}
             {folders && (
               <FolderMenu
                 name={f.name}
@@ -615,11 +783,13 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
               />
             )}
           </li>
-        ))}
+          )
+        })}
         {items.map((item) => (
           <Card
             key={item.noteId}
             item={item}
+            select={selFor('note', item.noteId)}
             locale={locale}
             blocked={() => entering.current}
             receiving={receive.receiving.has(item.noteId)}
@@ -714,17 +884,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
                 : setUndo({
                     text: fmt(t('folder.deletedSnack'), { name }),
                     label: t('trash.restore'),
-                    onUndo: () => {
-                      void (async () => {
-                        if (await folders.cancelTrashFolder(d.id)) return
-                        try {
-                          await trash?.restoreById(d.id, true)
-                        } catch {
-                          // the next refresh shows what is there
-                        }
-                        void folders.refresh().catch(() => {})
-                      })()
-                    },
+                    onUndo: () => void restoreFolder(d.id),
                   }),
             )
           }}
@@ -783,6 +943,32 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           }}
         />
       )}
+      {movingSel && folderView && (
+        <FolderPicker
+          name=""
+          title={fmt(t('library.itemsMoveTitle'), { n: String(selCount) })}
+          view={folderView}
+          disabled={blockedTargets(selTargets().folderIds)}
+          onClose={() => setMovingSel(false)}
+          onPick={(to) => {
+            setMovingSel(false)
+            void moveSelected(to)
+          }}
+        />
+      )}
+      {deletingSel && (
+        <ConfirmDialog
+          body={fmt(t(selCount === 1 && liveNotes.length === 1 ? 'library.noteDeleteBody' : 'library.itemsDeleteBody'), { n: String(selCount) })}
+          confirmLabel={t('library.noteDeleteConfirm')}
+          cancelLabel={t('library.cancel')}
+          destructive
+          onCancel={() => setDeletingSel(false)}
+          onConfirm={() => {
+            setDeletingSel(false)
+            void deleteSelected()
+          }}
+        />
+      )}
       {undo && (
         <div role="status" className="snackbar snackbar-action">
           <span>{undo.text}</span>
@@ -818,6 +1004,9 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       <LibrarySyncing />
       <span className="sr-only" aria-live="polite">
         {q && status === 'ready' ? fmt(t('library.searchResultCount'), { n: String(items.length) }) : ''}
+      </span>
+      <span className="sr-only" aria-live="polite">
+        {selecting ? fmt(t('library.selectedCount'), { n: String(selCount) }) : ''}
       </span>
       <span className="sr-only" role="status" aria-live="polite">
         {pdfSaid}
@@ -896,6 +1085,29 @@ function BlockedCard({ fileId, hasUnsent, exportCopy }: { fileId: string | null;
   )
 }
 
+/** What a card needs for the selection (see `selFor` in Library). */
+type Sel = {
+  on: boolean
+  selected: boolean
+  cancel: () => void
+  drag: (on: boolean) => void
+  click: (e: ReactMouse) => boolean
+  onKey: (e: ReactKey) => boolean
+  press: {
+    onPointerDown: (e: ReactPointer) => void
+    onPointerMove: (e: ReactPointer) => void
+    onPointerUp: () => void
+    onPointerCancel: () => void
+    onPointerLeave: () => void
+    onContextMenu: (e: ReactMouse) => void
+  }
+}
+
+/** The check on a card while a selection lasts. */
+function SelectMark({ selected }: { selected: boolean }) {
+  return <span className={selected ? 'select-mark is-selected' : 'select-mark'} aria-hidden="true">{selected ? '✓' : ''}</span>
+}
+
 function Card({
   item,
   locale,
@@ -908,7 +1120,9 @@ function Card({
   onCover,
   onMove,
   exportCopy,
+  select,
 }: {
+  select?: Sel
   item: LibraryItem
   locale: string
   blocked: () => boolean
@@ -978,11 +1192,18 @@ function Card({
         href={noteHref(item.noteId)}
         aria-keyshortcuts="F2 Delete"
         draggable
+        aria-selected={select?.on ? select.selected : undefined}
+        data-selected={select?.selected || undefined}
+        {...select?.press}
         onDragStart={(e) => {
+          select?.cancel()
+          select?.drag(!!select.selected)
           e.dataTransfer.setData(NOTE_DRAG, JSON.stringify({ noteId: item.noteId, title: item.title }))
           e.dataTransfer.effectAllowed = 'move'
         }}
+        onDragEnd={() => select?.drag(false)}
         onKeyDown={(e) => {
+          if (select?.onKey(e)) return
           if (e.key === 'F2') {
             e.preventDefault()
             onRename(e.currentTarget)
@@ -995,6 +1216,7 @@ function Card({
         aria-describedby={described}
         title={item.title}
         onClick={(e) => {
+          if (select?.click(e)) return
           if (blocked()) return e.preventDefault()
           // A conflicted note opens with the resolve dialog already up (Story 3.22).
           const plain = e.button === 0 && !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
@@ -1017,6 +1239,7 @@ function Card({
         </span>
         {status}
       </a>
+      {select?.on && <SelectMark selected={select.selected} />}
       <NoteMenu
         menu={menu}
         setMenu={setMenu}
