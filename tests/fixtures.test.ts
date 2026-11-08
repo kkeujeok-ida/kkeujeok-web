@@ -127,6 +127,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   },
   'note.formatVersion': noteFormatVersion,
   'note.penKinds': noteFormatVersion,
+  'note.brush': noteFormatVersion,
   'note.title': ({ input, expected }) => {
     const i = input as { title: string; existingTitles: string[] }
     const t = normalizeTitle(i.title, i.existingTitles)
@@ -419,7 +420,6 @@ const PENDING: string[] = [
   // Epic 24 pen kinds (Story 24.1): the runners arrive with Story 24.3 (pen.*,
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
-  'note.brush',
   'note.shape',
   'brush.resolve',
   'shape.points',

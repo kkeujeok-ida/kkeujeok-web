@@ -154,6 +154,24 @@ export type ResolveApplied = Extract<ResolveResult, { result: 'resolved' }> & { 
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n))
 
+/** `[tilt, azimuth]` in degrees (spec/brush.md) of a pen event, or null when upright or not reported. */
+export function penLean(e: Pick<PointerEvent, 'tiltX' | 'tiltY' | 'altitudeAngle' | 'azimuthAngle'>): [number, number] | null {
+  const deg = 180 / Math.PI
+  let tilt: number
+  let az: number
+  if (Number.isFinite(e.altitudeAngle) && Number.isFinite(e.azimuthAngle)) {
+    tilt = 90 - e.altitudeAngle * deg
+    az = e.azimuthAngle * deg
+  } else {
+    const tx = Math.tan((e.tiltX || 0) / deg)
+    const ty = Math.tan((e.tiltY || 0) / deg)
+    tilt = Math.atan(Math.hypot(tx, ty)) * deg
+    az = Math.atan2(ty, tx) * deg
+  }
+  if (!(tilt > 0)) return null
+  return [Math.min(90, tilt), ((az % 360) + 360) % 360]
+}
+
 export class Writer {
   private caches = new Map<string, StrokePathCache>() // one per page; a page off screen is not painted
   private queue: SaveQueue
@@ -1555,7 +1573,9 @@ export class Writer {
       q = e.pointerType === 'pen' ? (Number.isFinite(e.pressure) ? clamp01(e.pressure) : 0.5) : 0.5
     }
     const dt = e.timeStamp - t0
-    return [x, y, q, Number.isFinite(dt) ? Math.max(0, dt) : 0]
+    const p = [x, y, q, Number.isFinite(dt) ? Math.max(0, dt) : 0]
+    const lean = e.pointerType === 'pen' ? penLean(e) : null
+    return lean ? [...p, ...lean] : p
   }
 
   /** The page under the pointer of `e`, if any. */
