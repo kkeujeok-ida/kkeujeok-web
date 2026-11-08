@@ -28,7 +28,7 @@ function parse(raw: string | null | undefined): Pen[] | null {
     // A bad `brush` is dropped, never the whole list.
     const brush = (e as Record<string, unknown>).brush
     const ok = !!brush && typeof brush === 'object' && !Array.isArray(brush) && Object.keys(brush).length > 0
-    pens.push({ tool, color, width, usePressure, ...(ok ? { brush: brush as Record<string, unknown> } : {}) })
+    pens.push({ tool, color, width, usePressure, ...((e as Record<string, unknown>).lineMode === true && { lineMode: true }), ...(ok ? { brush: brush as Record<string, unknown> } : {}) })
   }
   return pens
 }
@@ -52,7 +52,7 @@ export function createPenSlots(storage: Store | undefined = browserStorage()) {
     write(slots: readonly Pen[]): void {
       session = copy(slots)
       try {
-        storage?.setItem(PEN_SLOTS_KEY, JSON.stringify(slots.map(({ tool, color, width, usePressure, brush }) => ({ tool, color, width, usePressure, ...(brush && { brush }) }))))
+        storage?.setItem(PEN_SLOTS_KEY, JSON.stringify(slots.map(({ tool, color, width, usePressure, lineMode, brush }) => ({ tool, color, width, usePressure, ...(lineMode && { lineMode }), ...(brush && { brush }) }))))
       } catch {
         // kept for this session only
       }

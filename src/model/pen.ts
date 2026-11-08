@@ -9,6 +9,8 @@ export type Pen = {
   color: string // `#rrggbb`, written to strokes as is
   width: number // pt
   usePressure: boolean
+  /** Draws only straight lines (spec shape.md, a device slot property; absent = off). */
+  lineMode?: boolean
   /** Optional brush settings (spec/brush.md), only what differs from the tool default; copied into each new stroke. */
   brush?: Record<string, unknown>
 }
@@ -58,7 +60,7 @@ export const switchKind = (slot: Pen, to: PenTool): Pen => {
   const d = PEN_DEFAULTS[to]
   const colors = PEN_PALETTE[paletteFamily(to)].colors
   if (to === slot.tool) return { ...slot, width: d.width }
-  return { tool: to, color: colors.includes(slot.color.toLowerCase()) ? slot.color : colors[0]!, ...d }
+  return { ...(slot.lineMode && { lineMode: true }), tool: to, color: colors.includes(slot.color.toLowerCase()) ? slot.color : colors[0]!, ...d }
 }
 
 /** `v` clamped to the tool's range and rounded to 0.1, so no 2.3000000000000003 is stored. */

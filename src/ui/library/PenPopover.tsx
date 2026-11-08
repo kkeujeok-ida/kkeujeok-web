@@ -289,6 +289,12 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
             </span>
           </button>
         )}
+        <button type="button" role="switch" tabIndex={0} aria-checked={!!pen.lineMode} aria-labelledby={`${labelId}-line`} className="pen-popover-switch" onClick={() => onChange({ lineMode: !pen.lineMode })}>
+          <span id={`${labelId}-line`}>{t('editor.lineDraw')}</span>
+          <span className="switch-track" aria-hidden="true">
+            <span className="switch-thumb" />
+          </span>
+        </button>
         <PenAdvanced pen={pen} onChange={onChange} open={advOpen} onToggle={() => setAdvOpen(!advOpen)} />
         <svg className="pen-preview" viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
           <path d={previewPath(pen)} fill={pen.color} fillOpacity={pen.tool === 'highlighter' ? 0.4 : undefined} />

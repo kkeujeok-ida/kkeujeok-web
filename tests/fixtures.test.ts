@@ -15,7 +15,7 @@ import { resources } from '../src/i18n'
 import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
 import { brushResolve } from '../src/model/brush'
 import { smoothPoints } from '../src/model/smooth'
-import { straightenActive, type StraightenInput } from '../src/model/straighten'
+import { lineSnapEnd, straightenActive, type StraightenInput } from '../src/model/straighten'
 import { highlighterOutline } from '../src/render/highlighterOutline'
 import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
@@ -283,6 +283,11 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     for (const [k, p] of got.entries()) for (const [j, v] of want[k]!.entries()) expect(Math.abs(p[j]! - v)).toBeLessThanOrEqual(tolerance! + 1e-12)
   },
   'pen.straighten': ({ input, expected }) => void expect({ active: straightenActive(input as StraightenInput) }).toEqual(expected),
+  'shape.lineSnap': ({ input, expected, tolerance }) => {
+    const i = input as { start: number[]; end: number[] }
+    const got = lineSnapEnd(i.start, i.end)
+    ;(expected as { end: number[] }).end.forEach((v, k) => expect(Math.abs(got[k]! - v)).toBeLessThanOrEqual(tolerance! + 1e-12))
+  },
   'pen.palette': penKinds,
   'pen.kinds': penKinds,
   'pen.switchKind': ({ input, expected }) => {
@@ -430,7 +435,6 @@ const PENDING: string[] = [
   'shape.fromDrag',
   'shape.resize',
   'shape.rotate',
-  'shape.lineSnap',
   'shape.recognize',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]

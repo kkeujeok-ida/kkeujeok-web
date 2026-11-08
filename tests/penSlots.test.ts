@@ -72,3 +72,23 @@ describe('pen slots store', () => {
     expect(s.read()[0]!.usePressure).toBe(false)
   })
 })
+
+describe('lineMode and straighten default (Story 26.3)', () => {
+  test('lineMode round-trips, absent when off, kept by switchKind', async () => {
+    const st = mem()
+    createPenSlots(st).write([{ ...defaultPen, lineMode: true }, defaultPen])
+    const back = createPenSlots(st).read()
+    expect(back[0]!.lineMode).toBe(true)
+    expect('lineMode' in back[1]!).toBe(false)
+    const { switchKind } = await import('../src/model/pen')
+    expect(switchKind(back[0]!, 'fountain').lineMode).toBe(true)
+  })
+
+  test('straighten is on with no stored value; a stored value wins', async () => {
+    const { readStraighten } = await import('../src/storage/straighten')
+    const g = (v: string | null) => ({ getItem: () => v, setItem: () => {} })
+    expect(readStraighten(g(null))).toBe(true)
+    expect(readStraighten(g('false'))).toBe(false)
+    expect(readStraighten(g('true'))).toBe(true)
+  })
+})

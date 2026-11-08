@@ -1,4 +1,4 @@
-// Line straightening on/off: a device setting (localStorage), default off; not in the note, not synced.
+// Line straightening on/off: a device setting (localStorage), default on (a stored value wins); not in the note, not synced.
 export const STRAIGHTEN_KEY = 'kkeujeok.straighten'
 
 function browserStorage(): Pick<Storage, 'getItem' | 'setItem'> | undefined {
@@ -11,9 +11,10 @@ function browserStorage(): Pick<Storage, 'getItem' | 'setItem'> | undefined {
 
 export function readStraighten(storage = browserStorage()): boolean {
   try {
-    return storage?.getItem(STRAIGHTEN_KEY) === 'true'
+    const v = storage?.getItem(STRAIGHTEN_KEY)
+    return v == null ? true : v === 'true'
   } catch {
-    return false
+    return true
   }
 }
 

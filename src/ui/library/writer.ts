@@ -2,7 +2,7 @@
 // History -> serial saves, and the canvas that shows the page (with its zoom
 // and pan view). No React here.
 import { newId } from '../../model/ids'
-import { HOLD_DISTANCE, HOLD_MS, straightenActive } from '../../model/straighten'
+import { HOLD_DISTANCE, HOLD_MS, lineSnapEnd, straightenActive } from '../../model/straighten'
 import { getStraighten } from '../../storage/straighten'
 import { pageOutOfBounds } from '../../model/pageBounds'
 import { TAPE_TAP_SLOP, isTapeTap, tapeAt } from '../../model/tapeHit'
@@ -61,7 +61,7 @@ export type WriterMessage =
 /** `ox`, `oy`: where the page of the stroke starts in the continuous scroll; `points` are in that page's coordinates. */
 /** Line straightening state of one stroke (pen-feel.md pen.straighten): `anchor` is the still-detection anchor, `dead` once a second pointer came. */
 type Hold = { anchor: number[] | null; timer: ReturnType<typeof setTimeout> | undefined; active: boolean; dead: boolean }
-type Drawing = { id: number; strokeId: string; type: string; t0: number; points: number[][]; pageId: string; ox: number; oy: number; hold?: Hold }
+type Drawing = { line?: boolean;  id: number; strokeId: string; type: string; t0: number; points: number[][]; pageId: string; ox: number; oy: number; hold?: Hold }
 const POINTER_TYPES = ['pen', 'mouse', 'touch']
 /** A second finger this soon after the first turns the stroke into a gesture. */
 const SECOND_FINGER_MS = 150
@@ -698,7 +698,7 @@ export class Writer {
     for (const [id, c] of [...this.caches]) if (!this.history.note.pages.some((p) => p.id === id)) (c.dispose(), this.caches.delete(id))
     this.images?.watch(this.history.note)
     this.pruneTapes()
-    const live = this.drawing ? this.build(this.shown(this.drawing), this.drawing.strokeId, !!this.drawing.hold?.active) : null
+    const live = this.drawing ? this.build(this.shown(this.drawing), this.drawing.strokeId, !!(this.drawing.hold?.active || this.drawing.line)) : null
     const draft = this.edit ? { pageId: this.edit.pageId, id: this.edit.id, el: this.draftEl(this.edit) } : null
     for (const s of this.slots().list) {
       // A page that is off screen is not painted.
@@ -1607,7 +1607,8 @@ export class Writer {
       // focus is a convenience
     }
     const d: Drawing = { id: e.pointerId, strokeId: newId(), type: e.pointerType, t0: e.timeStamp, points: [p], pageId: s.page.id, ox: s.x, oy: s.y }
-    if (getStraighten()) {
+    if (this.pen().lineMode) d.line = true // line drawing: no hold detection
+    else if (getStraighten()) {
       d.hold = { anchor: null, timer: undefined, active: false, dead: false }
       this.holdPoint(d, p)
     }
@@ -1617,7 +1618,9 @@ export class Writer {
 
   /** The points to show and store: the first and last raw point once straightened. */
   private shown(d: Drawing): number[][] {
-    return d.hold?.active ? [d.points[0]!, d.points[d.points.length - 1]!] : d.points
+    if (!(d.hold?.active || d.line) || d.points.length < 2) return d.points
+    const a = d.points[0]!, b = d.points[d.points.length - 1]!
+    return [a, [...lineSnapEnd(a, b), ...b.slice(2)]]
   }
 
   /** Still detection: a point farther than HOLD_DISTANCE (screen px) from the anchor becomes the anchor and restarts the timer. */
@@ -2023,7 +2026,7 @@ export class Writer {
     this.drawing = null
     if (d?.hold) clearTimeout(d.hold.timer)
     if (this.readOnly || !d) return this.releaseStrokeWaiters(null)
-    const err = this.history.doOp({ op: 'addStroke', pageId: d.pageId, stroke: this.build(this.shown(d), d.strokeId, !!d.hold?.active) }, this.ctx())
+    const err = this.history.doOp({ op: 'addStroke', pageId: d.pageId, stroke: this.build(this.shown(d), d.strokeId, !!(d.hold?.active || d.line)) }, this.ctx())
     this.redraw()
     if (err) this.message('strokeNotAdded')
     else {

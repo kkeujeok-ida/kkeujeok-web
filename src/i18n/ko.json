@@ -135,6 +135,7 @@
   "editor.undoDelete": "되돌리기",
   "editor.penEditTitle": "펜",
   "editor.usePressure": "필압 반영",
+  "editor.lineDraw": "직선 그리기",
   "editor.tool.pen": "펜",
   "editor.tool.highlighter": "형광펜",
   "editor.tool.fountain": "만년필",
