@@ -3,6 +3,7 @@ import { type Note, type Page, type Stroke, SUPPORTED_FORMAT_VERSION, isValidStr
 import { addPage, deletePage, duplicatePage, insertPages, movePages, setPageBackground, setPageOrder, setPageOrientation } from './pageOps'
 import { normalizeTitle } from '../model/noteTitle'
 import { round2 } from '../model/number'
+import { isKnownShape, shapePoints, transformShape } from '../model/shape'
 import { PEN_WIDTH, type PenTool } from '../model/pen'
 import { IMAGE_SIZE_MIN, isAssetHash } from '../model/imageRules'
 import { isTextBox, selectionBounds, type El } from '../model/select'
@@ -196,6 +197,11 @@ function transformOp(note: Note, op: Op, ctx: Ctx): OpResult {
   }
   for (const e of chosen) {
     if (e.type === 'stroke') {
+      // A shape stroke follows its `shape`; its points are made again (spec shape.md). A collapsed one (scale to 0) stays as it is.
+      if (isKnownShape(e.shape)) {
+        if (transformShape(e.shape, f, sx, sy, turn)) e.points = shapePoints(e.shape)!
+        continue
+      }
       for (const p of (e.points as number[][] | undefined) ?? []) {
         const [x, y] = f(p[0]!, p[1]!)
         p[0] = round2(x)
@@ -231,6 +237,13 @@ function transformOp(note: Note, op: Op, ctx: Ctx): OpResult {
   }
   touch(page, ctx)
   return { note: next, inverse: { op: 'replaceElements', pageId: op.pageId, elements: before } }
+}
+
+/** A partial-erase piece is a plain stroke: no `shape` (spec shape.md). */
+const plainClone = (e: unknown) => {
+  const c = structuredClone(e) as El
+  delete c.shape
+  return c
 }
 
 // round2 can reach 360 (359.999): stored as 0.
@@ -498,7 +511,7 @@ export class EraseScan {
       if (!this.partial || (e as El).tool === 'tape') return
       if (st.els.length === 0) {
         const pieces = piecesOf((e as El).points as number[][], st.erased, st.cut)
-        st.els = pieces.map((points, j) => ({ ...(structuredClone(e) as object), id: `${id}~${j}`, points }) as unknown as Page['elements'][number])
+        st.els = pieces.map((points, j) => ({ ...(plainClone(e) as object), id: `${id}~${j}`, points }) as unknown as Page['elements'][number])
         if (st.els.length === 0) st.els = EMPTY
       }
       if (st.els !== EMPTY) elements.push(...st.els)
@@ -515,7 +528,7 @@ export function erasedElements(page: Page, hits: ReturnType<typeof erasePieces>,
     const pieces = byIndex.get(index)
     if (!pieces) return [e]
     if (!partial) return []
-    return pieces.map((points, j) => ({ ...(structuredClone(e) as object), id: idOf(e as El, j), points }) as unknown as Page['elements'][number])
+    return pieces.map((points, j) => ({ ...(plainClone(e) as object), id: idOf(e as El, j), points }) as unknown as Page['elements'][number])
   })
 }
 
@@ -532,7 +545,7 @@ export function eraseTargets(page: Page, path: readonly Pt[], width: number, par
     if (!pieces) return [e]
     fadeIds.add((e as El).id as string)
     if (!partial) return [e]
-    return [e, ...pieces.map((points, j) => ({ ...(structuredClone(e) as object), id: `${(e as El).id as string}~${j}`, points }) as unknown as Page['elements'][number])]
+    return [e, ...pieces.map((points, j) => ({ ...(plainClone(e) as object), id: `${(e as El).id as string}~${j}`, points }) as unknown as Page['elements'][number])]
   })
   return { elements, fadeIds }
 }

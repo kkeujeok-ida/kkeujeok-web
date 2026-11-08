@@ -20,7 +20,7 @@ const DRAG_PX = 6
  * divider | undo, redo. Slots are one radiogroup; activating the selected one
  * opens the pen popover (onEdit). The slot buttons carry data-slot for the owner.
  */
-export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, tool, onToolChange, eraserMode, onEraserEdit, onImage, dock = STATIC_DOCK, onDocked, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
+export function PenToolbar({ shapeKind = 'rect', onShapeKind, pens, selected, onSelect, onEdit, onAdd, onMove, tool, onToolChange, eraserMode, onEraserEdit, onImage, dock = STATIC_DOCK, onDocked, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
   pens: readonly Pen[]
   selected: number
   onSelect: (i: number) => void
@@ -30,8 +30,11 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, to
   /** A slot dragged or moved with Alt+arrows from one place to another. */
   onMove: (from: number, to: number) => void
   /** The lasso and the text tool are toggles: pressed = that tool, else the pen. The lasso works read-only too (selecting changes nothing); the text tool does not. */
-  tool: 'pen' | 'eraser' | 'lasso' | 'text'
-  onToolChange: (t: 'pen' | 'eraser' | 'lasso' | 'text') => void
+  tool: 'pen' | 'eraser' | 'lasso' | 'text' | 'shape'
+  onToolChange: (t: 'pen' | 'eraser' | 'lasso' | 'text' | 'shape') => void
+  /** The shape tool is a toggle like the text tool; its kind buttons show while it is on. */
+  shapeKind?: 'triangle' | 'rect' | 'circle'
+  onShapeKind?: (k: 'triangle' | 'rect' | 'circle') => void
   /** The eraser works per stroke or partly: shown in its name and icon. Clicking the selected eraser calls onEraserEdit (its popover). */
   eraserMode: EraserMode
   onEraserEdit: () => void
@@ -52,7 +55,7 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, to
   const { t } = useI18n()
   // Roving tab index: one toolbar item is a tab stop, the arrows move between items.
   const [stop, setStop] = useState('')
-  const keys = ['handle', ...pens.map((_, i) => `slot-${i}`), 'add', 'undo', 'redo', 'eraser', 'lasso', 'text', 'image']
+  const keys = ['handle', ...pens.map((_, i) => `slot-${i}`), 'add', 'undo', 'redo', 'eraser', 'lasso', 'text', 'shape', 'triangle', 'rect', 'circle', 'image']
   const tabKey = keys.includes(stop) ? stop : `slot-${selected}`
   const rv = (key: string) => ({ 'data-roving': key, tabIndex: key === tabKey ? 0 : -1 })
   const slotsEl = useRef<HTMLDivElement>(null)
@@ -373,6 +376,41 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, to
           <path d="M2.5 4v3h5v12h3V7h5V4h-13zm19 5h-9v3h3v7h3v-7h3V9z" fill="currentColor" />
         </svg>
       </button>
+      <button
+        type="button"
+        aria-pressed={tool === 'shape'}
+        aria-label={t('editor.shape')}
+        title={readOnly ? t('editor.readOnlyTip') : t('editor.shapeTip')}
+        aria-disabled={readOnly || undefined}
+        className="toolbar-action"
+        data-tool="shape"
+        {...rv('shape')}
+        onClick={() => !readOnly && onToolChange(tool === 'shape' ? 'pen' : 'shape')}
+      >
+        <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3L2 20h20L12 3zm0 4.5L18.5 18h-13L12 7.5z" fill="currentColor" />
+        </svg>
+      </button>
+      {tool === 'shape' &&
+        (['triangle', 'rect', 'circle'] as const).map((k) => (
+          <button
+            key={k}
+            type="button"
+            aria-pressed={shapeKind === k}
+            aria-label={t(`editor.shape.${k}`)}
+            title={t(`editor.shape.${k}`)}
+            className="toolbar-action"
+            data-shape-kind={k}
+            {...rv(k)}
+            onClick={() => onShapeKind?.(k)}
+          >
+            <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
+              {k === 'triangle' && <path d="M12 5L3 19h18z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />}
+              {k === 'rect' && <rect x="4" y="6" width="16" height="12" fill="none" stroke="currentColor" strokeWidth="2" />}
+              {k === 'circle' && <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="2" />}
+            </svg>
+          </button>
+        ))}
       <button
         type="button"
         aria-label={t('editor.image')}

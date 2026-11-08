@@ -7,6 +7,7 @@ import { getStraighten } from '../../storage/straighten'
 import { pageOutOfBounds } from '../../model/pageBounds'
 import { TAPE_TAP_SLOP, isTapeTap, tapeAt } from '../../model/tapeHit'
 import { strokeOutlineFor } from '../../render/strokeOutline'
+import { shapeFromDrag, shapePoints, type Shape, type ShapeKind } from '../../model/shape'
 import { elementClipboard } from '../../model/elementClipboard'
 import { isTextBox, selectLasso, selectRect, selectTap, selectionBounds, selectionFrame, type Bounds, type El } from '../../model/select'
 import { cpIndex, formatAt, formatRange, retextRuns, type TextFormat } from '../../model/textEdit'
@@ -61,7 +62,7 @@ export type WriterMessage =
 /** `ox`, `oy`: where the page of the stroke starts in the continuous scroll; `points` are in that page's coordinates. */
 /** Line straightening state of one stroke (pen-feel.md pen.straighten): `anchor` is the still-detection anchor, `dead` once a second pointer came. */
 type Hold = { anchor: number[] | null; timer: ReturnType<typeof setTimeout> | undefined; active: boolean; dead: boolean }
-type Drawing = { line?: boolean;  id: number; strokeId: string; type: string; t0: number; points: number[][]; pageId: string; ox: number; oy: number; hold?: Hold }
+type Drawing = { line?: boolean; /** Shape tool: the kind being dragged, and whether Shift locks the ratio. */ shape?: string; lock?: boolean;  id: number; strokeId: string; type: string; t0: number; points: number[][]; pageId: string; ox: number; oy: number; hold?: Hold }
 const POINTER_TYPES = ['pen', 'mouse', 'touch']
 /** A second finger this soon after the first turns the stroke into a gesture. */
 const SECOND_FINGER_MS = 150
@@ -76,7 +77,7 @@ export type FitMode = 'width' | 'page' | 'free'
 // Who owns the pointers: nobody, a touch stroke, a touch outside the page, a
 // two-finger gesture, fingers to ignore until all lift, a pen/mouse, a pan drag.
 type Mode = 'none' | 'stroke' | 'idle' | 'gesture' | 'ignored' | 'pen' | 'pan' | 'lasso' | 'xform' | 'erase'
-export type Tool = 'pen' | 'eraser' | 'lasso' | 'text'
+export type Tool = 'pen' | 'eraser' | 'lasso' | 'text' | 'shape'
 /** An eraser gesture: one press to release is one operation. `path` is in the coordinates of the page it started on; `preview` is that page's elements with the struck strokes marked (drawn translucent). */
 type Erase = { id: number; type: string; temporary: boolean; pageId: string | null; ox: number; oy: number; path: number[][]; scan: EraseScan | null; scanned: number; preview: ReturnType<EraseScan['targets']> | null; src: Page | null }
 /** What an eraser gesture did: `touched` is false when it hit no stroke; `temporary` is a pen-button erase under another tool. */
@@ -202,6 +203,8 @@ export class Writer {
   private dpr = 1
   private finalizing: Promise<void> | null = null
   private tool: Tool = 'pen'
+  /** The kind the shape tool draws (spec shape.md `shape.fromDrag`). */
+  shapeKind: ShapeKind = 'rect'
   private edit: Edit | null = null
   private lastEdit = ''
   private lastTap: { t: number; x: number; y: number } | null = null
@@ -698,7 +701,7 @@ export class Writer {
     for (const [id, c] of [...this.caches]) if (!this.history.note.pages.some((p) => p.id === id)) (c.dispose(), this.caches.delete(id))
     this.images?.watch(this.history.note)
     this.pruneTapes()
-    const live = this.drawing ? this.build(this.shown(this.drawing), this.drawing.strokeId, !!(this.drawing.hold?.active || this.drawing.line)) : null
+    const live = this.drawing ? this.strokeOf(this.drawing) : null
     const draft = this.edit ? { pageId: this.edit.pageId, id: this.edit.id, el: this.draftEl(this.edit) } : null
     for (const s of this.slots().list) {
       // A page that is off screen is not painted.
@@ -1329,7 +1332,7 @@ export class Writer {
     this.lastDot = null
     this.lastTap = { t: e.timeStamp, x: e.clientX, y: e.clientY }
     if (this.tool === 'eraser') return false
-    if (e.pointerType === 'pen' && this.tool === 'pen') return false // stylus taps are ink
+    if (e.pointerType === 'pen' && (this.tool === 'pen' || this.tool === 'shape')) return false // stylus taps are ink
     if (this.tool === 'lasso' && this.onHandle(e)) return false
     if (!prev || e.button !== 0 || e.timeStamp - prev.t > DOUBLE_MS || Math.hypot(e.clientX - prev.x, e.clientY - prev.y) > DOUBLE_SLOP) return false
     const s = this.under(e)
@@ -1551,9 +1554,17 @@ export class Writer {
     this.setSelection(slot.page.id, ids)
   }
 
-  private build(points: number[][], id: string, straight = false): Stroke {
+  private build(points: number[][], id: string, straight = false, shape?: Shape): Stroke {
     const pen = this.pen()
-    return { id, type: 'stroke', tool: pen.tool, color: pen.color, width: pen.width, usePressure: pen.usePressure && !straight, ...(pen.brush && { brush: structuredClone(pen.brush) }), points }
+    return { id, type: 'stroke', tool: pen.tool, color: pen.color, width: pen.width, usePressure: pen.usePressure && !straight, ...(pen.brush && { brush: structuredClone(pen.brush) }), ...(shape && { shape }), points }
+  }
+
+  /** The stroke a drawing shows and stores; null for a shape drag under 4 pt (no stroke). */
+  private strokeOf(d: Drawing): Stroke | null {
+    if (!d.shape) return this.build(this.shown(d), d.strokeId, !!(d.hold?.active || d.line))
+    const shape = shapeFromDrag(d.shape, d.points[0]!, d.points[d.points.length - 1]!, !!d.lock)
+    const points = shape && shapePoints(shape)
+    return shape && points ? this.build(points, d.strokeId, true, shape) : null
   }
 
   private local(x: number, y: number): [number, number] {
@@ -1595,7 +1606,7 @@ export class Writer {
 
   /** Starts a stroke at `e` when it is on the page. */
   private begin(e: PointerEvent): void {
-    if (this.readOnly || this.tool !== 'pen') return
+    if (this.readOnly || (this.tool !== 'pen' && this.tool !== 'shape')) return
     const s = this.under(e)
     if (!s) return
     if (this.history.isLocked(s.page.id)) return this.onBlocked() // a page waiting for its conflict to be settled
@@ -1607,7 +1618,10 @@ export class Writer {
       // focus is a convenience
     }
     const d: Drawing = { id: e.pointerId, strokeId: newId(), type: e.pointerType, t0: e.timeStamp, points: [p], pageId: s.page.id, ox: s.x, oy: s.y }
-    if (this.pen().lineMode) d.line = true // line drawing: no hold detection
+    if (this.tool === 'shape') {
+      d.shape = this.shapeKind // shape tool: no hold detection, no line mode
+      d.lock = e.shiftKey
+    } else if (this.pen().lineMode) d.line = true // line drawing: no hold detection
     else if (getStraighten()) {
       d.hold = { anchor: null, timer: undefined, active: false, dead: false }
       this.holdPoint(d, p)
@@ -1912,6 +1926,7 @@ export class Writer {
     if (this.tool === 'eraser' && this.ring && !this.drawing && e.pointerType !== 'touch') return this.redraw() // the ring follows the pointer
     const d = this.drawing
     if (!d || e.pointerId !== d.id) return
+    if (d.shape) d.lock = e.shiftKey
     const coalesced = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : []
     // Not clipped here: points outside the page are kept.
     for (const ev of coalesced.length > 0 ? coalesced : [e]) {
@@ -2026,7 +2041,12 @@ export class Writer {
     this.drawing = null
     if (d?.hold) clearTimeout(d.hold.timer)
     if (this.readOnly || !d) return this.releaseStrokeWaiters(null)
-    const err = this.history.doOp({ op: 'addStroke', pageId: d.pageId, stroke: this.build(this.shown(d), d.strokeId, !!(d.hold?.active || d.line)) }, this.ctx())
+    const stroke = this.strokeOf(d)
+    if (!stroke) {
+      this.redraw()
+      return this.releaseStrokeWaiters(null)
+    }
+    const err = this.history.doOp({ op: 'addStroke', pageId: d.pageId, stroke }, this.ctx())
     this.redraw()
     if (err) this.message('strokeNotAdded')
     else {

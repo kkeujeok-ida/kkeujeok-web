@@ -46,6 +46,7 @@ import { onResolveRequest, takeResolveRequest } from './resolveRequest'
 import { detectEditedBy } from './useLibrary'
 import { ZOOM_MAX, ZOOM_MIN } from '../../render/pagePainter'
 import type { ImageHost } from '../../render/imageHost'
+import { SHAPE_KINDS, type ShapeKind } from '../../model/shape'
 import { ARROW_STEP, Writer, ZOOM_STEP, type EditInfo, type ErasedInfo, type Tool, type SelectionBox, type TapeNode, type ViewInfo, type WriterMessage } from './writer'
 
 /** The noteId of a `#/notes/{noteId}` hash, else null. */
@@ -168,6 +169,9 @@ export function NoteEditor({
   popoverOpen.current = popover !== null || eraserPop
   const [selected, setSelected] = useState(0)
   const [tool, setTool] = useState<Tool>('pen')
+  const [shapeKind, setShapeKind] = useState<ShapeKind>('rect')
+  const shapeRef = useRef({ tool, shapeKind })
+  shapeRef.current = { tool, shapeKind }
   const [eraser, setEraser] = useState(() => eraserStore.read())
   // Read by the writer's callbacks, which outlive a render.
   const eraserRef = useRef(eraser)
@@ -580,6 +584,9 @@ export function NoteEditor({
     loaded?.writer.setTool(tool)
   }, [loaded, tool])
   useEffect(() => {
+    if (loaded) loaded.writer.shapeKind = shapeKind
+  }, [loaded, shapeKind])
+  useEffect(() => {
     if (loaded) loaded.writer.eraserMode = eraser.mode
   }, [loaded, eraser.mode])
   useEffect(() => {
@@ -631,6 +638,15 @@ export function NoteEditor({
         const target = e.target as Element | null
         const inside = [toolbar.current, canvas.current].some((r) => r && (r.contains(target) || r.contains(active)))
         if (inside && !readOnly && !target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])') && !document.querySelector('[role="dialog"], [aria-modal="true"]')) setTool('eraser')
+      } else if ((e.code === 'KeyS' || e.key.toLowerCase() === 's') && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat && !e.isComposing) {
+        // S: the shape tool; pressed again, the next kind.
+        const target = e.target as Element | null
+        const inside = [toolbar.current, canvas.current].some((r) => r && (r.contains(target) || r.contains(active)))
+        if (inside && !readOnly && !target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])') && !document.querySelector('[role="dialog"], [aria-modal="true"]')) {
+          const cur = shapeRef.current
+          if (cur.tool === 'shape') setShapeKind(SHAPE_KINDS[(SHAPE_KINDS.indexOf(cur.shapeKind) + 1) % SHAPE_KINDS.length]!)
+          else setTool('shape')
+        }
       } else if ((e.code === 'KeyT' || e.key.toLowerCase() === 't') && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat && !e.isComposing) {
         const target = e.target as Element | null
         const inside = [toolbar.current, canvas.current].some((r) => r && (r.contains(target) || r.contains(active)))
@@ -1423,6 +1439,8 @@ export function NoteEditor({
               onRedo={() => loaded.writer.redo()}
               tool={tool}
               onToolChange={setTool}
+              shapeKind={shapeKind}
+              onShapeKind={setShapeKind}
               eraserMode={eraser.mode}
               onEraserEdit={() => {
                 if (readOnly || loaded.writer.busy()) return

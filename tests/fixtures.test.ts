@@ -15,6 +15,7 @@ import { resources } from '../src/i18n'
 import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
 import { brushResolve } from '../src/model/brush'
 import { smoothPoints } from '../src/model/smooth'
+import { shapeFromDrag, shapePoints } from '../src/model/shape'
 import { lineSnapEnd, straightenActive, type StraightenInput } from '../src/model/straighten'
 import { highlighterOutline } from '../src/render/highlighterOutline'
 import { History } from '../src/ops/history'
@@ -288,6 +289,25 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     const got = lineSnapEnd(i.start, i.end)
     ;(expected as { end: number[] }).end.forEach((v, k) => expect(Math.abs(got[k]! - v)).toBeLessThanOrEqual(tolerance! + 1e-12))
   },
+  'shape.points': ({ input, expected, tolerance }) => {
+    const got = shapePoints((input as { shape: unknown }).shape)!
+    const want = (expected as { points: number[][] }).points
+    expect(got).toHaveLength(want.length)
+    for (const [k, p] of got.entries()) {
+      expect(p[2]).toBe(want[k]![2])
+      expect(p[3]).toBe(want[k]![3])
+      for (const j of [0, 1]) expect(Math.abs(p[j]! - want[k]![j]!)).toBeLessThanOrEqual(tolerance! + 1e-12)
+    }
+  },
+  'shape.fromDrag': ({ input, expected, tolerance }) => {
+    const i = input as { kind: string; from: number[]; to: number[]; lockRatio: boolean }
+    const got = shapeFromDrag(i.kind, i.from, i.to, i.lockRatio)
+    const want = (expected as { shape: Record<string, unknown> | null }).shape
+    if (!want) return void expect(got).toBeNull()
+    expect(got!.kind).toBe(want.kind)
+    const near = (a: unknown, b: unknown) => (typeof b === 'number' ? expect(Math.abs((a as number) - b)).toBeLessThanOrEqual(tolerance! + 1e-12) : Array.isArray(b) ? b.forEach((v, k) => near((a as unknown[])[k], v)) : expect(a).toEqual(b))
+    for (const k of Object.keys(want)) near(got![k], want[k])
+  },
   'pen.palette': penKinds,
   'pen.kinds': penKinds,
   'pen.switchKind': ({ input, expected }) => {
@@ -431,8 +451,6 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
-  'shape.points',
-  'shape.fromDrag',
   'shape.resize',
   'shape.rotate',
   'shape.recognize',

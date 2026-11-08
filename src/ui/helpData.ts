@@ -13,7 +13,7 @@ export const SHORTCUT_GROUPS: HelpGroup[] = [
   },
   {
     title: 'help.g.tools',
-    rows: [row('1-9', 'help.k.slot'), row('P / H', 'help.k.penHighlighter'), row('E', 'help.k.eraser'), row('L', 'help.k.lasso'), row('T', 'help.k.text'), row('Enter', 'help.k.newTextBox'), row('Space (hold)', 'help.k.hand')],
+    rows: [row('1-9', 'help.k.slot'), row('P / H', 'help.k.penHighlighter'), row('E', 'help.k.eraser'), row('L', 'help.k.lasso'), row('T', 'help.k.text'), row('S', 'help.k.shape'), row('Enter', 'help.k.newTextBox'), row('Space (hold)', 'help.k.hand')],
   },
   {
     title: 'help.g.edit',
