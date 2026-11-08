@@ -13,6 +13,7 @@ import { round2 } from '../src/model/number'
 import { PEN_DEFAULTS, PEN_PALETTE, PEN_WIDTH, colorNameKey, defaultPenSlots, type PenTool } from '../src/model/pen'
 import { resources } from '../src/i18n'
 import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
+import { straightenActive, type StraightenInput } from '../src/model/straighten'
 import { highlighterOutline } from '../src/render/highlighterOutline'
 import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createNote } from '../src/ops/ops'
@@ -227,6 +228,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     expect(Math.abs(q - want.q)).toBeLessThanOrEqual(tolerance!)
     expect(Math.abs(radiusFactor(q) - want.factor)).toBeLessThanOrEqual(tolerance!)
   },
+  'pen.straighten': ({ input, expected }) => void expect({ active: straightenActive(input as StraightenInput) }).toEqual(expected),
   'pen.palette': ({ input, expected }) => {
     const tool = (input as { tool: PenTool }).tool
     const pal = PEN_PALETTE[tool]
@@ -372,7 +374,6 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
-  'pen.straighten', // Story 16.3
   'stroke.smooth', // Story 16.4
 ]
 

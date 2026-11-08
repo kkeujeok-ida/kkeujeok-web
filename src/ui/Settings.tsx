@@ -6,6 +6,7 @@ import type { Auth } from '../drive/auth'
 import { clearSessionHistories } from '../ops/sessionHistories'
 import { deleteNoteDatabase } from '../storage/noteDb'
 import { VISIBLE_TOOLS_MAX, VISIBLE_TOOLS_MIN, sharedVisibleTools } from '../storage/toolbarVisibleTools'
+import { getStraighten, setStraighten, subscribeStraighten } from '../storage/straighten'
 import { getLeftHanded, setLeftHanded, subscribeLeftHanded } from '../storage/leftHanded'
 import { THEMES, getTheme, setTheme, subscribeTheme } from '../storage/theme'
 import { Help } from './Help'
@@ -40,6 +41,7 @@ export function Settings({
   const { t, choice, setChoice } = useI18n()
   const theme = useSyncExternalStore(subscribeTheme, getTheme, getTheme)
   const leftHanded = useSyncExternalStore(subscribeLeftHanded, getLeftHanded, getLeftHanded)
+  const straighten = useSyncExternalStore(subscribeStraighten, getStraighten, getStraighten)
   const [help, setHelp] = useState(false)
   const helpBtn = useRef<HTMLButtonElement>(null)
   const wasHelp = useRef(false)
@@ -159,6 +161,10 @@ export function Settings({
       <label className="settings-group option">
         <input type="checkbox" checked={leftHanded} onChange={(e) => setLeftHanded(e.target.checked)} />
         <span>{t('settings.leftHanded')}</span>
+      </label>
+      <label className="settings-group option">
+        <input type="checkbox" checked={straighten} onChange={(e) => setStraighten(e.target.checked)} />
+        <span>{t('settings.straighten')}</span>
       </label>
       <div className="settings-group" role="group" aria-labelledby="visible-tools-label">
         <span id="visible-tools-label">{t('settings.visibleTools')}</span>
