@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
 import { useI18n } from '../../i18n'
+import { getLeftHanded, subscribeLeftHanded } from '../../storage/leftHanded'
 
 // The round "+" at the bottom right. It expands a menu holding [new folder] (with folders), [import PDF] and [new note], in the Android order (Story 18.3).
 // Focus: first item when opened, back on "+" when closed by Esc, x or outside press.
 export function LibraryFab({ onNewNote, onNewFolder, onImportPdf }: { onNewNote: (opener: HTMLElement | null) => void; onNewFolder?: (opener: HTMLElement | null) => void; onImportPdf?: (opener: HTMLElement | null) => void }) {
   const { t } = useI18n()
+  const lefty = useSyncExternalStore(subscribeLeftHanded, getLeftHanded, getLeftHanded)
   const [open, setOpen] = useState(false)
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
@@ -40,7 +42,7 @@ export function LibraryFab({ onNewNote, onNewFolder, onImportPdf }: { onNewNote:
   return (
     <>
       {open && <div className="fab-veil" onClick={collapse} />}
-      <div className="fab">
+      <div className="fab" data-left-handed={lefty || undefined}>
         {open && (
           <div ref={menu} className="fab-menu" role="menu" onKeyDown={onMenuKeyDown}>
             {onNewFolder && (

@@ -1387,7 +1387,7 @@ export function NoteEditor({
           {dock.outlines.map((o) => (
             <div key={o.dock} aria-hidden="true" className={o.near ? 'toolbar-snap toolbar-snap-near' : 'toolbar-snap'} style={{ left: o.left, top: o.top, width: o.width, height: o.height }} />
           ))}
-          <div className="editor-top">
+          <div className="editor-top" data-left-handed={lefty || undefined}>
             <div className="editor-corner">
               <button ref={back} type="button" className="btn editor-back" aria-label={t('library.backToLibrary')} onClick={onBack}>
                 <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -1478,7 +1478,7 @@ export function NoteEditor({
                 </span>
               )}
               {menuOpen && (
-                <div ref={menu} role="menu" aria-label={t('editor.more')} className="editor-menu" data-left-handed={lefty || undefined} onKeyDown={onMenuKeyDown}>
+                <div ref={menu} role="menu" aria-label={t('editor.more')} className="editor-menu" onKeyDown={onMenuKeyDown}>
                   <div role="none" className="editor-menu-row">
                     <button
                       type="button"

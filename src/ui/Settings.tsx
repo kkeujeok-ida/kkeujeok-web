@@ -146,12 +146,14 @@ export function Settings({
       </fieldset>
       <fieldset className="settings-group">
         <legend>{t('settings.theme')}</legend>
-        {THEMES.map((v) => (
-          <label key={v} className="option">
-            <input type="radio" name="theme" value={v} checked={theme === v} onChange={() => setTheme(v)} />
-            <span>{t(`settings.theme.${v}`)}</span>
-          </label>
-        ))}
+        <div className="segmented">
+          {THEMES.map((v) => (
+            <label key={v} className="segmented-option">
+              <input type="radio" name="theme" value={v} checked={theme === v} onChange={() => setTheme(v)} />
+              <span>{t(`settings.theme.${v}`)}</span>
+            </label>
+          ))}
+        </div>
       </fieldset>
       <label className="settings-group option">
         <input type="checkbox" checked={leftHanded} onChange={(e) => setLeftHanded(e.target.checked)} />
