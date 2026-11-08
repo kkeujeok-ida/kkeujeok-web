@@ -276,7 +276,8 @@ export class PencilTextures {
     try {
       while (this.queue.length > 0) {
         await new Promise((r) => setTimeout(r, 0)) // let frames run between builds
-        const e = this.queue.shift()!
+        const e = this.queue.shift()
+        if (!e) break // dispose() emptied the queue while waiting
         e.queued = false
         if (this.byId.get(e.id) !== e) continue
         try {
