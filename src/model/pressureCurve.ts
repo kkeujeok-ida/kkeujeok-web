@@ -32,6 +32,7 @@ export function pressureCurve(curve: unknown, p: number): number {
   const [x1, y1, x2, y2] = curveValues(curve)
   p = Math.min(1, Math.max(0, p))
   if (p === 0 || p === 1) return p
+  if (x1 === y1 && x2 === y2) return p // y = x exactly (the normal preset), no bisection error
   let lo = 0
   let hi = 1
   let mid = 0.5
