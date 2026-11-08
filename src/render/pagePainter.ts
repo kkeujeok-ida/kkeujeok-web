@@ -4,7 +4,7 @@
 import { isPdfBackground, patternOf } from '../model/pdfRules'
 import { isValidStroke, type Page, type Stroke } from '../model/note'
 import { pageBackground } from './pageBackground'
-import { outlinePath, strokeOutline } from './strokeOutline'
+import { outlinePath, strokeOutlineFor } from './strokeOutline'
 import { getPressureCurve } from '../storage/pressureCurve'
 import { smoothPoints } from '../model/smooth'
 import { getSmooth } from '../storage/smooth'
@@ -137,7 +137,7 @@ function cacheKey(s: Stroke): string {
 
 const strokePath = (s: Pick<Stroke, 'tool' | 'width' | 'usePressure' | 'points'>): Path2D => {
   const pts = smoothPoints(s.points, getSmooth()) // screen only: export and print call the outlines directly
-  return s.tool === 'highlighter' ? highlighterPath(highlighterOutline(s.width, pts)) : outlinePath(strokeOutline(s.width, s.usePressure, pts))
+  return s.tool === 'highlighter' ? highlighterPath(highlighterOutline(s.width, pts)) : outlinePath(strokeOutlineFor(s.tool, s.width, s.usePressure, pts))
 }
 
 /** Outlines of finished strokes by stroke id, so a repaint rebuilds none. */
@@ -174,7 +174,8 @@ const HIGHLIGHTER_ALPHA = 0.4
 // All Dark (`dark`): pens use the corrected inverted ink; a highlighter keeps its color with normal alpha (spec invert.md).
 const fill = (ctx: CanvasRenderingContext2D, path: Path2D, color: unknown, tool?: unknown, alpha = 1, dark = false) => {
   const c = typeof color === 'string' && COLOR.test(color) ? color : '#000000'
-  ctx.fillStyle = dark && tool !== 'highlighter' ? inkHex(c.slice(0, 7)) : c
+  ctx.fillStyle = dark && tool !== 'highlighter' && tool !== 'tape' ? // a tape is a cover color: drawn as stored (invert.md)
+     inkHex(c.slice(0, 7)) : c
   if (tool !== 'highlighter') {
     if (alpha === 1) return ctx.fill(path, 'nonzero')
     ctx.save()

@@ -1,9 +1,9 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { fmt, useI18n } from '../../i18n'
-import { PEN_PALETTE, PEN_WIDTH, colorNameKey, snapWidth, type Pen, type PenTool } from '../../model/pen'
+import { PEN_PALETTE, PEN_WIDTH, colorNameKey, paletteFamily, snapWidth, type Pen, type PenTool } from '../../model/pen'
 import { sharedPenPalette } from '../../storage/penPalette'
 import { highlighterOutline, windAlike } from '../../render/highlighterOutline'
-import { strokeOutline } from '../../render/strokeOutline'
+import { strokeOutlineFor } from '../../render/strokeOutline'
 import { ColorWheelPicker } from './ColorWheelPicker'
 import { PopoverShell } from './PopoverShell'
 
@@ -12,7 +12,9 @@ const H = 72
 const AMP = 8
 const MARGIN = 32 // room for the round caps
 const SCALE = 3 // the preview is drawn this much thicker than the page
-const TOOLS: PenTool[] = ['pen', 'highlighter']
+const ROW_BASE: PenTool[] = ['pen', 'highlighter']
+const ROW_KINDS: PenTool[] = ['fountain', 'pencil', 'tape']
+const TOOLS = [...ROW_BASE, ...ROW_KINDS]
 
 // A wave whose pressure rises and falls: flat when "use pressure" is off. The highlighter is the chisel rectangles in one path.
 function previewPath(pen: Pen): string {
@@ -32,7 +34,7 @@ function previewPath(pen: Pen): string {
   }
   // A radius is at most 1.75x half the width: keep the stroke inside the box.
   const w = Math.min(pen.width * SCALE, (H / 2 - 2 - AMP) / 0.875, (MARGIN - 2) / 0.875)
-  const poly = strokeOutline(w, pen.usePressure, pts)
+  const poly = strokeOutlineFor(pen.tool, w, pen.usePressure, pts)
   return poly.map((p, i) => `${i ? 'L' : 'M'}${p[0]} ${p[1]}`).join('') + 'Z'
 }
 
@@ -68,8 +70,8 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => toolBtns.current[TOOLS.indexOf(pen.tool)]?.focus(), [])
 
-  const colors = sharedPenPalette().read(pen.tool)
-  const { columns } = PEN_PALETTE[pen.tool]
+  const colors = sharedPenPalette().read(paletteFamily(pen.tool))
+  const { columns } = PEN_PALETTE[paletteFamily(pen.tool)]
   const customIdx = colors.length
   const color = pen.color.toLowerCase()
   const checkedIdx = colors.includes(color) ? colors.indexOf(color) : customIdx
@@ -159,34 +161,44 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
           />
         ) : (
           <>
-        <div className="pen-tool-switch" role="radiogroup" aria-label={t('editor.toolKind')}>
-          {TOOLS.map((k, i) => (
-            <button
-              key={k}
-              ref={(el) => void (toolBtns.current[i] = el)}
-              type="button"
-              role="radio"
-              aria-checked={pen.tool === k}
-              aria-label={t(`editor.tool.${k}`)}
-              title={t(`editor.tool.${k}`)}
-              tabIndex={pen.tool === k ? 0 : -1}
-              onClick={() => k !== pen.tool && onChange({ tool: k })}
-              onKeyDown={(e) => {
-                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-                  e.preventDefault()
-                  toolBtns.current[i + (e.key === 'ArrowLeft' ? -1 : 1)]?.focus()
-                } else if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  if (k !== pen.tool) onChange({ tool: k })
-                }
-              }}
-            >
-              <svg viewBox="0 0 20 36" width="12" height="22" aria-hidden="true">
-                <path d={k === 'highlighter' ? 'M3 0V36L17 28V0M3 22.3H17' : 'M3 0V22.3L10 36L17 22.3V0M3 22.3H17'} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
-              </svg>
-            </button>
-          ))}
-        </div>
+        {[ROW_BASE, ROW_KINDS].map((row, r) => (
+          <div key={r} className="pen-tool-switch" role="radiogroup" aria-label={t('editor.toolKind')}>
+            {row.map((k, i) => {
+              const pick = () => onChange({ tool: k }) // the same kind again resets the width (pen.switchKind)
+              return (
+                <button
+                  key={k}
+                  ref={(el) => void (toolBtns.current[TOOLS.indexOf(k)] = el)}
+                  type="button"
+                  role="radio"
+                  aria-checked={pen.tool === k}
+                  aria-label={t(`editor.tool.${k}`)}
+                  title={t(`editor.tool.${k}`)}
+                  tabIndex={pen.tool === k || (i === 0 && !row.includes(pen.tool)) ? 0 : -1}
+                  onClick={pick}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                      e.preventDefault()
+                      const to = row[i + (e.key === 'ArrowLeft' ? -1 : 1)]
+                      if (to) toolBtns.current[TOOLS.indexOf(to)]?.focus()
+                    } else if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      pick()
+                    }
+                  }}
+                >
+                  {r === 0 ? (
+                    <svg viewBox="0 0 20 36" width="12" height="22" aria-hidden="true">
+                      <path d={k === 'highlighter' ? 'M3 0V36L17 28V0M3 22.3H17' : 'M3 0V22.3L10 36L17 22.3V0M3 22.3H17'} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
+                    </svg>
+                  ) : (
+                    t(`editor.tool.${k}`)
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        ))}
         <h2 id={titleId} className="pen-popover-title">
           {t(`editor.tool.${pen.tool}`)}
         </h2>
@@ -264,7 +276,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
             ›
           </button>
         </div>
-        {pen.tool === 'pen' && (
+        {pen.tool !== 'highlighter' && pen.tool !== 'tape' && (
           <button
             type="button"
             role="switch"

@@ -43,7 +43,7 @@ const two = (id = NID) => mkNote({ noteId: id, pages: { [PA]: 'a1', [PB]: 'b1' }
 const downloads = (e: RxEnv) => e.drive.count('downloadRevision')
 const states = (e: RxEnv) => e.events('stateChange').map((x) => `${x.from}>${x.to}`)
 const garbage = new Uint8Array([1, 2, 3])
-const newerFormat = (n: Note) => new Uint8Array(gzipSync(JSON.stringify({ ...toWritableJson(n), formatVersion: 2 })))
+const newerFormat = (n: Note) => new Uint8Array(gzipSync(JSON.stringify({ ...toWritableJson(n), formatVersion: 3 })))
 const gone = async (e: RxEnv, id = NID) => (await e.store.loadNote(id)) === null && (await e.store.readSync(id)).missing === true
 /** A note synced with Drive, the first scan done. */
 async function synced(e: RxEnv, note = two()) {

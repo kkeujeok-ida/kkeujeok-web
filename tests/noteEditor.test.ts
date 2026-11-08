@@ -1808,13 +1808,13 @@ describe('pen pressure toggle', () => {
     const seen: string[] = []
     let ev = tab(first)
     expect(ev.defaultPrevented).toBe(true)
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 7; i++) {
       const el = document.activeElement as HTMLElement
       seen.push(el.closest('.pen-palette') ? 'palette' : el.closest('.pen-recent') ? 'recent' : el.className || el.getAttribute('role')!)
       ev = tab(el)
     }
-    // tool, palette, (recent is empty), slider, down, up, switch, delete, back to the tool
-    expect(seen).toEqual(['palette', 'pen-width-slider', 'pen-step pen-step-down', 'pen-step', 'pen-popover-switch', 'pen-popover-delete'])
+    // tool, kind, palette, (recent is empty), slider, down, up, switch, delete, back to the tool
+    expect(seen).toEqual(['radio', 'palette', 'pen-width-slider', 'pen-step pen-step-down', 'pen-step', 'pen-popover-switch', 'pen-popover-delete'])
     expect(document.activeElement).toBe(first)
     tab(first, true)
     expect(document.activeElement).toBe(q('.pen-popover-delete'))
@@ -2391,11 +2391,11 @@ describe('pen popover (story 5.5)', () => {
     expect(slotList(slots)[0]!.width).toBe(10)
   })
 
-  test('tool switch: slot gets that tool defaults, the pressure switch hides, the same tool does nothing', async () => {
+  test('tool switch: slot gets that tool defaults, the pressure switch hides, the same tool resets the width', async () => {
     const { slots } = await open()
     const [penBtn, hiBtn] = qa('.pen-tool-switch [role="radio"]')
-    click(penBtn!) // already a pen
-    expect(slots.get(PEN_SLOTS_KEY)).toBeUndefined()
+    click(penBtn!) // already a pen: the width goes back to the default (pen.switchKind)
+    expect(slotList(slots)[0]).toMatchObject({ tool: 'pen', width: 2 })
     click(hiBtn!)
     expect(slotList(slots)[0]).toEqual({ tool: 'highlighter', color: '#ffe066', width: 14, usePressure: false })
     expect(q('.pen-popover h2')!.textContent).toBe('형광펜')
@@ -2408,6 +2408,24 @@ describe('pen popover (story 5.5)', () => {
     expect(qa('.pen-slots [role="radio"]')[0]!.getAttribute('aria-checked')).toBe('true')
     key(canvas(), 'h', { code: 'KeyH' })
     expect(qa('.pen-slots [role="radio"]')[0]!.getAttribute('aria-checked')).toBe('true') // slot 1 is the last highlighter now
+  })
+
+  test('kind buttons: fountain keeps the color, tape falls back to the highlighter palette; keyboard works', async () => {
+    const { slots } = await open()
+    const kinds = () => qa('.pen-tool-switch')[1]!.querySelectorAll<HTMLElement>('[role="radio"]')
+    expect([...kinds()].map((b) => b.textContent)).toEqual(['만년필', '연필', '정답지 테이프'])
+    click(kinds()[0]!)
+    expect(slotList(slots)[0]).toEqual({ tool: 'fountain', color: '#000000', width: 1.5, usePressure: true })
+    expect(slider().getAttribute('max')).toBe('8')
+    expect(qa('.pen-palette [role="radio"]')).toHaveLength(13)
+    click(cell(3)) // red
+    key(kinds()[0]!, 'ArrowRight')
+    expect(document.activeElement).toBe(kinds()[1])
+    key(kinds()[2]!, 'Enter')
+    expect(slotList(slots)[0]).toEqual({ tool: 'tape', color: '#ffe066', width: 20, usePressure: false })
+    expect(q('[role="switch"]')).toBeNull()
+    expect(slider().getAttribute('min')).toBe('8')
+    expect(slotList(slots).map((p) => p.tool)).toEqual(['tape', 'pen', 'highlighter'])
   })
 
   test('a highlighter stroke is saved as highlighter with the new color and width', async () => {

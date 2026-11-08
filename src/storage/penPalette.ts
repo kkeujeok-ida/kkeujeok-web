@@ -1,4 +1,7 @@
-import { PEN_PALETTE, type PenTool } from '../model/pen'
+import { PEN_PALETTE } from '../model/pen'
+
+// Palettes are stored per family: `pen` (also fountain, pencil) and `highlighter` (also tape); see paletteFamily.
+type PenTool = 'pen' | 'highlighter'
 
 // The palette a person edited per tool: a device setting (localStorage), not in the note and not synced, so logout leaves it.
 export const PALETTE_KEY = 'kkeujeok.penPalette'

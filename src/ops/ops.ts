@@ -3,6 +3,7 @@ import { type Note, type Page, type Stroke, SUPPORTED_FORMAT_VERSION, isValidStr
 import { addPage, deletePage, duplicatePage, insertPages, movePages, setPageBackground, setPageOrder, setPageOrientation } from './pageOps'
 import { normalizeTitle } from '../model/noteTitle'
 import { round2 } from '../model/number'
+import { PEN_WIDTH, type PenTool } from '../model/pen'
 import { IMAGE_SIZE_MIN, isAssetHash } from '../model/imageRules'
 import { isTextBox, selectionBounds, type El } from '../model/select'
 import { COLOR_DEFAULT, SIZE_DEFAULT, SIZE_MAX, SIZE_MIN, WIDTH_MIN, cpLen, isBlankText, normalizeNewlines, normalizeRuns, textHeight, validRuns } from '../model/textLayout'
@@ -296,7 +297,7 @@ function strokeOp(note: Note, op: Op, ctx: Ctx): OpResult {
     const el = r.page.elements[i] as El
     // Each stroke is clamped to its own tool's range (spec/ops.md).
     if (color) el.color = op.color
-    else el.width = el.tool === 'highlighter' ? Math.min(30, Math.max(4, width)) : Math.min(10, Math.max(0.5, width))
+    else el.width = Math.min(PEN_WIDTH[el.tool as PenTool].max, Math.max(PEN_WIDTH[el.tool as PenTool].min, width))
   }
   touch(r.page, ctx)
   return { note: next, inverse: { op: 'replaceElements', pageId: op.pageId, elements: before } }

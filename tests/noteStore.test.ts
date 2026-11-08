@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { gzipSync } from 'node:zlib'
 import { encodeKkj } from '../src/model/kkjCodec'
 import type { Note } from '../src/model/note'
 import { createNote } from '../src/ops/ops'
@@ -88,7 +89,7 @@ describe('noteStore', () => {
   })
 
   test('newer version and garbage are reported and never overwritten', async () => {
-    const newer = new Uint8Array(await encodeKkj({ ...A, formatVersion: 2 } as Note))
+    const newer = new Uint8Array(gzipSync(JSON.stringify({ ...A, formatVersion: 3 }))) // encodeKkj would write the supported version
     const garbage = new Uint8Array([1, 2, 3])
     const wrongId = await encodeKkj(mk('other'))
     await putRaw('note-a', newer)

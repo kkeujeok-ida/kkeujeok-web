@@ -104,6 +104,7 @@ export function invertLayers({ page, element, layer }: LayersIn): LayersOut {
   const pdf = isPdfBackground(page?.background)
   if (layer === 'paper' || layer === 'pattern') return pdf ? none : { invert: true, how: layer }
   if (!element || pdf) return none
+  if (element.type === 'stroke' && element.tool === 'tape') return none // a cover color, drawn as stored
   if (element.type === 'stroke') return { invert: true, how: element.tool === 'highlighter' ? 'highlighter' : 'ink' }
   if (element.type === 'text') return { invert: true, how: 'ink' }
   if (element.type === 'image') return { ...none, underlay: '#ffffff' }

@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyEvent } from 'react'
 import { SNACKBAR_MS } from '../snackbar'
 import { fmt, useI18n, type Key } from '../../i18n'
-import { defaultFor, type Pen, type PenTool } from '../../model/pen'
+import { PEN_TOOLS, switchKind, type Pen, type PenTool } from '../../model/pen'
 import { addSlot, indexAfterMove, indexAfterRemove, moveSlot, pickByTool, removeSlot } from '../../model/penSlotList'
 import { isPdfBackground } from '../../model/pdfRules'
 import { elementClipboard } from '../../model/elementClipboard'
@@ -185,7 +185,7 @@ export function NoteEditor({
   const pensRef = useRef(pens)
   pensRef.current = pens
   // The slot last used per tool (P / H pick it); carried through moves and deletes with the slot.
-  const lastUsed = useRef<Record<PenTool, number | null>>({ pen: null, highlighter: null })
+  const lastUsed = useRef<Record<PenTool, number | null>>({ pen: null, highlighter: null, fountain: null, pencil: null, tape: null })
   useEffect(() => {
     const p = pens[selected]
     if (p) lastUsed.current[p.tool] = selected
@@ -663,7 +663,7 @@ export function NoteEditor({
     if (readOnly || from === to || !pens[from] || to < 0 || to >= pens.length) return
     commitSlots(moveSlot(pens, from, to))
     setSelected(indexAfterMove(selected, from, to))
-    for (const k of ['pen', 'highlighter'] as const) {
+    for (const k of PEN_TOOLS) {
       const l = lastUsed.current[k]
       if (l !== null) lastUsed.current[k] = indexAfterMove(l, from, to)
     }
@@ -678,7 +678,7 @@ export function NoteEditor({
     if (kept === null) setTool('pen')
     const to = kept ?? Math.min(i, next.length - 1)
     setSelected(to)
-    for (const k of ['pen', 'highlighter'] as const) {
+    for (const k of PEN_TOOLS) {
       const l = lastUsed.current[k]
       if (l !== null) lastUsed.current[k] = indexAfterRemove(l, i)
     }
@@ -1784,8 +1784,7 @@ export function NoteEditor({
               onRecent={(hex) => setRecent(recentStore.push(hex))}
               onChange={(patch) => {
                 const cur = pens[popover]!
-                if (patch.tool !== undefined && patch.tool === cur.tool) return
-                const next = patch.tool !== undefined ? defaultFor(patch.tool) : { ...cur, ...patch }
+                const next = patch.tool !== undefined ? switchKind(cur, patch.tool) : { ...cur, ...patch }
                 if (patch.tool !== undefined) setAnnounce(t(`editor.tool.${patch.tool}`))
                 commitSlots(pens.map((p, i) => (i === popover ? next : p)))
               }}

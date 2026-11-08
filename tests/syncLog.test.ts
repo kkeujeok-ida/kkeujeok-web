@@ -192,7 +192,7 @@ describe('export', () => {
       buildId: '42',
       buildNumber: '7',
       platform: 'web',
-      supportedFormatVersion: 1,
+      supportedFormatVersion: 2,
       exportedAt: '2026-10-16T23:59:59.999Z',
     })
   })

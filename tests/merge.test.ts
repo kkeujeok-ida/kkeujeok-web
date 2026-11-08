@@ -144,7 +144,7 @@ describe('change queue (AD-16)', () => {
     edit(h, 'a', 's1')
     const before = structuredClone(h.note)
     const start = structuredClone(base)
-    const bad = commitMerge(h, { base, localAtStart: start, remote: note([page('a', 'a1')], { formatVersion: 2 }), ctx })
+    const bad = commitMerge(h, { base, localAtStart: start, remote: note([page('a', 'a1')], { formatVersion: 3 }), ctx })
     expect(bad).toEqual({ result: 'unsupportedVersion' })
     const mism = commitMerge(h, { base, localAtStart: start, remote: { ...note([]), noteId: 'other' }, ctx })
     expect(mism).toEqual({ error: 'noteIdMismatch' })

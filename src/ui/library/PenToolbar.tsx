@@ -230,7 +230,7 @@ export function PenToolbar({ pens, selected, onSelect, onEdit, onAdd, onMove, to
       )}
       <div ref={slotsEl} role="radiogroup" className="pen-slots" style={{ '--visible-tools': sharedVisibleTools().read() } as CSSProperties}>
         {pens.map((pen, i) => {
-          const label = fmt(t(pen.tool === 'highlighter' ? 'editor.highlighterSlot' : 'editor.penSlot'), { color: t(colorNameKey(pen.color)), width: pen.width.toFixed(1), n: i + 1 })
+          const label = fmt(t(pen.tool === 'highlighter' ? 'editor.highlighterSlot' : pen.tool === 'pen' ? 'editor.penSlot' : 'editor.kindSlot'), { kind: t(`editor.tool.${pen.tool}`), color: t(colorNameKey(pen.color)), width: pen.width.toFixed(1), n: i + 1 })
           const on = i === selected
           return (
             <button

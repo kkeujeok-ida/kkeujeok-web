@@ -1,6 +1,7 @@
 import type { Key } from '../i18n'
 
-export type PenTool = 'pen' | 'highlighter'
+export const PEN_TOOLS = ['pen', 'highlighter', 'fountain', 'pencil', 'tape'] as const
+export type PenTool = (typeof PEN_TOOLS)[number]
 
 // A pen slot as the toolbar holds it (spec pen.md `pen.defaultSlots`).
 export type Pen = {
@@ -23,16 +24,25 @@ export const defaultPenSlots: readonly Pen[] = [
 export const PEN_WIDTH: Record<PenTool, { min: number; max: number }> = {
   pen: { min: 0.5, max: 10 },
   highlighter: { min: 4, max: 30 },
+  fountain: { min: 0.5, max: 8 },
+  pencil: { min: 0.5, max: 6 },
+  tape: { min: 8, max: 30 },
 }
 
 /** Width default and `usePressure` default per tool (spec pen.md). */
 export const PEN_DEFAULTS: Record<PenTool, { width: number; usePressure: boolean }> = {
   pen: { width: 2, usePressure: true },
   highlighter: { width: 14, usePressure: false },
+  fountain: { width: 1.5, usePressure: true },
+  pencil: { width: 1.5, usePressure: true },
+  tape: { width: 20, usePressure: false },
 }
 
+/** The palette (and stored-palette key) a tool uses: tape draws with the highlighter's (spec pen.md `pen.kinds`). */
+export const paletteFamily = (tool: PenTool): 'pen' | 'highlighter' => (tool === 'highlighter' || tool === 'tape' ? 'highlighter' : 'pen')
+
 /** Palette colors in grid order (spec pen.md `pen.palette`). */
-export const PEN_PALETTE: Record<PenTool, { columns: number; rows: number; colors: string[] }> = {
+export const PEN_PALETTE: Record<'pen' | 'highlighter', { columns: number; rows: number; colors: string[] }> = {
   pen: {
     columns: 6,
     rows: 2,
@@ -41,8 +51,13 @@ export const PEN_PALETTE: Record<PenTool, { columns: number; rows: number; color
   highlighter: { columns: 6, rows: 1, colors: ['#ffe066', '#8ce99a', '#74c0fc', '#faa2c1', '#ffc078', '#d0bfff'] },
 }
 
-/** A slot reset to the tool's defaults (a tool switch in the popover). */
-export const defaultFor = (tool: PenTool): Pen => ({ tool, color: PEN_PALETTE[tool].colors[0]!, ...PEN_DEFAULTS[tool] })
+/** Spec pen.md `pen.switchKind`: the kind's default width and usePressure; the color stays when it is in the kind's palette. The same kind resets only the width. */
+export const switchKind = (slot: Pen, to: PenTool): Pen => {
+  const d = PEN_DEFAULTS[to]
+  const colors = PEN_PALETTE[paletteFamily(to)].colors
+  if (to === slot.tool) return { ...slot, width: d.width }
+  return { tool: to, color: colors.includes(slot.color.toLowerCase()) ? slot.color : colors[0]!, ...d }
+}
 
 /** `v` clamped to the tool's range and rounded to 0.1, so no 2.3000000000000003 is stored. */
 export const snapWidth = (v: number, tool: PenTool): number => {

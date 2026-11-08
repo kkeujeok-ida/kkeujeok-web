@@ -181,7 +181,7 @@ describe('existing note', () => {
   test('remote with a newer formatVersion: never merged, never overwritten', async () => {
     const e = await make()
     const id = await uploaded(e, two())
-    const newer = { ...(await bytesOfJson(two())), formatVersion: 2 }
+    const newer = { ...(await bytesOfJson(two())), formatVersion: 3 }
     e.drive.foreignRevision(id, new Uint8Array(gzipSync(JSON.stringify(newer))))
     await e.store.writeNote(withStroke(two(), PA, 'a2'))
     const before = e.drive.revisions(id).length

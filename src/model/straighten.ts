@@ -1,4 +1,5 @@
 // spec rule `pen.straighten` (pen-feel.md): holding the pen still turns the stroke into a straight line.
+import { PEN_TOOLS } from './pen'
 export const HOLD_MS = 500
 export const HOLD_DISTANCE = 8 // CSS px on the web
 
@@ -22,7 +23,7 @@ export function anchorOf(samples: StraightenInput['samples']): { t: number; x: n
 
 /** Whether straightening is in effect at `at`. */
 export function straightenActive(i: StraightenInput): boolean {
-  if (!i.enabled || (i.tool !== 'pen' && i.tool !== 'highlighter') || i.palm || i.secondPointer) return false
+  if (!i.enabled || !(PEN_TOOLS as readonly string[]).includes(i.tool) || i.palm || i.secondPointer) return false
   const a = anchorOf(i.samples)
   if (!a || i.at - a.t < HOLD_MS) return false
   const f = i.samples[0]!

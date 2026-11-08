@@ -8,9 +8,9 @@ import { afterAll, describe, expect, test } from 'vitest'
 import { gzipSync } from 'node:zlib'
 import { decodeKkj, encodeKkj } from '../src/model/kkjCodec'
 import { normalizeTitle } from '../src/model/noteTitle'
-import type { Note } from '../src/model/note'
+import { SUPPORTED_FORMAT_VERSION, type Note } from '../src/model/note'
 import { round2 } from '../src/model/number'
-import { PEN_DEFAULTS, PEN_PALETTE, PEN_WIDTH, colorNameKey, defaultPenSlots, type PenTool } from '../src/model/pen'
+import { PEN_DEFAULTS, PEN_PALETTE, PEN_WIDTH, colorNameKey, defaultPenSlots, paletteFamily, switchKind, type Pen, type PenTool } from '../src/model/pen'
 import { resources } from '../src/i18n'
 import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
 import { smoothPoints } from '../src/model/smooth'
@@ -29,7 +29,7 @@ import { invertBackground, invertColor, invertHighlighter, invertInk, invertLaye
 import { layoutText, type LineBox } from '../src/model/textLayout'
 import { snapScale } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
-import { strokeOutline } from '../src/render/strokeOutline'
+import { strokeOutline, strokeOutlineFor } from '../src/render/strokeOutline'
 import { hasUnsentRule } from '../src/sync/hasUnsent'
 import { checkLogEntry } from '../src/sync/syncLogEntry'
 import { driveDuplicatesRule } from '../src/drive/duplicates'
@@ -57,6 +57,49 @@ function near(got: object, expected: unknown, tol = 0) {
   }
 }
 
+// encodeKkj always writes the supported version, so a version 1 fixture reads back as 2 (note-format.md).
+const written = (e: unknown) => ({ note: { ...(e as { note: object }).note, formatVersion: SUPPORTED_FORMAT_VERSION } })
+
+async function noteFormatVersion({ input, expected }: Case) {
+  const i = input as { json?: unknown; text?: string; gzipBase64?: string }
+  const bytes =
+    i.gzipBase64 !== undefined
+      ? Buffer.from(i.gzipBase64, 'base64')
+      : gzipSync(Buffer.from(i.text ?? JSON.stringify(i.json), 'utf8'))
+  expect(await decodeKkj(new Uint8Array(bytes))).toEqual(expected)
+}
+
+function outlineCase(
+  build: (w: number, u: boolean, p: number[][]) => number[][],
+  input: unknown,
+  expected: unknown,
+  tolerance: number | undefined,
+) {
+  const i = input as { width: number; usePressure: boolean; points: number[][] }
+  const want = (expected as { polygon: number[][] }).polygon
+  const got = build(i.width, i.usePressure, i.points)
+  expect(got).toHaveLength(want.length)
+  expect(typeof tolerance, 'fixture has no tolerance').toBe('number')
+  for (const [k, p] of got.entries()) {
+    for (const axis of [0, 1]) {
+      // 2-decimal outputs: an exact 0.02 step shows up as 0.020000000000000018.
+      expect(Math.abs(p[axis]! - want[k]![axis]!)).toBeLessThanOrEqual(tolerance! + 1e-9)
+    }
+  }
+}
+
+function penKinds({ input, expected }: Case) {
+  const tool = (input as { tool: PenTool }).tool
+  const pal = PEN_PALETTE[paletteFamily(tool)]
+  expect({
+    columns: pal.columns,
+    rows: pal.rows,
+    colors: pal.colors.map((color) => ({ color, ko: resources.ko[colorNameKey(color)], en: resources.en[colorNameKey(color)] })),
+    width: { ...PEN_WIDTH[tool], default: PEN_DEFAULTS[tool].width, step: 0.1 },
+    usePressureDefault: PEN_DEFAULTS[tool].usePressure,
+  }).toEqual(expected)
+}
+
 // Rule id -> how to judge one case. A new spec rule adds one line here.
 const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'number.round2': ({ input, expected }) => {
@@ -74,30 +117,22 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'note.roundTrip': async ({ input, expected }) => {
     const r = await decodeKkj(await encodeKkj((input as { note: Note }).note))
     expect(r.result).toBe('ok')
-    expect({ note: r.note }).toEqual(expected)
+    expect({ note: r.note }).toEqual(written(expected))
   },
   'note.unknownFields': async ({ input, expected }) => {
     const r = await decodeKkj(await encodeKkj((input as { note: Note }).note))
     expect(r.result).toBe('ok')
-    expect({ note: r.note }).toEqual(expected)
+    expect({ note: r.note }).toEqual(written(expected))
   },
-  'note.formatVersion': async ({ input, expected }) => {
-    const i = input as { json?: unknown; text?: string; gzipBase64?: string }
-    const bytes =
-      i.gzipBase64 !== undefined
-        ? Buffer.from(i.gzipBase64, 'base64')
-        : gzipSync(Buffer.from(i.text ?? JSON.stringify(i.json), 'utf8'))
-    expect(await decodeKkj(new Uint8Array(bytes))).toEqual(expected)
-  },
+  'note.formatVersion': noteFormatVersion,
+  'note.penKinds': noteFormatVersion,
   'note.title': ({ input, expected }) => {
     const i = input as { title: string; existingTitles: string[] }
     const t = normalizeTitle(i.title, i.existingTitles)
     expect(t === null ? { ok: false, reason: 'tooLong' } : { ok: true, title: t }).toEqual(expected)
   },
   'ops.createNote': ({ input, expected }) => {
-    // Fixture is format 2 (Story 24.2); the web still writes 1 until Story 24.3.
-    const want = JSON.parse(JSON.stringify(expected).replace('"formatVersion":2', '"formatVersion":1'))
-    expect(createNote(input as Parameters<typeof createNote>[0])).toEqual(want)
+    expect(createNote(input as Parameters<typeof createNote>[0])).toEqual(expected)
   },
   'ops.addStroke': opRunner,
   'ops.removeStroke': opRunner,
@@ -160,7 +195,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     if (!i.op) {
       const r = await decodeKkj(await encodeKkj(i.note))
       expect(r.result).toBe('ok')
-      expect({ note: r.note }).toEqual(expected)
+      expect({ note: r.note }).toEqual(written(expected))
       return
     }
     const r = applyOp(i.note, i.op, i.ctx!)
@@ -171,7 +206,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     if (!i.op) {
       const r = await decodeKkj(await encodeKkj(i.note))
       expect(r.result).toBe('ok')
-      expect({ note: r.note }).toEqual(expected)
+      expect({ note: r.note }).toEqual(written(expected))
       return
     }
     const r = applyOp(i.note, i.op, i.ctx!)
@@ -198,19 +233,9 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'ops.eraseHistory': historyRunner,
   'ops.eraseStrokes': opRunner,
   'ops.erasePartial': opRunner,
-  'stroke.outline.pen': ({ input, expected, tolerance }) => {
-    const i = input as { width: number; usePressure: boolean; points: number[][] }
-    const want = (expected as { polygon: number[][] }).polygon
-    const got = strokeOutline(i.width, i.usePressure, i.points)
-    expect(got).toHaveLength(want.length)
-    expect(typeof tolerance, 'fixture has no tolerance').toBe('number')
-    for (const [k, p] of got.entries()) {
-      for (const axis of [0, 1]) {
-        // 2-decimal outputs: an exact 0.02 step shows up as 0.020000000000000018.
-        expect(Math.abs(p[axis]! - want[k]![axis]!)).toBeLessThanOrEqual(tolerance! + 1e-9)
-      }
-    }
-  },
+  'stroke.outline.pen': ({ input, expected, tolerance }) => outlineCase(strokeOutline, input, expected, tolerance),
+  'stroke.outline.fountain': ({ input, expected, tolerance }) =>
+    outlineCase((w, u, p) => strokeOutlineFor('fountain', w, u, p), input, expected, tolerance),
   'stroke.outline.highlighter': ({ input, expected, tolerance }) => {
     const i = input as { width: number; points: number[][] }
     const want = (expected as { polygons: number[][][] }).polygons
@@ -239,16 +264,11 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     for (const [k, p] of got.entries()) for (const [j, v] of want[k]!.entries()) expect(Math.abs(p[j]! - v)).toBeLessThanOrEqual(tolerance! + 1e-12)
   },
   'pen.straighten': ({ input, expected }) => void expect({ active: straightenActive(input as StraightenInput) }).toEqual(expected),
-  'pen.palette': ({ input, expected }) => {
-    const tool = (input as { tool: PenTool }).tool
-    const pal = PEN_PALETTE[tool]
-    expect({
-      columns: pal.columns,
-      rows: pal.rows,
-      colors: pal.colors.map((color) => ({ color, ko: resources.ko[colorNameKey(color)], en: resources.en[colorNameKey(color)] })),
-      width: { ...PEN_WIDTH[tool], default: PEN_DEFAULTS[tool].width, step: 0.1 },
-      usePressureDefault: PEN_DEFAULTS[tool].usePressure,
-    }).toEqual(expected)
+  'pen.palette': penKinds,
+  'pen.kinds': penKinds,
+  'pen.switchKind': ({ input, expected }) => {
+    const i = input as { slot: Pen; to: PenTool }
+    expect({ slot: switchKind(i.slot, i.to) }).toEqual(expected)
   },
   'page.background': ({ input, expected }) => {
     const i = input as { background: string; width: number; height: number }
@@ -385,13 +405,9 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 const PENDING: string[] = [
   // Epic 24 pen kinds (Story 24.1): the runners arrive with Story 24.3 (pen.*,
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
-  'stroke.outline.fountain',
   'stroke.outline.pencil',
   'stroke.outline.tape',
   'stroke.texture.pencil',
-  'note.penKinds',
-  'pen.kinds',
-  'pen.switchKind',
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.brush',
   'note.shape',

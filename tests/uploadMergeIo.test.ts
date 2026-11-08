@@ -52,7 +52,7 @@ describe('mergeIo', () => {
     const store = openNoteStore()
     expect(await mk(store).merge({ noteId: NID, base: null, remote: two() })).toEqual({ result: 'error', reason: 'workingMissing' })
     await store.writeNote(two())
-    const newer = { ...two(), formatVersion: 2 }
+    const newer = { ...two(), formatVersion: 3 }
     expect(await mk(store).merge({ noteId: NID, base: two(), remote: newer })).toEqual({ result: 'unsupportedVersion' })
     store.close()
   })

@@ -1,7 +1,7 @@
 // Spec merge.md: page-by-page 3-way merge, page order, note fields. Pure: no
 // clock, no random number, no input mutated (inputs are deep-copied first, so
 // the result never shares an object with an argument). Unknown fields ride along.
-import type { Note, Page } from '../model/note'
+import { SUPPORTED_FORMAT_VERSION, type Note, type Page } from '../model/note'
 import { isPdfBackground } from '../model/pdfRules'
 
 export type MergeCtx = { now: string; orderRev: string; rev: string; editedBy: string; lastSeenRemoteSeq: number }
@@ -58,7 +58,7 @@ const hasDuplicate = (n: Note | null) => !!n && new Set(n.pages.map((p) => p.id)
 /** Checks of merge.formatVersion; `extra` are further notes (merge.requeue) whose noteId and page ids count too. */
 function check(base: Note | null, local: Note, remote: Note, extra: Note[]): MergeResult | null {
   const fv: unknown = remote.formatVersion
-  if (typeof fv === 'number' && Number.isInteger(fv) && fv > 1) return { result: 'unsupportedVersion' }
+  if (typeof fv === 'number' && Number.isInteger(fv) && fv > SUPPORTED_FORMAT_VERSION) return { result: 'unsupportedVersion' }
   const all = [base, local, remote, ...extra]
   if (all.some((n) => n && n.noteId !== local.noteId)) return { error: 'noteIdMismatch' }
   if (all.some(hasDuplicate)) return { error: 'duplicatePageId' }

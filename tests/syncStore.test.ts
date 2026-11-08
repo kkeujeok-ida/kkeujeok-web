@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { gzipSync } from 'node:zlib'
 import { encodeKkj } from '../src/model/kkjCodec'
 import type { Note } from '../src/model/note'
 import { createNote } from '../src/ops/ops'
@@ -157,7 +158,7 @@ describe('readSync', () => {
 
   test('an unreadable working copy is unsent and pending, whatever sync says', async () => {
     await store.commitSync(mk(N), mk(N), synced())
-    const newer = new Uint8Array(await encodeKkj({ ...mk(N), formatVersion: 2 } as Note))
+    const newer = new Uint8Array(gzipSync(JSON.stringify({ ...mk(N), formatVersion: 3 })))
     const other = new Uint8Array(await encodeKkj(mk('other')))
     for (const bytes of [new Uint8Array([1, 2, 3]), newer, other, undefined]) {
       if (bytes) await rawPut('notes', N, bytes)

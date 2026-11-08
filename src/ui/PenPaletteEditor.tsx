@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import { fmt, useI18n } from '../i18n'
-import { colorNameKey, type PenTool } from '../model/pen'
+import { colorNameKey } from '../model/pen'
+
+type PenTool = 'pen' | 'highlighter'
 import { PALETTE_MAX, sharedPenPalette } from '../storage/penPalette'
 import { ColorWheelPicker } from './library/ColorWheelPicker'
 

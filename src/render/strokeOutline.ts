@@ -11,6 +11,7 @@ const SPACING = 2.0
 const MIN_RATIO = 0.25
 const MAX_RATIO = 1.75
 const CAP_SEGMENTS = 8
+const TAPER_MIN = 0.25
 
 function pressure(usePressure: boolean, p: readonly number[], curve: PressureCurve | null): number {
   if (!usePressure) return 0.5
@@ -20,6 +21,7 @@ function pressure(usePressure: boolean, p: readonly number[], curve: PressureCur
 }
 
 /**
+ * `minRatio`/`maxRatio`/`taper` are the kind changes of pen-kinds.md (fountain: 0.2, 1.6, taper); the defaults are the pen.
  * `points` are `[x, y, pressure, t]`. Returns `[]` for no points. `curve` defaults to the device setting (pen-feel.md).
  * A mouse stores 0.5 for every point: a stroke with no other pressure gets no curve.
  */
@@ -28,6 +30,9 @@ export function strokeOutline(
   usePressure: boolean,
   points: readonly (readonly number[])[],
   curve: PressureCurve = getPressureCurve(),
+  minRatio = MIN_RATIO,
+  maxRatio = MAX_RATIO,
+  taper = false,
 ): number[][] {
   const useCurve = usePressure && points.some((p) => p[2] !== 0.5) ? curve : null
   // 1. Prepare: dedupe against the last kept point.
@@ -44,7 +49,7 @@ export function strokeOutline(
   }
   if (xs.length === 0) return []
 
-  const radius = (q: number) => (width / 2) * (q < 0.5 ? MIN_RATIO + (1 - MIN_RATIO) * (q / 0.5) : 1 + (MAX_RATIO - 1) * ((q - 0.5) / 0.5))
+  const radius = (q: number) => (width / 2) * (q < 0.5 ? minRatio + (1 - minRatio) * (q / 0.5) : 1 + (maxRatio - 1) * ((q - 0.5) / 0.5))
 
   // 2. One point: a 16-point circle.
   if (xs.length === 1) {
@@ -92,6 +97,16 @@ export function strokeOutline(
     sq.push(qs[seg - 1]! + (qs[seg]! - qs[seg - 1]!) * t)
   }
 
+  // Fountain taper: the radius narrows toward both ends (pen-kinds.md).
+  const g: number[] = new Array(n + 1).fill(1)
+  const taperLength = Math.min(3 * width, total / 2)
+  if (taper && taperLength >= 1e-9) {
+    for (let i = 0; i <= n; i++) {
+      const s = (total * i) / n
+      g[i] = TAPER_MIN + (1 - TAPER_MIN) * Math.min(1, Math.min(s, total - s) / taperLength)
+    }
+  }
+
   // 5. Tangents (never NaN).
   const tx: number[] = new Array(n + 1).fill(1)
   const ty: number[] = new Array(n + 1).fill(0)
@@ -121,12 +136,12 @@ export function strokeOutline(
   const left: number[][] = []
   const right: number[][] = []
   for (let i = 0; i <= n; i++) {
-    const r = radius(sq[i]!)
+    const r = radius(sq[i]!) * g[i]!
     left.push([sx[i]! - r * ty[i]!, sy[i]! + r * tx[i]!])
     right.push([sx[i]! + r * ty[i]!, sy[i]! - r * tx[i]!])
   }
-  const rEnd = radius(sq[n]!)
-  const rStart = radius(sq[0]!)
+  const rEnd = radius(sq[n]!) * g[n]!
+  const rStart = radius(sq[0]!) * g[0]!
   const endCap: number[][] = []
   const startCap: number[][] = []
   for (let k = 1; k < CAP_SEGMENTS; k++) {
@@ -138,6 +153,16 @@ export function strokeOutline(
   }
   return [...left, ...endCap, ...right.reverse(), ...startCap].map((p) => [round2(p[0]!), round2(p[1]!)])
 }
+
+/** The outline of a stroke by its `tool`. Pencil and tape are pen-shaped until Stories 24.4 and 24.6 give them their own. */
+export const strokeOutlineFor = (
+  tool: string | undefined,
+  width: number,
+  usePressure: boolean,
+  points: readonly (readonly number[])[],
+  curve?: PressureCurve,
+): number[][] =>
+  tool === 'fountain' ? strokeOutline(width, usePressure, points, curve, 0.2, 1.6, true) : strokeOutline(width, usePressure, points, curve)
 
 /** The polygon as a path; fill it with the non-zero rule. */
 export function outlinePath(polygon: readonly (readonly number[])[]): Path2D {

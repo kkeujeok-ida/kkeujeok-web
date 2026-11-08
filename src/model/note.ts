@@ -1,16 +1,17 @@
 // Note model (spec note-format.md, note.formatVersion). A note is plain JSON
 // so fields this client does not know ride along untouched at every level.
 import { round2 } from './number'
+import { PEN_TOOLS, type PenTool } from './pen'
 import { isKnownBackground } from './pdfRules'
 
-export const SUPPORTED_FORMAT_VERSION = 1
+export const SUPPORTED_FORMAT_VERSION = 2
 export const BACKGROUNDS = ['plain', 'lined', 'grid', 'dot'] as const
 
 type Extra = { [unknown: string]: unknown }
 export type Stroke = Extra & {
   id: string
   type: 'stroke'
-  tool: 'pen' | 'highlighter'
+  tool: PenTool
   color: string
   width: number
   usePressure: boolean
@@ -51,12 +52,12 @@ function validElement(e: unknown): boolean {
   if (!isObj(e) || !isStr(e.id) || !isStr(e.type)) return false
   if (e.type !== 'stroke') return true
   return (
-    (e.tool === 'pen' || e.tool === 'highlighter') &&
+    PEN_TOOLS.includes(e.tool as PenTool) &&
     isStr(e.color) &&
     isNum(e.width) &&
     typeof e.usePressure === 'boolean' &&
     Array.isArray(e.points) &&
-    e.points.every((p) => Array.isArray(p) && p.length === 4 && p.every(isNum))
+    e.points.every((p) => Array.isArray(p) && (p.length === 4 || p.length === 6) && p.every(isNum))
   )
 }
 
@@ -112,6 +113,7 @@ export function roundStroke(s: Stroke): void {
 /** What gets written: a deep copy with every defined number through round2. */
 export function toWritableJson(note: Note): Note {
   const j = structuredClone(note)
+  j.formatVersion = SUPPORTED_FORMAT_VERSION // spec: always write the newest version
   j.metaSeq = round2(j.metaSeq)
   j.orderSeq = round2(j.orderSeq)
   for (const p of j.pages) {

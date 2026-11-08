@@ -12,7 +12,7 @@ import { isPdfBackground, patternOf } from '../model/pdfRules'
 import { fontAdvances } from '../model/textMetrics'
 import { highlighterOutline, windAlike } from '../render/highlighterOutline'
 import { pageBackground } from '../render/pageBackground'
-import { strokeOutline } from '../render/strokeOutline'
+import { strokeOutlineFor } from '../render/strokeOutline'
 import { exportPlan, type PlanInput, type PlanResult, type RangeError } from './exportRules'
 
 type El = Record<string, any>
@@ -202,7 +202,7 @@ export async function buildPdf(job: PdfJob): Promise<PdfResult> {
       const pe = keep.get(e.id)
       if (!pe) continue
       if (pe.kind === 'pen') {
-        const poly = strokeOutline(e.width, e.usePressure, e.points, 'normal') // a file does not depend on a device setting
+        const poly = strokeOutlineFor(e.tool, e.width, e.usePressure, e.points, 'normal') // a file does not depend on a device setting
         if (poly.length) { ops.push(fillRgb(e.color)); polygon(ops, poly); ops.push(fill()) }
       } else if (pe.kind === 'highlighter') {
         // all rectangles of one stroke are one layer: one fill, one alpha
