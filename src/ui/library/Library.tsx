@@ -438,10 +438,12 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       drag: setDragSel,
       /** True when the click was a selection gesture (the link must not open). */
       click: (e: ReactMouse) => {
-        if (!press.current.fired && !selecting) return false
+        const fired = press.current.fired
+        if (!fired && !selecting) return false
         press.current.fired = false
         e.preventDefault()
-        if (selecting) toggle()
+        // The long press already toggled this card; the click that ends it must not undo that.
+        if (!fired) toggle()
         return true
       },
       onKey: (e: ReactKey) => {
@@ -506,8 +508,13 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       else failed++
     }
     for (const id of noteIds) {
-      if (!uploads) failed++
-      else (await uploads.deleteNote(id, () => void lib.reload()), doneNotes.push(id))
+      try {
+        if (!uploads) throw new Error('no uploads')
+        await uploads.deleteNote(id, () => void lib.reload())
+        doneNotes.push(id)
+      } catch {
+        failed++
+      }
     }
     if (!mounted.current) return
     const n = doneFolders.length + doneNotes.length
@@ -516,7 +523,10 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     setUndo({
       text: fmt(t('library.itemsDeleted'), { n: String(n) }) + lost,
       label: t('trash.restore'),
-      onUndo: () => void Promise.all([...doneFolders.map(restoreFolder), ...doneNotes.map(restoreNote)]),
+      onUndo: async () => {
+        for (const id of doneFolders) await restoreFolder(id)
+        for (const id of doneNotes) await restoreNote(id)
+      },
     })
   }
   // A folder card or `../` takes a dragged folder (never into itself or below it) and a dragged note; a dragged selection goes whole.
