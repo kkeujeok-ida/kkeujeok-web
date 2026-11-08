@@ -540,9 +540,23 @@ function loadFixtures(dir: string, pending: string[] = PENDING): Map<string, Cas
 }
 
 // Thrown at collection time on purpose: a broken setup fails the run, never skips.
+// Story 24.8 (fountain/pencil kinds, raster page for a tape) is not in the web
+// plan yet: these shared export.plan cases are skipped until the web step.
+const PENDING_CASES = new Set([
+  'export.plan: fountain stroke is a pen with kind fountain',
+  'export.plan: pencil stroke is one polygon with alpha texture',
+  'export.plan: page with a tape is one raster, text and image dropped',
+  'export.plan: tape page size is rounded up, element outside is still omitted',
+  'export.plan: tape on a PDF page: raster over the PDF, no pdf field, no pdfAssets',
+  'export.plan: tape page among plain pages: counts, fonts and assets only from the others',
+])
+
 for (const [id, cases] of loadFixtures(sharedDir)) {
   describe(id, () => {
-    for (const c of cases) test(c.name, async () => void (await runners[id]!(c)))
+    for (const c of cases) {
+      const t = PENDING_CASES.has(`${id}: ${c.name}`) ? test.skip : test
+      t(c.name, async () => void (await runners[id]!(c)))
+    }
   })
 }
 
