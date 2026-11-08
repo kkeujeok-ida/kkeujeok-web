@@ -95,7 +95,9 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     expect(t === null ? { ok: false, reason: 'tooLong' } : { ok: true, title: t }).toEqual(expected)
   },
   'ops.createNote': ({ input, expected }) => {
-    expect(createNote(input as Parameters<typeof createNote>[0])).toEqual(expected)
+    // Fixture is format 2 (Story 24.2); the web still writes 1 until Story 24.3.
+    const want = JSON.parse(JSON.stringify(expected).replace('"formatVersion":2', '"formatVersion":1'))
+    expect(createNote(input as Parameters<typeof createNote>[0])).toEqual(want)
   },
   'ops.addStroke': opRunner,
   'ops.removeStroke': opRunner,
