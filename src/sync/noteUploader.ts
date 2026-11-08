@@ -856,11 +856,29 @@ export function createNoteUploader(d: UploaderDeps) {
     }
   }
 
+  /** [복구] of a delete: takes the mark back while the note has not left the device. False when there is no mark (already moved). */
+  async function cancelTrash(noteId: string): Promise<boolean> {
+    try {
+      let had = false
+      await store.updateSync(noteId, (c) => {
+        had = c.extra[PENDING_TRASH] !== undefined
+        if (!had) return c
+        const { [PENDING_TRASH]: _gone, ...extra } = c.extra
+        return { ...c, extra }
+      })
+      return had
+    } catch (e) {
+      if (e instanceof NoteSaveError) return false
+      throw e
+    }
+  }
+
   /** Sends what is unsent, moves the Drive file into `.trashbin` (never `trashed=true`; spec trash.trashNote), removes the local note. False while it must wait; the mark stays. */
   async function trashNote(noteId: string): Promise<boolean> {
     try {
       let s = await store.readSync(noteId)
       let mark = s.info.extra[PENDING_TRASH] as { trashedAt: string; from: string | null } | true | undefined
+      if (mark === undefined) return false // cancelled meanwhile
       if (typeof mark !== 'object' || mark === null) {
         // The earlier `true`: migrated to the official field; `from` null = the parent at the time of the move.
         const migrated = { trashedAt: new Date((d.now ?? Date.now)()).toISOString(), from: null }
@@ -916,6 +934,7 @@ export function createNoteUploader(d: UploaderDeps) {
   return {
     markTrash: (noteId: string) => chained(noteId, () => markTrash(noteId)),
     trashNote: (noteId: string) => chained(noteId, () => trashNote(noteId)),
+    cancelTrash: (noteId: string) => chained(noteId, () => cancelTrash(noteId)),
     uploadVerified: (noteId: string) => chained(noteId, () => verifiedHead(noteId)),
     reportFailure: (noteId: string, e: DriveError) => chained(noteId, () => failed(noteId, e)),
     /** A conflict was settled in the editor (chained with this note's uploads). */

@@ -12,6 +12,7 @@ import {
   type DriveChange,
   type DriveClient,
   type DriveFile,
+  kkeujeokIdQuery,
 } from '../drive/driveClient'
 import { driveRemoteTitleRule, listSummaryRule } from '../drive/noteSummary'
 import { applyMergeToSession } from '../ops/sessionHistories'
@@ -94,10 +95,12 @@ type Result = 'ok' | 'later' | 'skipped' | 'exhausted'
 const isRejected = (e: DriveError) => e.kind === 'http' && (e.status === 400 || e.status === 404 || e.status === 410)
 const TRANSIENT = new Set(['backoff', 'reauth', 'quota'])
 const MAX_PAGES = 1000
-type Kind = 'trashed' | 'removed'
+type Kind = 'trashed' | 'removed' | 'binned'
 const unresolvedOf = (i: SyncInfo) => i.conflicts.filter((c) => c.resolvedAt == null).length
 /** The record says the Drive file of this note is gone. */
-const goneKind = (i: SyncInfo): Kind | null => (i.lastError?.class === 'deleted' ? (i.lastError.reason === 'trashed' ? 'trashed' : 'removed') : null)
+const goneKind = (i: SyncInfo): Kind | null => (i.lastError?.class === 'deleted' ? (i.lastError.reason === 'trashed' ? 'trashed' : i.lastError.reason === 'binned' ? 'binned' : 'removed') : null)
+/** A live note file that another device moved into `.trashbin` (the app trash writes `trashedAt` there and clears it on restore). */
+const isBinned = (f: { mimeType?: string; trashed?: boolean; appProperties: Record<string, string> } | null | undefined) => !!f && f.mimeType === KKJ_MIME && !f.trashed && (f.appProperties.trashedAt ?? '') !== ''
 /** A note is never discarded while it holds anything Drive does not have. */
 const keepsLocal = (hasUnsent: boolean, i: SyncInfo) => hasUnsent || i.state === 'conflict' || unresolvedOf(i) > 0
 /** An `unreadable` note whose remote head is another one than the one that failed gets another try. */
@@ -456,10 +459,33 @@ export function createNoteReceiver(d: ReceiverDeps) {
   const markGone = (noteId: string, kind: Kind) =>
     move(noteId, 'failed', { edit: (c) => ({ ...c, lastError: { class: 'deleted', reason: kind } }) })
 
+  /** `trash.restoreNote` for a note this browser wants back: the file leaves `.trashbin` for its `trashedFrom` folder (else the top level) and the trash marks are cleared. */
+  async function moveOutOfBin(g: Guard, fileId: string): Promise<void> {
+    const cur = await drive.get(fileId, { fields: 'id,parents,appProperties' })
+    let target = g.root ?? (await d.device.read()).rootFolderId
+    const from = cur.appProperties.trashedFrom
+    if (from && from !== 'root' && from !== 'trashbin') {
+      const found = (await drive.list(kkeujeokIdQuery(from), { fields: 'files(id,trashed,parents)' })).files.filter((x) => !x.trashed)[0]
+      // An origin inside the bin is no destination.
+      if (found && found.parents.every((p) => !cur.parents.includes(p))) target = found.id
+    }
+    if (!target) throw new DriveError('http', { status: 404 })
+    await drive.update(fileId, { addParents: target, removeParents: cur.parents.join(','), appProperties: { trashedFrom: null, trashedAt: null } })
+  }
+
   /** Puts the note back on Drive (inside the note's chain): untrash, or forget the file so the next upload creates it again. */
   async function reviveIn(g: Guard, noteId: string, kind: Kind, fileId: string, announce: boolean): Promise<void> {
     let k = kind
-    if (k === 'trashed') {
+    if (k === 'binned') {
+      // Moved back out of `.trashbin`: to where it came from, else the top.
+      try {
+        await call(g, noteId, () => moveOutOfBin(g, fileId), (e) => e.kind === 'http' && e.status === 404)
+        k = 'trashed' // only the label: the file is live again
+      } catch (e) {
+        if (!(e instanceof DriveError)) throw e
+        k = 'removed'
+      }
+    } else if (k === 'trashed') {
       try {
         await call(g, noteId, () => drive.update(fileId, { trashed: false }), (e) => e.kind === 'http' && e.status === 404)
       } catch (e) {
@@ -543,8 +569,9 @@ export function createNoteReceiver(d: ReceiverDeps) {
       let kind = goneKind(info)
       if (kind === null && listed && !listed.has(fileId) && info.state !== 'syncing') {
         try {
-          const f = await call(g, id, () => drive.get(fileId, { fields: 'headRevisionId,trashed' }))
+          const f = await call(g, id, () => drive.get(fileId, { fields: 'headRevisionId,trashed,mimeType,appProperties' }))
           if (f.trashed) kind = 'trashed'
+          else if (isBinned(f)) kind = 'binned'
         } catch (e) {
           if (!(e instanceof Fail && e.cls === 'deleted')) throw e
           kind = 'removed'
@@ -679,9 +706,10 @@ export function createNoteReceiver(d: ReceiverDeps) {
       }
       const id = f.appProperties.kkeujeokId
       if (f.mimeType !== KKJ_MIME || id === undefined || !UUID.test(id)) continue
-      if (f.trashed) {
+      if (f.trashed || isBinned(f)) {
         await dropCard(g, id)
-        if (local.has(id)) gone.push({ noteId: id, fileId: f.id, kind: 'trashed' })
+        if (!f.trashed) folderChanged = true // the library tree hides it
+        if (local.has(id)) gone.push({ noteId: id, fileId: f.id, kind: f.trashed ? 'trashed' : 'binned' })
         continue
       }
       if (f.headRevisionId) files.push({ file: f, noteId: id, head: f.headRevisionId })
@@ -948,9 +976,10 @@ export function createNoteReceiver(d: ReceiverDeps) {
         const s = await store.readSync(noteId)
         const fileId = s.info.fileId
         if (fileId === null) return
-        const f = await call(g, noteId, () => drive.get(fileId, { fields: 'headRevisionId,trashed' }))
+        const f = await call(g, noteId, () => drive.get(fileId, { fields: 'headRevisionId,trashed,mimeType,appProperties' }))
         g.ensure()
         if (f.trashed) return void (await fileGone(g, noteId, fileId, 'trashed'))
+        if (isBinned(f)) return void (await fileGone(g, noteId, fileId, 'binned'))
         if (!f.headRevisionId || (f.headRevisionId === s.info.baseHeadRevisionId && goneKind(s.info) === null)) return
         await receiveNote(g, noteId, fileId, f.headRevisionId)
       } catch (e) {
@@ -1034,7 +1063,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
         if ('note' in r && r.inverse) await d.merge.merge({ noteId: msg.noteId, base: cur, remote: r.note })
         return
       }
-      if (msg?.t === 'deleted' && typeof msg.noteId === 'string' && typeof msg.fileId === 'string' && (msg.kind === 'trashed' || msg.kind === 'removed')) {
+      if (msg?.t === 'deleted' && typeof msg.noteId === 'string' && typeof msg.fileId === 'string' && (msg.kind === 'trashed' || msg.kind === 'removed' || msg.kind === 'binned')) {
         if (!openIds().includes(msg.noteId) || !usable()) return
         const g = guard()
         if (!g) return

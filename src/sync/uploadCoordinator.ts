@@ -28,7 +28,7 @@ const RETRY_ONCE = new Set(['verifyExhausted', 'sessionLost', 'mergeFailed', 'md
 
 export type CoordinatorDeps = {
   store: Pick<NoteStore, 'listIds' | 'readSync' | 'updateSync'>
-  uploader: Pick<NoteUploader, 'upload' | 'resume'> & Partial<Pick<NoteUploader, 'markTrash' | 'trashNote' | 'conflictResolved' | 'markResolved' | 'cleanResolvedSidecars' | 'uploadVerified' | 'reportFailure'>>
+  uploader: Pick<NoteUploader, 'upload' | 'resume'> & Partial<Pick<NoteUploader, 'markTrash' | 'trashNote' | 'cancelTrash' | 'conflictResolved' | 'markResolved' | 'cleanResolvedSidecars' | 'uploadVerified' | 'reportFailure'>>
   log: Pick<SyncLog, 'append'>
   allowed: () => boolean
   online: () => boolean
@@ -198,14 +198,24 @@ export function createUploadCoordinator(d: CoordinatorDeps) {
     noteClosed: (noteId: string) => one(noteId),
 
     /** Story 7.8: the note is hidden at once; unsent changes go up, then the Drive file is trashed (offline: when connected). */
-    async deleteNote(noteId: string): Promise<void> {
+    async deleteNote(noteId: string, onHidden?: () => void): Promise<void> {
       try {
         if (await d.uploader.markTrash?.(noteId)) {
           d.notifyTrashed?.(noteId)
+          onHidden?.() // the list redraws before any network call
           await one(noteId, { openHere: openIds().includes(noteId) })
         }
       } catch {
         // the mark stays; the next trigger repeats the step
+      }
+    },
+
+    /** [복구] of a delete: true when the mark was still there (nothing moved yet) and is gone now. */
+    async cancelDelete(noteId: string): Promise<boolean> {
+      try {
+        return (await d.uploader.cancelTrash?.(noteId)) === true
+      } catch {
+        return false
       }
     },
 

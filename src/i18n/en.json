@@ -357,6 +357,8 @@
   "library.noteNameTooLong": "Note names can be up to 100 characters.",
   "library.noteRenameFailed": "Could not rename the note.",
   "library.noteMoveFailed": "Could not move the note.",
+  "library.noteDeletedSnack": "Moved \"{name}\" to the trash.",
+  "folder.deletedSnack": "Moved folder \"{name}\" to the trash.",
   "folder.noteMoved": "Moved to \"{folder}\"",
   "folder.noteMovedTop": "Moved to Home",
   "library.cancel": "Cancel",

@@ -28,6 +28,7 @@ import { NewNoteDialog } from './NewNoteDialog'
 import { noteHref } from './NoteEditor'
 import { requestResolve } from './resolveRequest'
 import type { FolderResult, FolderService, FolderView } from '../../library/folderService'
+import type { TrashService } from '../../library/trashService'
 import { SNACKBAR_MS } from '../snackbar'
 import { FolderPicker } from './FolderPicker'
 import { NOTE_DRAG } from './FolderTree'
@@ -56,7 +57,9 @@ type Props = {
   /** Remote changes (Story 3.14): cards of notes not downloaded yet, the ↓ badge, the scan placeholder. */
   receiver?: Pick<NoteReceiver, 'subscribe' | 'getState'>
   /** Story 7.8: deleting a note sends what is unsent, then trashes it on Drive. Without it no delete is offered. */
-  uploads?: Pick<UploadCoordinator, 'deleteNote'> & Partial<Pick<UploadCoordinator, 'noteClosed'>>
+  uploads?: Pick<UploadCoordinator, 'deleteNote'> & Partial<Pick<UploadCoordinator, 'noteClosed' | 'cancelDelete'>>
+  /** [복구] of a delete that already reached `.trashbin`. */
+  trash?: Pick<TrashService, 'restoreById'>
   /** The list's layout and size, a device setting. */
   viewStore?: { read(): LibraryView; write(v: LibraryView): void }
   /** Story 7.6: the folders. Without it the library has no folders. */
@@ -108,7 +111,7 @@ function readSort(): LibrarySort {
   }
 }
 
-export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver, uploads, viewStore = sharedLibraryView(), folders, folderView, folderId = null, images }: Props) {
+export function Library({ openStore = defaultOpenStore, defaults = sharedDefaults(), editedBy, root, signOut = () => auth.signOut(), receiver, uploads, trash, viewStore = sharedLibraryView(), folders, folderView, folderId = null, images }: Props) {
   const { t, locale } = useI18n()
   const lib = useLibrary(openStore, defaults, editedBy, receiver, folders)
   const inFolder = folderId !== null && folderId !== 'root'
@@ -339,7 +342,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   const [, setColorTick] = useState(0) // the color lives in localStorage; this redraws
   const [dragFolder, setDragFolder] = useState<string | null>(null)
   const [overFolder, setOverFolder] = useState<string | null>(null)
-  const [undo, setUndo] = useState<{ text: string; inverse?: FolderResult['inverse'] } | null>(null)
+  const [undo, setUndo] = useState<{ text: string; inverse?: FolderResult['inverse']; onUndo?: () => void; label?: string } | null>(null)
   useEffect(() => {
     if (!undo) return
     const id = setTimeout(() => setUndo(null), SNACKBAR_MS)
@@ -348,12 +351,28 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   // Focus goes back to the control that started a dialog; a card that moved away leaves it on the first card.
   const refocus = (from: HTMLElement | null) =>
     requestAnimationFrame(() => (from?.isConnected ? from : section.current?.querySelector<HTMLElement>('a.cover-card, .fab-button'))?.focus())
-  async function confirmDelete(noteId: string) {
+  async function confirmDelete(noteId: string, title: string) {
     if (!uploads) return
-    await uploads.deleteNote(noteId)
-    if (!mounted.current) return
-    await lib.reload()
     refocus(null)
+    // The card goes at once; the upload and the Drive move run on.
+    await uploads.deleteNote(noteId, () => void lib.reload())
+    if (!mounted.current) return
+    setUndo({
+      text: fmt(t('library.noteDeletedSnack'), { name: title }),
+      label: t('trash.restore'),
+      onUndo: () => {
+        void (async () => {
+          if (await uploads.cancelDelete?.(noteId)) return void lib.reload()
+          try {
+            await trash?.restoreById(noteId)
+          } catch {
+            // the next refresh shows what is there
+          }
+          void folders?.refresh().catch(() => {})
+          void lib.reload()
+        })()
+      },
+    })
   }
   async function moveTo(t0: Target, target: string) {
     if (!folders) return
@@ -606,7 +625,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             receiving={receive.receiving.has(item.noteId)}
             offline={offline}
             images={images}
-            onDelete={uploads ? () => void confirmDelete(item.noteId) : undefined}
+            onDelete={uploads ? () => void confirmDelete(item.noteId, item.title ?? '') : undefined}
             onRename={(from) => setRenaming({ noteId: item.noteId, title: item.title ?? '', from })}
             onCover={(from) => setCovering({ noteId: item.noteId, title: item.title ?? '', coverId: item.coverId ?? null, from })}
             onMove={folders && folderView ? (from) => setMoving({ noteId: item.noteId, title: item.title ?? '', from }) : undefined}
@@ -688,7 +707,26 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             const d = deletingFolder
             setDeletingFolder(null)
             refocus(d.from)
-            void folders.deleteFolder(d.id).then((r) => r.error && setUndo({ text: t('folder.failed') }))
+            const name = folderView?.folder(d.id)?.name ?? ''
+            void folders.deleteFolder(d.id).then((r) =>
+              r.error
+                ? setUndo({ text: t('folder.failed') })
+                : setUndo({
+                    text: fmt(t('folder.deletedSnack'), { name }),
+                    label: t('trash.restore'),
+                    onUndo: () => {
+                      void (async () => {
+                        if (await folders.cancelTrashFolder(d.id)) return
+                        try {
+                          await trash?.restoreById(d.id, true)
+                        } catch {
+                          // the next refresh shows what is there
+                        }
+                        void folders.refresh().catch(() => {})
+                      })()
+                    },
+                  }),
+            )
           }}
         />
       )}
@@ -748,17 +786,18 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       {undo && (
         <div role="status" className="snackbar snackbar-action">
           <span>{undo.text}</span>
-          {undo.inverse && (
+          {(undo.inverse || undo.onUndo) && (
             <button
               type="button"
               className="snackbar-button"
               onClick={() => {
-                const inverse = undo.inverse!
+                const { inverse, onUndo } = undo
                 setUndo(null)
-                void folders?.undo(inverse)
+                if (onUndo) onUndo()
+                else void folders?.undo(inverse!)
               }}
             >
-              {t('folder.undo')}
+              {undo.label ?? t('folder.undo')}
             </button>
           )}
         </div>

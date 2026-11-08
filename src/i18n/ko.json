@@ -357,6 +357,8 @@
   "library.noteNameTooLong": "노트 이름은 100자까지예요.",
   "library.noteRenameFailed": "이름을 바꾸지 못했어요.",
   "library.noteMoveFailed": "노트를 옮기지 못했어요.",
+  "library.noteDeletedSnack": "\"{name}\" 노트를 휴지통으로 옮겼어요.",
+  "folder.deletedSnack": "\"{name}\" 폴더를 휴지통으로 옮겼어요.",
   "folder.noteMoved": "\"{folder}\" 폴더로 옮겼어요",
   "folder.noteMovedTop": "Home으로 옮겼어요",
   "library.cancel": "취소",

@@ -85,7 +85,7 @@ export function createTrashService(deps: { drive: DriveClient; device: Pick<Sync
     return 'done'
   }
 
-  return {
+  const service = {
     /** The direct children of `.trashbin`, newest delete first. Throws DriveError. */
     async list(): Promise<TrashEntry[]> {
       const bin = await folders.trashbinFileId()
@@ -135,20 +135,35 @@ export function createTrashService(deps: { drive: DriveClient; device: Pick<Sync
     /** `trash.purgeItem`: `trashed=true`, never `files.delete`. */
     purge,
 
-    /** `trash.emptyTrash`: one by one, a failure does not stop the others. Returns the entries still in the trash. */
+    /** `trash.emptyTrash`: a failure does not stop the others. Returns the entries still in the trash. */
     async empty(entries: TrashEntry[]): Promise<TrashEntry[]> {
       const left: TrashEntry[] = []
-      for (const e of entries) {
-        try {
-          if ((await purge(e)) === 'failed') left.push(e)
-        } catch (err) {
-          if (!(err instanceof DriveError)) throw err
-          left.push(e)
+      let next = 0
+      // Each item is two Drive calls; a few at a time instead of one by one.
+      const worker = async () => {
+        while (next < entries.length) {
+          const e = entries[next++]!
+          try {
+            if ((await purge(e)) === 'failed') left.push(e)
+          } catch (err) {
+            if (!(err instanceof DriveError)) throw err
+            left.push(e)
+          }
         }
       }
+      await Promise.all(Array.from({ length: 6 }, worker))
       return left
     },
+
+    /** [복구] of a delete that already reached `.trashbin`: finds the item there by its id and restores it. */
+    async restoreById(id: string, folder = false): Promise<TrashOutcome> {
+      const f = (await all(kkeujeokIdQuery(id)))[0]
+      if (!f) return 'gone'
+      const n = f.name ?? ''
+      return service.restore({ isFolder: folder, id, fileId: f.id, title: n.endsWith('.kkj') ? n.slice(0, -4) : n, trashedAt: f.appProperties.trashedAt ?? '', trashedFrom: f.appProperties.trashedFrom ?? null, noteCount: 0 })
+    },
   }
+  return service
 }
 
 export type TrashService = ReturnType<typeof createTrashService>

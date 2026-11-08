@@ -154,6 +154,8 @@ export function createFolderService(deps: FolderServiceDeps) {
     tail = r.catch(() => {})
     return r
   }
+  /** A change of the device record only: atomic under its transaction, so it never waits for a Drive call in `run` (a refresh holds the queue for seconds). */
+  const local = <T>(body: () => Promise<T>): Promise<T> => body()
   const notify = () => listeners.forEach((fn) => fn())
   const logOp = (op: string, folderId: string) => void Promise.resolve(deps.log?.append('folderOp', { op, folderId })).catch(() => {})
   const load = async () => readState(await device.read())
@@ -490,7 +492,7 @@ export function createFolderService(deps: FolderServiceDeps) {
     createFolder(name: string, parentId: string) {
       const id = makeId()
       return changed(
-        run(() =>
+        local(() =>
           apply(
             'create',
             (s) => libraryCreateFolder({ folders: visible(s), id, name, parentId }),
@@ -499,12 +501,12 @@ export function createFolderService(deps: FolderServiceDeps) {
         ),
       )
     },
-    renameFolder: (id: string, name: string) => changed(run(() => apply('rename', (s) => libraryRenameFolder({ folders: visible(s), id, name }), syncFolders))),
-    moveFolder: (id: string, targetParentId: string) => changed(run(() => apply('move', (s) => libraryMoveFolder({ folders: visible(s), id, targetParentId }), syncFolders))),
+    renameFolder: (id: string, name: string) => changed(local(() => apply('rename', (s) => libraryRenameFolder({ folders: visible(s), id, name }), syncFolders))),
+    moveFolder: (id: string, targetParentId: string) => changed(local(() => apply('move', (s) => libraryMoveFolder({ folders: visible(s), id, targetParentId }), syncFolders))),
     /** `noteId` moves to `targetParentId`; the note file is not touched. */
     moveNote: (noteId: string, targetParentId: string) =>
       changed(
-        run(() =>
+        local(() =>
           apply(
             'moveNote',
             (s) => libraryMoveNote({ folders: visible(s), note: { noteId, parentId: s.noteParents[noteId] ?? 'root' }, targetParentId }),
@@ -516,7 +518,7 @@ export function createFolderService(deps: FolderServiceDeps) {
     async deleteFolder(id: string): Promise<FolderResult> {
       const trashedAt = now().toISOString()
       let out: FolderResult = {}
-      await run(() =>
+      await local(() =>
         mutate((s) => {
           const f = visible(s).find((x) => x.id === id)
           if (!f) return void (out = { error: 'folderNotFound' })
@@ -526,6 +528,17 @@ export function createFolderService(deps: FolderServiceDeps) {
       )
       if (!out.error) (logOp('delete', id), flushSoon())
       return out
+    },
+    /** [복구] of a folder delete that is still queued: the entry leaves the queue and the folder stays. False when it was sent already. */
+    async cancelTrashFolder(id: string): Promise<boolean> {
+      let had = false
+      await mutate((s) => {
+        const n = s.ops.length
+        s.ops = s.ops.filter((o) => !(o.kind === 'trashFolder' && o.id === id))
+        had = s.ops.length !== n
+      })
+      if (had) changed(Promise.resolve({ id }))
+      return had
     },
     /** Runs a stored inverse (the `inverse` of an earlier change). */
     undo(inverse: DriveOp): Promise<FolderResult> {

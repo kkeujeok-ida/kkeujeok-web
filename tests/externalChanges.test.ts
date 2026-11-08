@@ -79,6 +79,35 @@ describe('a note trashed or deleted in Drive', () => {
     expect(e.invalid).toEqual([])
   })
 
+  test('moved into .trashbin by another device: the copy is removed', async () => {
+    const e = await make()
+    const { fileId } = await synced(e)
+    e.drive.items.get(fileId)!.appProperties.trashedAt = '2026-11-08T00:00:00.000Z'
+    e.drive.move(fileId, 'trashbin-file')
+    await e.receiver.check()
+    expect(await gone(e)).toBe(true)
+    expect(e.events('error')).toEqual([expect.objectContaining({ class: 'deleted', noteId: NID, reason: 'binned' })])
+  })
+
+  test('an open note moved into .trashbin gets the banner; revive moves it back out', async () => {
+    const e = await make()
+    const { fileId } = await synced(e)
+    const open = openEditor(two())
+    const item = e.drive.items.get(fileId)!
+    item.appProperties.trashedAt = '2026-11-08T00:00:00.000Z'
+    item.appProperties.trashedFrom = 'root'
+    e.drive.move(fileId, 'trashbin-file')
+    try {
+      await e.receiver.check()
+      expect((await e.store.readSync(NID)).info.lastError).toMatchObject({ class: 'deleted', reason: 'binned' })
+      await e.receiver.revive(NID)
+      expect((await e.store.readSync(NID)).info.lastError).toBeNull()
+      expect(item.appProperties.trashedAt).toBeUndefined()
+    } finally {
+      open()
+    }
+  })
+
   test('trashed with unsent changes: untrashed, restored once, uploaded to the same file', async () => {
     const e = await make()
     const { fileId } = await synced(e)

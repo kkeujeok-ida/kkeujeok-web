@@ -211,7 +211,7 @@ function Shell({ auth, root: rootProp, uploads: uploadsProp, receiver: receiverP
         ) : noteId ? (
           <NoteEditor key={noteId} noteId={noteId} uploads={uploads} receiver={receiver} images={images} />
         ) : (
-          <Library root={root} signOut={auth.signOut} receiver={receiver} uploads={uploads} folders={folderService} folderView={view} folderId={folderId} {...(images && { images })} />
+          <Library root={root} signOut={auth.signOut} receiver={receiver} uploads={uploads} trash={trashService} folders={folderService} folderView={view} folderId={folderId} {...(images && { images })} />
         )}
       </main>
     </div>
