@@ -1,7 +1,8 @@
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import { useI18n } from '../../i18n'
 import { type BrushPatch, brushResolve, patchBrush } from '../../model/brush'
 import type { Pen } from '../../model/pen'
+import { sharedBrushPresets } from '../../storage/brushPresets'
 import { CurveEditor } from '../CurveEditor'
 
 const LINEAR = [1 / 3, 1 / 3, 2 / 3, 2 / 3]
@@ -19,6 +20,15 @@ export function PenAdvanced({ pen, onChange, open, onToggle }: { pen: Pen; onCha
   const set = (patch: BrushPatch) => onChange({ brush: patchBrush(pen.tool, pen.brush, patch) })
   const flat = pen.tool === 'highlighter' || pen.tool === 'tape'
   const ownPressure = b.pressureCurve !== null
+  const [presets, setPresets] = useState(() => sharedBrushPresets().read())
+  const [name, setName] = useState('')
+  const save = () => {
+    const next = sharedBrushPresets().save(name, pen)
+    if (next) {
+      setPresets(next)
+      setName('')
+    }
+  }
   return (
     <div className="pen-advanced">
       <button type="button" className="pen-advanced-toggle" aria-expanded={open} aria-controls={id} onClick={onToggle}>
@@ -26,6 +36,35 @@ export function PenAdvanced({ pen, onChange, open, onToggle }: { pen: Pen; onCha
       </button>
       {open && (
         <div id={id} className="pen-advanced-body">
+          <div className="pen-presets" role="group" aria-label={t('editor.brush.presets')}>
+            {presets.map((p) => (
+              <div key={p.id} className="pen-preset">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => onChange({ tool: p.tool, width: p.width, usePressure: p.usePressure, brush: p.brush ? structuredClone(p.brush) : undefined })}
+                >
+                  {`${t('editor.brush.presetUse')} ${p.name}`}
+                </button>
+                <button type="button" className="btn" aria-label={`${t('editor.brush.presetDelete')} ${p.name}`} onClick={() => setPresets(sharedBrushPresets().remove(p.id))}>
+                  ×
+                </button>
+              </div>
+            ))}
+            <input
+              type="text"
+              className="pen-preset-name"
+              aria-label={t('editor.brush.presetName')}
+              placeholder={t('editor.brush.presetName')}
+              maxLength={30}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && save()}
+            />
+            <button type="button" className="btn" disabled={!name.trim()} onClick={save}>
+              {t('editor.brush.presetSave')}
+            </button>
+          </div>
           {!flat && pen.usePressure && (
             <>
               <button

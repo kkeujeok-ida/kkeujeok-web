@@ -1796,7 +1796,8 @@ export function NoteEditor({
               onRecent={(hex) => setRecent(recentStore.push(hex))}
               onChange={(patch) => {
                 const cur = pens[popover]!
-                const next = patch.tool !== undefined ? switchKind(cur, patch.tool) : { ...cur, ...patch }
+                const { tool: to, ...rest } = patch // a preset sets the kind and then the rest
+                const next = to !== undefined ? { ...switchKind(cur, to), ...rest } : { ...cur, ...patch }
                 if (patch.tool !== undefined) setAnnounce(t(`editor.tool.${patch.tool}`))
                 commitSlots(pens.map((p, i) => (i === popover ? next : p)))
               }}
