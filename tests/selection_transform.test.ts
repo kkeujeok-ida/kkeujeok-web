@@ -7,12 +7,14 @@ import { I18nContext, createI18n } from '../src/i18n'
 import { defaultPen } from '../src/model/pen'
 import { History } from '../src/ops/history'
 import { createNote } from '../src/ops/ops'
+import { shapePoints } from '../src/model/shape'
 import { SelectionMenu } from '../src/ui/library/SelectionMenu'
 import { Writer, hitSelection } from '../src/ui/library/writer'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const stroke = (id: string, pts: number[][]) => ({ id, type: 'stroke', tool: 'pen', color: '#000000', width: 2, usePressure: false, points: pts.map(([x, y]) => [x!, y!, 0.5, 0]) })
+// An unknown `shape` keeps a 2-point stroke a plain stroke: a bare 2-point stroke is a line with its own end handles (story 26.9).
+const stroke = (id: string, pts: number[][]) => ({ id, type: 'stroke', tool: 'pen', color: '#000000', width: 2, usePressure: false, shape: { kind: 'blob' }, points: pts.map(([x, y]) => [x!, y!, 0.5, 0]) })
 
 describe('hitSelection', () => {
   test('handles, inside, and a small box is grabbed inside first', () => {
@@ -179,6 +181,50 @@ describe('Writer transform', () => {
     w.undo()
     w.undo()
     expect(pts(w)).toEqual([[100, 100], [200, 200]])
+  })
+
+  describe('line and shape handles (story 26.9)', () => {
+    const pick = (el: Record<string, unknown>, at: [number, number]) => {
+      const w = make()
+      ;(w.history.note.pages[0]!.elements as unknown[]).splice(0, 1, el)
+      w.clearSelection()
+      ev('pointerdown', ...at)
+      ev('pointerup', ...at)
+      expect(w.selectedCount).toBe(1)
+      return w
+    }
+    const line = { id: 'l', type: 'stroke', tool: 'pen', color: '#112233', width: 3, usePressure: false, points: [[100, 300, 0.5, 0], [200, 300, 0.5, 16]] }
+    const rect = { kind: 'rect', x: 100, y: 100, width: 100, height: 50, rotation: 0 }
+    const el0 = (w: Writer) => w.history.note.pages[0]!.elements[0] as { points: number[][]; shape?: Record<string, number>; color: string }
+
+    test('a line end handle moves that end (3 degree snap), one undo step, pen look kept', () => {
+      const w = pick(line, [150, 300])
+      drag([200, 300], [300, 305])
+      expect(el0(w).points.map((p) => [p[0], p[1]])).toEqual([[100, 300], [300, 300]])
+      expect(el0(w).color).toBe('#112233')
+      expect(w.history.undoDepth).toBe(1)
+      w.undo()
+      expect(el0(w).points.map((p) => [p[0], p[1]])).toEqual([[100, 300], [200, 300]])
+    })
+    test('a corner handle resizes a shape keeping the opposite corner; points follow the shape', () => {
+      const w = pick({ id: 'r', type: 'stroke', tool: 'pen', color: '#000000', width: 2, usePressure: false, shape: rect, points: shapePoints(rect)! }, [100, 125])
+      drag([200, 150], [260, 190], { shiftKey: true }) // Shift: free ratio (the lock is on by default)
+      expect(el0(w).shape).toMatchObject({ x: 100, y: 100, width: 160, height: 90 })
+      expect(el0(w).points).toEqual(shapePoints(el0(w).shape))
+      expect(w.history.undoDepth).toBe(1)
+    })
+    test('Ctrl+Arrow steps the end of a line by 1 pt; a run is one undo step', () => {
+      const w = pick(line, [150, 300])
+      expect(w.resizeStep(1, 0)).toBe(true)
+      expect(w.resizeStep(1, 0)).toBe(true)
+      expect(el0(w).points[1]!.slice(0, 2)).toEqual([202, 300])
+      expect(w.history.undoDepth).toBe(1)
+    })
+    test('a 1 pt step across a near-horizontal line is not snapped away', () => {
+      const w = pick(line, [150, 300])
+      expect(w.resizeStep(0, 1)).toBe(true)
+      expect(el0(w).points[1]!.slice(0, 2)).toEqual([200, 301])
+    })
   })
 
   test('read-only: drag, nudge and step buttons do nothing', () => {

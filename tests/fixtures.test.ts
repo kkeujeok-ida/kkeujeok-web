@@ -15,7 +15,7 @@ import { resources } from '../src/i18n'
 import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
 import { brushResolve } from '../src/model/brush'
 import { smoothPoints } from '../src/model/smooth'
-import { recognizeShape, shapeFromDrag, shapePoints } from '../src/model/shape'
+import { recognizeShape, shapeFromDrag, shapePoints, shapeResize, shapeRotate, type Shape } from '../src/model/shape'
 import { lineSnapEnd, straightenActive, type StraightenInput } from '../src/model/straighten'
 import { highlighterOutline } from '../src/render/highlighterOutline'
 import { History } from '../src/ops/history'
@@ -147,6 +147,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'ops.move': opRunner,
   'ops.scale': opRunner,
   'ops.rotate': opRunner,
+  'ops.reshapeStroke': opRunner,
   'ops.setStrokeColor': opRunner,
   'ops.setStrokeWidth': opRunner,
   'ops.delete': opRunner,
@@ -318,6 +319,20 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     const near = (a: unknown, b: unknown) => (typeof b === 'number' ? expect(Math.abs((a as number) - b)).toBeLessThanOrEqual(tolerance! + 1e-12) : Array.isArray(b) ? b.forEach((v, k) => near((a as unknown[])[k], v)) : expect(a).toEqual(b))
     for (const k of Object.keys(want)) near(got![k], want[k])
   },
+  'shape.resize': ({ input, expected, tolerance }) => {
+    const i = input as { shape: Shape; handle: string; to: number[]; keepRatio: boolean }
+    const got = shapeResize(i.shape, i.handle, i.to, i.keepRatio)!
+    const want = (expected as { shape: Record<string, unknown> }).shape
+    expect(got.kind).toBe(want.kind)
+    const flat = (m: Record<string, unknown>) => (m.vertices ? (m.vertices as number[][]).flat() : ['x', 'y', 'width', 'height', 'rotation'].map((k) => m[k] as number))
+    const a = flat(got), b = flat(want)
+    expect(a).toHaveLength(b.length)
+    a.forEach((v, k) => expect(Math.abs(v - b[k]!)).toBeLessThanOrEqual(tolerance! + 1e-12))
+  },
+  'shape.rotate': ({ input, expected, tolerance }) => {
+    const i = input as { shape: Shape; to: number[] }
+    expect(Math.abs(shapeRotate(i.shape, i.to) - (expected as { rotation: number }).rotation)).toBeLessThanOrEqual(tolerance! + 1e-12)
+  },
   'pen.palette': penKinds,
   'pen.kinds': penKinds,
   'pen.switchKind': ({ input, expected }) => {
@@ -461,8 +476,6 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
-  'shape.resize',
-  'shape.rotate',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
 

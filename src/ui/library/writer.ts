@@ -7,7 +7,8 @@ import { getStraighten } from '../../storage/straighten'
 import { pageOutOfBounds } from '../../model/pageBounds'
 import { TAPE_TAP_SLOP, isTapeTap, tapeAt } from '../../model/tapeHit'
 import { strokeOutlineFor } from '../../render/strokeOutline'
-import { recognizeShape, shapeFromDrag, shapePoints, type Shape, type ShapeKind } from '../../model/shape'
+import { handlePoint, isKnownShape, recognizeShape, shapeFromDrag, shapePoints, shapeResize, shapeRotate, type Shape, type ShapeKind } from '../../model/shape'
+import { round2 } from '../../model/number'
 import { elementClipboard } from '../../model/elementClipboard'
 import { isTextBox, selectLasso, selectRect, selectTap, selectionBounds, selectionFrame, type Bounds, type El } from '../../model/select'
 import { cpIndex, formatAt, formatRange, retextRuns, type TextFormat } from '../../model/textEdit'
@@ -124,8 +125,8 @@ const SMALL_BOX = 48
 const MIN_SCALE = 0.05
 /** Arrow-key nudges this close together are one undo step. */
 const NUDGE_MS = 500
-/** A selection drag: `start`/`cur` and `b` (the selection bounds) are in the coordinates of the selection's page. `corner`: 0 tl, 1 tr, 2 bl, 3 br. */
-type Xform = { id: number; kind: 'move' | 'scale' | 'rotate' | 'width'; corner: number; slot: Slot; ids: string[]; b: Bounds; /** The turn of the selection frame in degrees; `b` is the frame's box, centered where the selection is. */ angle: number; start: [number, number]; cur: [number, number]; shift: boolean; down: { x: number; y: number; doc: [number, number]; shift: boolean; alt: boolean } }
+/** A selection drag: `start`/`cur` and `b` (the selection bounds) are in the coordinates of the selection's page. `corner`: 0 tl, 1 tr, 2 bl, 3 br; for `reshape` the handle: line 0/1, triangle 0..2, rect/circle 0 nw, 1 ne, 2 se, 3 sw, 4 rotate. */
+type Xform = { id: number; kind: 'move' | 'scale' | 'rotate' | 'width' | 'reshape'; corner: number; slot: Slot; ids: string[]; b: Bounds; /** The turn of the selection frame in degrees; `b` is the frame's box, centered where the selection is. */ angle: number; start: [number, number]; cur: [number, number]; shift: boolean; down: { x: number; y: number; doc: [number, number]; shift: boolean; alt: boolean } }
 /** The selection box in canvas CSS px, and the canvas size, for the floating menu. */
 export type SelectionBox = { left: number; top: number; right: number; bottom: number; w: number; h: number; /** The selection holds a stroke ([색]/[두께] apply) and the width of the first one. */ strokes?: boolean; width?: number }
 
@@ -238,7 +239,7 @@ export class Writer {
   /** An eraser gesture ended (after its operation, if any, is in the history). */
   onErased: (info: ErasedInfo) => void = () => {}
   /** Called with the number of selected elements whenever the selection changed. */
-  onSelection: (n: number) => void = () => {}
+  onSelection: (n: number, kind?: 'line' | 'shape') => void = () => {}
   /** Called when the box the floating menu hangs on changed (null: no editable selection). */
   onBox: (b: SelectionBox | null) => void = () => {}
   /** Called when the text box being edited (or its place, content or format) changed; null when none. */
@@ -741,9 +742,13 @@ export class Writer {
       // A drag shows the box as it would end up (the elements change on release).
       const pv = this.xform && b ? this.preview(this.xform) : { b, angle: fr?.angle ?? 0 }
       const pb = pv.b
-      const box = pb && sel && { left: pb.left + sel.slot.x, top: pb.top + sel.slot.y, right: pb.right + sel.slot.x, bottom: pb.bottom + sel.slot.y }
+      const rs = this.reshapeTarget()
+      // A line or triangle shows its vertex handles and no box.
+      const vertex = rs && this.isVertex(rs.el)
+      const box = !vertex && pb && sel ? { left: pb.left + sel.slot.x, top: pb.top + sel.slot.y, right: pb.right + sel.slot.x, bottom: pb.bottom + sel.slot.y } : null
       const ts = this.textSel()
-      paintSelection(ctx, vp, box, path, selectionColors(c), pv.angle, ts && !this.xform ? [ts.l, ts.r] : [])
+      const rop = vertex && this.xform?.kind === 'reshape' ? this.reshapeOp(this.xform) : null
+      paintSelection(ctx, vp, box, path, selectionColors(c), pv.angle, vertex ? this.vertexHandles(rs.el, rs.slot, rop) : ts && !this.xform ? [ts.l, ts.r] : [])
     }
   }
 
@@ -818,7 +823,8 @@ export class Writer {
     if (!same) this.selTurn = 0
     this.selection = set.size > 0 ? { pageId, ids: set } : null
     this.redraw()
-    this.onSelection(set.size)
+    const one = set.size === 1 ? this.selected()?.els[0] : null
+    this.onSelection(set.size, one && one.type === 'stroke' ? (isKnownShape(one.shape) ? 'shape' : !('shape' in one) && (one.points as unknown[]).length === 2 ? 'line' : undefined) : undefined)
   }
 
   clearSelection(): void {
@@ -872,6 +878,7 @@ export class Writer {
   private selAngle(els: readonly El[]): number {
     const one = els.length === 1 ? els[0]! : null
     if (one && one.type !== 'stroke' && typeof one.rotation === 'number') return one.rotation
+    if (one && isKnownShape(one.shape) && one.shape.kind !== 'triangle') return one.shape.rotation as number
     return this.selTurn
   }
 
@@ -926,12 +933,24 @@ export class Writer {
       const corner = Math.min(...([[b.left, b.top], [b.right, b.top], [b.left, b.bottom], [b.right, b.bottom]] as const).map(([cx, cy]) => Math.hypot(fx - sx(cx), fy - sy(cy))))
       if (Math.min(dl, dr) <= HANDLE_HIT && Math.min(dl, dr) < corner) side = dl <= dr ? 0 : 1
     }
-    if (hit === null && side < 0) return false
     const [dx, dy] = toPage(v, lx, ly)
     const at: [number, number] = [dx - sel.slot.x, dy - sel.slot.y]
     if (side >= 0) hit = 'width'
+    // A single line or shape has its own handles (spec/shape.md, Editing).
+    let reshape = -1
+    const rs = this.reshapeTarget()
+    if (rs && side < 0) {
+      if (this.isVertex(rs.el)) {
+        const d = this.vertexHandles(rs.el, rs.slot).map(([px, py]) => Math.hypot(lx - (v.offsetX + px * v.scale), ly - (v.offsetY + py * v.scale)))
+        const best = Math.min(...d)
+        if (best <= HANDLE_HIT) reshape = d.indexOf(best)
+        else if (hit !== 'move') hit = null
+      } else if (hit === 'rotate') reshape = 4
+      else if (typeof hit === 'number') reshape = [0, 1, 3, 2][hit]!
+    }
+    if (hit === null && side < 0 && reshape < 0) return false
     // Shift or Alt on the inside is the lasso's toggle / rectangle. On a handle it starts the drag; a click without a drag is the lasso's (see onUp).
-    if ((e.shiftKey || e.altKey) && hit === 'move') return false
+    if ((e.shiftKey || e.altKey) && hit === 'move' && reshape < 0) return false
     // A press inside the box on an element that is not selected picks that element (lasso/tap path), it does not move.
     if (hit === 'move') {
       const id = selectTap(sel.slot.page.elements as El[], at)
@@ -941,8 +960,8 @@ export class Writer {
     const width = side >= 0
     this.xform = {
       id: e.pointerId,
-      kind: width ? 'width' : hit === 'move' || hit === 'rotate' ? (hit as 'move' | 'rotate') : 'scale',
-      corner: width ? side : typeof hit === 'number' ? hit : -1,
+      kind: reshape >= 0 ? 'reshape' : width ? 'width' : hit === 'move' || hit === 'rotate' ? (hit as 'move' | 'rotate') : 'scale',
+      corner: reshape >= 0 ? reshape : width ? side : typeof hit === 'number' ? hit : -1,
       slot: sel.slot,
       ids: sel.els.map((x) => x.id as string),
       b,
@@ -980,6 +999,7 @@ export class Writer {
       return w === null ? null : { op: 'setTextBoxWidth', pageId: base.pageId, id: x.ids[0], width: w }
     }
     if (x.kind === 'move') return dx || dy ? { op: 'move', ...base, dx, dy } : null
+    if (x.kind === 'reshape') return this.reshapeOp(x)
     if (x.kind === 'rotate') {
       const cx = (b.left + b.right) / 2
       const cy = (b.top + b.bottom) / 2
@@ -1035,6 +1055,15 @@ export class Writer {
     const op = this.xformOp(x)
     const { b, angle } = x
     if (!op) return { b, angle }
+    if (op.op === 'reshapeStroke') {
+      const sh = op.shape as Shape | undefined
+      if (sh && sh.kind !== 'triangle') {
+        const o = sh as unknown as Record<'x' | 'y' | 'width' | 'height' | 'rotation', number>
+        return { b: { left: o.x, right: o.x + o.width, top: o.y, bottom: o.y + o.height }, angle: o.rotation }
+      }
+      const xs = (op.points as number[][]).map((p) => p[0]!), ys = (op.points as number[][]).map((p) => p[1]!)
+      return { b: { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) }, angle: 0 }
+    }
     if (op.op === 'setTextBoxWidth') {
       const el = x.slot.page.elements.find((e) => (e as El).id === x.ids[0]) as El | undefined
       return { b: (el && selectionBounds([{ ...el, width: op.width }])) || b, angle }
@@ -1066,6 +1095,61 @@ export class Writer {
       return { b: { left: nx - hw, right: nx + hw, top: ny - hh, bottom: ny + hh }, angle }
     }
     return { b: { left: ax + (b.left - ax) * sx, right: ax + (b.right - ax) * sx, top: ay + (b.top - ay) * sy, bottom: ay + (b.bottom - ay) * sy }, angle: 0 }
+  }
+
+  /** The one selected stroke that is a 2-point line or a known shape: its handles reshape it. */
+  private reshapeTarget(): { el: El; slot: Slot } | null {
+    if (this.tool !== 'lasso') return null
+    const sel = this.selected()
+    if (!sel || sel.els.length !== 1 || !this.canEdit(sel.slot.page.id)) return null
+    const el = sel.els[0]!
+    if (el.type !== 'stroke') return null
+    if (isKnownShape(el.shape)) return { el, slot: sel.slot }
+    return !('shape' in el) && (el.points as unknown[]).length === 2 ? { el, slot: sel.slot } : null
+  }
+
+  /** Lines and triangles have vertex handles; rect and circle a frame. */
+  private isVertex(el: El): boolean {
+    return !isKnownShape(el.shape) || el.shape.kind === 'triangle'
+  }
+
+  /** The vertex handles of a line or triangle in document coordinates, from `op` while a reshape drag is under way. */
+  private vertexHandles(el: El, slot: Slot, op: Op | null = null): [number, number][] {
+    const sh = (op ? op.shape : el.shape) as Shape | undefined
+    const v = (sh && sh.kind === 'triangle' ? sh.vertices : op ? op.points : el.points) as number[][]
+    return v.map((p) => [p[0]! + slot.x, p[1]! + slot.y])
+  }
+
+  /** The `reshapeStroke` op a handle drag (or a keyboard step: `to` given) makes, or null when nothing changes. */
+  private reshapeOp(x: Pick<Xform, 'slot' | 'ids' | 'corner' | 'shift' | 'cur'>, to: readonly number[] = x.cur, snap = true): Op | null {
+    const el = x.slot.page.elements.find((e) => (e as El).id === x.ids[0]) as El | undefined
+    if (!el || el.type !== 'stroke') return null
+    let ns: Shape | null = null
+    let points: number[][]
+    if (isKnownShape(el.shape)) {
+      const sh = el.shape
+      ns = x.corner === 4 ? { ...sh, rotation: shapeRotate(sh, to) } : shapeResize(sh, sh.kind === 'triangle' ? `v${x.corner}` : ['nw', 'ne', 'se', 'sw'][x.corner]!, to, this.ratioLock !== x.shift)
+      const np = ns && shapePoints(ns)
+      if (!np) return null
+      points = np
+    } else {
+      const old = el.points as number[][]
+      const [nx, ny] = snap ? lineSnapEnd(old[1 - x.corner]!, to) : [to[0]!, to[1]!] // a key step is exact, the snap would undo a 1 pt perpendicular step
+      points = old.map((p, i) => (i === x.corner ? [round2(nx), round2(ny), ...p.slice(2)] : [...p]))
+    }
+    if (JSON.stringify(points) === JSON.stringify(el.points) && JSON.stringify(ns) === JSON.stringify(el.shape ?? null)) return null
+    return { op: 'reshapeStroke', pageId: x.slot.page.id, id: el.id, ...(ns ? { shape: ns } : {}), points }
+  }
+
+  /** Ctrl+Arrow: moves the last handle (line end, triangle v2, rect/circle se corner) by (dx, dy) pt; a run within 500 ms is one undo step. False: not a single line or shape. */
+  resizeStep(dx: number, dy: number): boolean {
+    const rs = this.reshapeTarget()
+    if (!rs || this.busy()) return false
+    const sh = rs.el.shape
+    const line = !isKnownShape(sh)
+    const at = line ? (rs.el.points as number[][])[1]! : handlePoint(sh, 2)
+    const op = this.reshapeOp({ slot: rs.slot, ids: [rs.el.id as string], corner: line ? 1 : 2, shift: false, cur: [0, 0] }, [at[0]! + dx, at[1]! + dy], false)
+    return op ? this.nudgeWith(op, `${rs.slot.page.id}:${rs.el.id}:r`) : true
   }
 
   /** A single selected text box that can be edited: the points of its two side handles (document coordinates). */
@@ -1357,6 +1441,8 @@ export class Writer {
     const { b } = fr
     const v = this.viewport
     const [lx, ly] = this.local(e.clientX, e.clientY)
+    const rs = this.reshapeTarget()
+    if (rs && this.isVertex(rs.el) && this.vertexHandles(rs.el, rs.slot).some(([px, py]) => Math.hypot(lx - (v.offsetX + px * v.scale), ly - (v.offsetY + py * v.scale)) <= HANDLE_HIT)) return true
     const sx = (x: number) => v.offsetX + (x + sel.slot.x) * v.scale
     const sy = (y: number) => v.offsetY + (y + sel.slot.y) * v.scale
     const [fx, fy] = this.intoFrame(lx, ly, (sx(b.left) + sx(b.right)) / 2, (sy(b.top) + sy(b.bottom)) / 2, fr.angle)
@@ -1497,10 +1583,13 @@ export class Writer {
     const e = this.editable()
     if (!e) return false
     const ids = e.sel.els.map((x) => x.id as string)
-    const key = `${e.sel.slot.page.id}:${ids.join()}`
+    return this.nudgeWith({ op: 'move', pageId: e.sel.slot.page.id, ids, dx, dy }, `${e.sel.slot.page.id}:${ids.join()}`)
+  }
+
+  private nudgeWith(op: Op, key: string): boolean {
     const run = this.nudgeRun
     const depth = this.history.undoDepth
-    if (this.applyEdit({ op: 'move', pageId: e.sel.slot.page.id, ids, dx, dy })) return true
+    if (this.applyEdit(op)) return true
     // Nothing else was recorded since the last nudge: this record folds into it.
     if (run && run.key === key && run.depth === depth && this.history.undoDepth === depth + 1) this.history.foldLastUndo()
     if (run) clearTimeout(run.timer)

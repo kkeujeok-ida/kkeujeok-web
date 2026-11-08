@@ -1,6 +1,6 @@
 // Shape strokes (story 26.5): addStroke keeps `shape`, transforms regenerate points, partial erase pieces are plain strokes.
 import { describe, expect, test } from 'vitest'
-import { shapeFromDrag, shapePoints } from '../src/model/shape'
+import { shapeFromDrag, shapePoints, shapeResize, shapeRotate } from '../src/model/shape'
 import { toWritableJson, type Note } from '../src/model/note'
 import { applyOp, createNote, erasePieces, erasedElements, type Ctx } from '../src/ops/ops'
 
@@ -45,5 +45,29 @@ describe('shape stroke', () => {
   test('drag under 4 pt gives no shape; Shift makes a square', () => {
     expect(shapeFromDrag('circle', [0, 0], [3, 3], false)).toBeNull()
     expect(shapeFromDrag('rect', [0, 0], [100, 30], true)).toMatchObject({ width: 100, height: 100 })
+  })
+})
+
+describe('reshapeStroke (story 26.9)', () => {
+  const reshape = (n: Note, op: Record<string, unknown>) => {
+    const r = applyOp(n, { op: 'reshapeStroke', pageId: 'p', ...op }, ctx)
+    if ('error' in r) throw new Error(r.error)
+    return r
+  }
+  test('resize replaces shape and points; the inverse restores both (one undo step)', () => {
+    const ns = shapeResize(shape, 'se', [260, 190], false)!
+    const r = reshape(withShape(), { id: 's1', shape: ns, points: shapePoints(ns) })
+    expect(only(r.note).shape).toEqual(ns)
+    expect(only(r.note).color).toBe('#000000')
+    const u = applyOp(r.note, r.inverse!, ctx)
+    expect('note' in u && only(u.note)).toMatchObject({ shape, points: stroke.points })
+  })
+  test('rotate snaps to 15 degrees', () => {
+    expect(shapeRotate(shape, [shape.x as number + 50, 0])).toBe(0)
+    expect(shapeRotate(shape, [1000, shape.y as number + 30 - 1000 * Math.tan((14 * Math.PI) / 180)])).toBe(75)
+  })
+  test('errors', () => {
+    expect(applyOp(withShape(), { op: 'reshapeStroke', pageId: 'p', id: 'zz', points: [[0, 0, 0.5, 0]] }, ctx)).toEqual({ error: 'strokeNotFound' })
+    expect(applyOp(withShape(), { op: 'reshapeStroke', pageId: 'p', id: 's1', points: [] }, ctx)).toEqual({ error: 'invalidStroke' })
   })
 })

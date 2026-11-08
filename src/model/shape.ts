@@ -173,3 +173,57 @@ export function recognizeShape(points: readonly number[][]): Shape | null {
   }
   return { kind: kind === 0 ? 'circle' : 'rect', x: round2(bx), y: round2(by), width: round2(bw), height: round2(bh), rotation: 0 }
 }
+
+type Box = Record<'x' | 'y' | 'width' | 'height' | 'rotation', number>
+
+/** `shape.resize`: `s` with `handle` (`nw ne se sw` or `v0 v1 v2`) dragged to `to`; the opposite corner stays on the page. Null for an unknown shape or handle. */
+export function shapeResize(s: Shape, handle: string, to: readonly number[], keepRatio: boolean): Shape | null {
+  if (!isKnownShape(s)) return null
+  const tx = to[0]!, ty = to[1]!
+  if (s.kind === 'triangle') {
+    const i = ['v0', 'v1', 'v2'].indexOf(handle)
+    if (i < 0) return null
+    return { kind: 'triangle', vertices: (s.vertices as number[][]).map((v, k) => (k === i ? [round2(tx), round2(ty)] : [v[0]!, v[1]!])) }
+  }
+  const corner = ['nw', 'ne', 'se', 'sw'].indexOf(handle)
+  if (corner < 0) return null
+  const { x, y, width: w, height: h, rotation } = s as unknown as Box
+  const cx = x + w / 2, cy = y + h / 2
+  const r = (rotation * Math.PI) / 180
+  const ux = Math.cos(r), uy = Math.sin(r) // the box's own x axis
+  const ox = corner === 0 || corner === 3 ? w / 2 : -w / 2
+  const oy = corner === 0 || corner === 1 ? h / 2 : -h / 2
+  const px = cx + ox * ux - oy * uy, py = cy + ox * uy + oy * ux
+  let du = (tx - px) * ux + (ty - py) * uy
+  let dv = -(tx - px) * uy + (ty - py) * ux
+  if (keepRatio) {
+    const k = Math.max(Math.abs(du) / w, Math.abs(dv) / h)
+    du = (du < 0 ? -1 : 1) * w * k
+    dv = (dv < 0 ? -1 : 1) * h * k
+  }
+  if (Math.abs(du) < 1) du = du < 0 ? -1 : 1
+  if (Math.abs(dv) < 1) dv = dv < 0 ? -1 : 1
+  const ncx = px + (du * ux - dv * uy) / 2, ncy = py + (du * uy + dv * ux) / 2
+  return { kind: s.kind, x: round2(ncx - Math.abs(du) / 2), y: round2(ncy - Math.abs(dv) / 2), width: round2(Math.abs(du)), height: round2(Math.abs(dv)), rotation }
+}
+
+/** `shape.rotate`: the `rotation` a rotation handle dragged to `to` gives, snapped within 3 degrees of a multiple of 15. */
+export function shapeRotate(s: Shape, to: readonly number[]): number {
+  const { x, y, width, height } = s as unknown as Box
+  let a = (Math.atan2(to[1]! - (y + height / 2), to[0]! - (x + width / 2)) * 180) / Math.PI + 90
+  a = ((a % 360) + 360) % 360
+  const near = Math.round(a / 15) * 15
+  if (Math.abs(a - near) <= 3) a = near
+  return round2(a) % 360
+}
+
+/** Where handle `i` of a line (2 points), triangle (v0..v2) or rect/circle (nw ne se sw) is, in page coordinates. */
+export function handlePoint(s: Shape, i: number): [number, number] {
+  if (s.kind === 'triangle') return (s.vertices as [number, number][])[i]!
+  const { x, y, width: w, height: h, rotation } = s as unknown as Box
+  const cx = x + w / 2, cy = y + h / 2
+  const r = (rotation * Math.PI) / 180
+  const ox = i === 0 || i === 3 ? -w / 2 : w / 2
+  const oy = i < 2 ? -h / 2 : h / 2
+  return [cx + ox * Math.cos(r) - oy * Math.sin(r), cy + ox * Math.sin(r) + oy * Math.cos(r)]
+}

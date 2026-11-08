@@ -336,7 +336,7 @@ export function NoteEditor({
               w.eraserMode = eraserRef.current.mode
               w.onEdit = (i) => live && setEdit(i)
               // Nothing is announced for an empty selection.
-              w.onSelection = (n) => live && n > 0 && setResultText(fmt(tRef.current('editor.selected'), { n }))
+              w.onSelection = (n, kind) => live && n > 0 && setResultText(kind ? tRef.current(kind === 'line' ? 'editor.lineSelected' : 'editor.shapeSelected') : fmt(tRef.current('editor.selected'), { n }))
               return w
             }
             let w = make(note, store)
@@ -930,6 +930,15 @@ export function NoteEditor({
         if (e.key === 'Home' || e.key === 'End') {
           e.preventDefault()
           writer.goToPage(e.key === 'Home' ? 0 : last)
+          return
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !typing(e.target)) {
+        // Ctrl+Arrow moves the end handle of a selected line or shape (1 pt, Shift 10 pt).
+        const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key as 'ArrowLeft'] as number[] | undefined
+        const k = e.shiftKey ? 10 : 1
+        if (step && writer.resizeStep(step[0]! * k, step[1]! * k)) {
+          e.preventDefault()
           return
         }
       }

@@ -73,6 +73,8 @@ export function applyOp(note: Note, op: Op, ctx: Ctx): OpResult {
       return transformOp(note, op, ctx)
     case 'replaceElements':
       return replaceElements(note, op, ctx)
+    case 'reshapeStroke':
+      return reshapeStroke(note, op, ctx)
     case 'setStrokeColor':
     case 'setStrokeWidth':
       return strokeOp(note, op, ctx)
@@ -288,6 +290,26 @@ function select(next: Note, op: Op, own: () => string | null): { page: Page; idx
   const have = new Set(page.elements.map(elId))
   if (![...ids].every((i) => have.has(i))) return { error: 'elementNotFound' }
   return { page, idx: page.elements.flatMap((e, i) => (ids.has(elId(e)) ? [i] : [])) }
+}
+
+// reshapeStroke (spec/shape.md): new `points` and `shape` of one stroke. `shape` absent keeps it, null removes it.
+function reshapeStroke(note: Note, op: Op, ctx: Ctx): OpResult {
+  const next = structuredClone(note)
+  const page = findPage(next, op.pageId)
+  if (!page) return { error: 'pageNotFound' }
+  const el = page.elements.find((e) => elId(e) === op.id && (e as { type?: unknown }).type === 'stroke') as Stroke | undefined
+  if (!el) return { error: 'strokeNotFound' }
+  const pts = op.points
+  if (!Array.isArray(pts) || pts.length === 0 || !pts.every((p) => Array.isArray(p) && (p.length === 4 || p.length === 6) && p.every((n) => typeof n === 'number' && Number.isFinite(n)))) return { error: 'invalidStroke' }
+  const inverse = { op: 'reshapeStroke', pageId: op.pageId, id: op.id, shape: structuredClone(el.shape ?? null), points: structuredClone(el.points) }
+  el.points = structuredClone(pts) as number[][]
+  if ('shape' in op) {
+    if (op.shape == null) delete el.shape
+    else el.shape = structuredClone(op.shape) as Stroke['shape']
+  }
+  roundStroke(el)
+  touch(page, ctx)
+  return { note: next, inverse }
 }
 
 // setStrokeColor / setStrokeWidth: strokes only.

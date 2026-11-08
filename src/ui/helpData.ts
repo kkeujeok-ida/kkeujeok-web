@@ -26,6 +26,7 @@ export const SHORTCUT_GROUPS: HelpGroup[] = [
       row('Esc', 'help.k.clearSelection'),
       row('Arrow keys', 'help.k.arrows'),
       row('Shift+Arrow keys', 'help.k.arrowsBig'),
+      row('Ctrl+Arrow keys', 'help.k.resizeArrows'),
       row('Ctrl+B / Ctrl+I', 'help.k.boldItalic'),
     ],
   },
