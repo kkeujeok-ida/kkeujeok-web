@@ -171,6 +171,8 @@ h1 {
 /* A row of radio options drawn as one segmented button (theme). The radios stay real inputs, visually hidden. */
 .segmented {
   display: flex;
+  width: max-content;
+  max-width: 100%;
   overflow: hidden;
   border: 1px solid var(--color-border-hairline);
   border-radius: var(--rounded-sm);
@@ -179,11 +181,12 @@ h1 {
 .segmented-option {
   position: relative;
   display: flex;
-  flex: 1;
+  flex: 1 0 auto;
   align-items: center;
   justify-content: center;
   min-height: var(--spacing-hit-min-web);
   padding: 0 var(--spacing-3);
+  white-space: nowrap;
   background: var(--color-surface-raised);
   color: var(--color-ink-primary);
   cursor: pointer;
