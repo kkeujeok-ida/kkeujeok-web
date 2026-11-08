@@ -37,7 +37,9 @@ export async function renderThumbnail(page: Page, width: number, height: number)
     const s = surface(width, height)
     if (!s || !(page.width > 0)) return null
     const scale = width / page.width
-    paintPage(s.ctx, page, { scale, offsetX: 0, offsetY: 0 }, new StrokePathCache(), null, null, undefined, null, false) // uploaded to Drive: original colors
+    const cache = new StrokePathCache()
+    paintPage(s.ctx, page, { scale, offsetX: 0, offsetY: 0 }, cache, null, null, undefined, null, false) // uploaded to Drive: original colors
+    cache.dispose()
     return await s.toPng()
   } catch {
     return null

@@ -1060,7 +1060,7 @@ function PageThumb({ page, images }: { page: Page | undefined; images?: Partial<
     ro?.observe(c)
     const un = pdfHost ? pdfHost.subscribe(draw) : undefined
     if (pdfHost && page && isPdfBackground(page.background)) pdfHost.thumbPdf(page.background.asset)
-    return () => (ro?.disconnect(), un?.())
+    return () => (ro?.disconnect(), un?.(), cache.dispose())
   }, [page, pdfHost])
   return (
     <span className="cover-thumb" aria-hidden="true">

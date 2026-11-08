@@ -289,7 +289,10 @@ export class Writer {
 
   private cacheOf(pageId: string): StrokePathCache {
     let c = this.caches.get(pageId)
-    if (!c) this.caches.set(pageId, (c = new StrokePathCache()))
+    if (!c) {
+      this.caches.set(pageId, (c = new StrokePathCache()))
+      c.textures.onReady = () => this.redraw()
+    }
     return c
   }
 
@@ -663,7 +666,7 @@ export class Writer {
     // event (O(n)), and wheel/pinch repaint per event; make both incremental /
     // rAF-coalesced if 2.15 measures them slow.
     const vp = this.viewport
-    for (const id of [...this.caches.keys()]) if (!this.history.note.pages.some((p) => p.id === id)) this.caches.delete(id)
+    for (const [id, c] of [...this.caches]) if (!this.history.note.pages.some((p) => p.id === id)) (c.dispose(), this.caches.delete(id))
     this.images?.watch(this.history.note)
     const live = this.drawing ? this.build(this.shown(this.drawing), this.drawing.strokeId, !!this.drawing.hold?.active) : null
     const draft = this.edit ? { pageId: this.edit.pageId, id: this.edit.id, el: this.draftEl(this.edit) } : null

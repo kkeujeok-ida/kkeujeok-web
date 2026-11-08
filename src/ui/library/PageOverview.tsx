@@ -81,7 +81,7 @@ function Thumb({ page, images }: { page: Page; images?: ImageHost | undefined })
     ro?.observe(c)
     // A PDF page is drawn once its bytes are here and rendered.
     const un = isPdfBackground(page.background) ? images?.subscribe(draw) : undefined
-    return () => (ro?.disconnect(), un?.())
+    return () => (ro?.disconnect(), un?.(), cache.dispose())
   }, [page, images])
   return <canvas ref={ref} className="po-canvas" aria-hidden="true" />
 }

@@ -30,6 +30,7 @@ import { layoutText, type LineBox } from '../src/model/textLayout'
 import { snapScale } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
 import { strokeOutline, strokeOutlineFor } from '../src/render/strokeOutline'
+import { PENCIL_CELL, pencilDensity, pencilGrain, pencilSeed } from '../src/render/pencilTexture'
 import { hasUnsentRule } from '../src/sync/hasUnsent'
 import { checkLogEntry } from '../src/sync/syncLogEntry'
 import { driveDuplicatesRule } from '../src/drive/duplicates'
@@ -236,6 +237,23 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'stroke.outline.pen': ({ input, expected, tolerance }) => outlineCase(strokeOutline, input, expected, tolerance),
   'stroke.outline.fountain': ({ input, expected, tolerance }) =>
     outlineCase((w, u, p) => strokeOutlineFor('fountain', w, u, p), input, expected, tolerance),
+  'stroke.outline.pencil': ({ input, expected, tolerance }) =>
+    outlineCase((w, u, p) => strokeOutlineFor('pencil', w, u, p), input, expected, tolerance),
+  'stroke.texture.pencil': ({ input, expected, tolerance }) => {
+    const i = input as { fn: string; id: string; seed: number; i: number; j: number; q: number; x: number; y: number }
+    const e = expected as Record<string, number | boolean>
+    if (i.fn === 'seed') expect({ seed: pencilSeed(i.id) }).toEqual(e)
+    else if (i.fn === 'grain') expect({ grain: pencilGrain(i.seed, i.i, i.j) }).toEqual(e)
+    else if (i.fn === 'density') {
+      const d = pencilDensity(i.q)
+      expect(d.threshold).toBe(e.threshold)
+      expect(Math.abs(d.density - (e.density as number))).toBeLessThanOrEqual(tolerance! + 1e-9)
+    } else {
+      const ci = Math.floor(i.x / PENCIL_CELL), cj = Math.floor(i.y / PENCIL_CELL)
+      const grain = pencilGrain(i.seed, ci, cj)
+      expect({ i: ci, j: cj, grain, inked: grain < pencilDensity(i.q).threshold }).toEqual(e)
+    }
+  },
   'stroke.outline.highlighter': ({ input, expected, tolerance }) => {
     const i = input as { width: number; points: number[][] }
     const want = (expected as { polygons: number[][][] }).polygons
@@ -405,9 +423,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 const PENDING: string[] = [
   // Epic 24 pen kinds (Story 24.1): the runners arrive with Story 24.3 (pen.*,
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
-  'stroke.outline.pencil',
   'stroke.outline.tape',
-  'stroke.texture.pencil',
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.brush',
   'note.shape',

@@ -83,7 +83,7 @@ function Preview({ page, other, label }: { page: Page; other: Page | null; label
     draw()
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(draw) : null
     ro?.observe(c)
-    return () => ro?.disconnect()
+    return () => (ro?.disconnect(), cache.dispose())
   }, [page, other])
   const k = ratioOf(page.width, page.height)
   return (
