@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { NoteReceiver, ReceiveState } from '../../sync/noteReceiver'
 import type { Page } from '../../model/note'
+import { isPdfBackground } from '../../model/pdfRules'
 import { StrokePathCache, fitViewport, paintPage } from '../../render/pagePainter'
 import { savesSettled, takeUnsaved } from '../../storage/saveQueue'
 import { fmt, useI18n } from '../../i18n'
@@ -65,7 +66,7 @@ type Props = {
   /** The folder being looked at: `root` = the top level, a folder id, null or unset = all notes. */
   folderId?: string | null
   /** Story 9.3: where the bytes of an imported PDF are kept. Without it the shared byte store is used. */
-  images?: Pick<ImageHost, 'storePdf' | 'discardPdf'>
+  images?: Pick<ImageHost, 'storePdf' | 'discardPdf'> & Partial<ImageHost>
 }
 
 const PDF_ERROR: Record<PdfImportError, Key> = {
@@ -604,6 +605,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
             blocked={() => entering.current}
             receiving={receive.receiving.has(item.noteId)}
             offline={offline}
+            images={images}
             onDelete={uploads ? () => void confirmDelete(item.noteId) : undefined}
             onRename={(from) => setRenaming({ noteId: item.noteId, title: item.title ?? '', from })}
             onCover={(from) => setCovering({ noteId: item.noteId, title: item.title ?? '', coverId: item.coverId ?? null, from })}
@@ -787,13 +789,15 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
 
 // The first page on the card, drawn by the writing screen's renderer. A page
 // that cannot be drawn leaves an empty card.
-function Thumb({ page, coverId }: { page: Page | undefined; coverId?: string | null }) {
+function Thumb({ page, coverId, images }: { page: Page | undefined; coverId?: string | null; images?: Partial<ImageHost> | undefined }) {
   const art = coverUrl(coverId)
-  return art ? <CoverArt url={art} /> : <PageThumb page={page} />
+  return art ? <CoverArt url={art} /> : <PageThumb page={page} images={images} />
 }
 
-function PageThumb({ page }: { page: Page | undefined }) {
+/** The first page; a PDF page shows its PDF under the strokes once the PDF is on this device (never fetched for a thumbnail). */
+function PageThumb({ page, images }: { page: Page | undefined; images?: Partial<ImageHost> | undefined }) {
   const ref = useRef<HTMLCanvasElement>(null)
+  const pdfHost = images?.pdf && images.subscribe && images.thumbPdf ? (images as ImageHost) : undefined
   useEffect(() => {
     const c = ref.current
     if (!c || !page) return
@@ -808,7 +812,7 @@ function PageThumb({ page }: { page: Page | undefined }) {
         const ctx = c.getContext('2d')
         if (!ctx) return
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-        paintPage(ctx, page, fitViewport(r.width, r.height, page.width, page.height), cache)
+        paintPage(ctx, page, fitViewport(r.width, r.height, page.width, page.height), cache, null, null, pdfHost)
       } catch {
         // an empty card
       }
@@ -816,8 +820,10 @@ function PageThumb({ page }: { page: Page | undefined }) {
     draw()
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(draw) : null
     ro?.observe(c)
-    return () => ro?.disconnect()
-  }, [page])
+    const un = pdfHost ? pdfHost.subscribe(draw) : undefined
+    if (pdfHost && page && isPdfBackground(page.background)) pdfHost.thumbPdf(page.background.asset)
+    return () => (ro?.disconnect(), un?.())
+  }, [page, pdfHost])
   return (
     <span className="cover-thumb" aria-hidden="true">
       <canvas ref={ref} className="cover-thumb-canvas" />
@@ -857,6 +863,7 @@ function Card({
   blocked,
   receiving,
   offline,
+  images,
   onDelete,
   onRename,
   onCover,
@@ -868,6 +875,7 @@ function Card({
   blocked: () => boolean
   receiving: boolean
   offline: boolean
+  images?: Partial<ImageHost> | undefined
   onDelete?: () => void
   onRename: (from: HTMLElement | null) => void
   onCover: (from: HTMLElement | null) => void
@@ -882,8 +890,9 @@ function Card({
   const sync = useCardStatus(item.noteId).label
   const conflicted = (useNoteConflicts(item.noteId)?.length ?? 0) > 0
   const link = useRef<HTMLAnchorElement>(null)
-  // The ⋯ menu: open or in its delete confirmation; `opener` gets focus back when it closes.
+  // The ⋯ menu, and the delete confirmation (a centred dialog like the folder's); `opener` gets focus back when either closes.
   const [menu, setMenu] = useState<{ confirm: boolean } | null>(null)
+  const [deleting, setDeleting] = useState<HTMLElement | null | false>(false)
   const opener = useRef<HTMLElement | null>(null)
   // The badge of a short sync is held (see useDisplayLabel); `saved` has none.
   const held = useDisplayLabel(receiving ? 'receiving' : sync ?? 'saved')
@@ -910,7 +919,7 @@ function Card({
       <li>
         <div className="cover-card cover-card-disabled" aria-disabled="true" aria-labelledby={titleId} aria-describedby={described} title={item.title}>
           <span className="cover-thumb-wrap">
-            <Thumb page={item.page} coverId={item.coverId} />
+            <Thumb page={item.page} coverId={item.coverId} images={images} />
             {badge && <SyncBadge label={badge} />}
           </span>
           <span className="cover-text">
@@ -940,8 +949,7 @@ function Card({
             onRename(e.currentTarget)
           } else if (e.key === 'Delete' && onDelete) {
             e.preventDefault()
-            opener.current = e.currentTarget
-            setMenu({ confirm: true })
+            setDeleting(e.currentTarget)
           }
         }}
         aria-labelledby={titleId}
@@ -955,7 +963,7 @@ function Card({
         }}
       >
         <span className="cover-thumb-wrap">
-          <Thumb page={item.page} coverId={item.coverId} />
+          <Thumb page={item.page} coverId={item.coverId} images={images} />
           {badge && <SyncBadge label={badge} />}
         </span>
         <span className="cover-text">
@@ -977,15 +985,32 @@ function Card({
         onRename={onRename}
         onCover={onCover}
         {...(onMove && { onMove })}
-        {...(onDelete && { onDelete })}
+        {...(onDelete && { onDelete: (from: HTMLElement | null) => setDeleting(from) })}
       />
+      {deleting !== false && onDelete && (
+        <ConfirmDialog
+          body={t('library.noteDeleteBody')}
+          confirmLabel={t('library.noteDeleteConfirm')}
+          cancelLabel={t('library.cancel')}
+          destructive
+          onCancel={() => {
+            const from = deleting
+            setDeleting(false)
+            from?.focus()
+          }}
+          onConfirm={() => {
+            setDeleting(false)
+            onDelete()
+          }}
+        />
+      )}
     </li>
   )
 }
 
 /**
  * The ⋯ button of a card, a sibling of the card link (UX-DR83): [이름 변경] [표지 변경] [이동] [삭제].
- * [삭제] turns the menu into its confirmation in place; Esc goes back one step and focus returns to where it started.
+ * [삭제] opens a centred confirmation dialog (like the folder's); Esc closes the menu and focus returns to where it started.
  */
 function NoteMenu({
   menu,
@@ -1002,17 +1027,15 @@ function NoteMenu({
   onRename: (from: HTMLElement | null) => void
   onCover: (from: HTMLElement | null) => void
   onMove?: (from: HTMLElement | null) => void
-  onDelete?: () => void
+  onDelete?: (from: HTMLElement | null) => void
 }) {
   const { t } = useI18n()
   const button = useRef<HTMLButtonElement>(null)
   const list = useRef<HTMLDivElement>(null)
-  const del = useRef<HTMLButtonElement>(null)
-  const confirm = menu?.confirm === true
-  // The menu starts on its first item, the confirmation on [취소].
+  // The menu starts on its first item.
   useEffect(() => {
-    if (menu) list.current?.querySelector<HTMLElement>(confirm ? '[data-cancel]' : '[role="menuitem"]')?.focus()
-  }, [menu !== null, confirm]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (menu) list.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+  }, [menu !== null]) // eslint-disable-line react-hooks/exhaustive-deps
   // The pointer goes elsewhere: the menu closes.
   useEffect(() => {
     if (!menu) return
@@ -1042,10 +1065,7 @@ function NoteMenu({
         if (e.key === 'Escape') {
           e.preventDefault()
           e.stopPropagation()
-          if (confirm && opener.current === null) {
-            setMenu({ confirm: false })
-            requestAnimationFrame(() => del.current?.focus())
-          } else close()
+          close()
         } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
           e.preventDefault()
           const items = [...list.current!.querySelectorAll<HTMLElement>('[role="menuitem"]')]
@@ -1067,29 +1087,7 @@ function NoteMenu({
       </button>
       {menu && (
         <div ref={list} role="menu" className="cover-menu-list">
-          {confirm ? (
-            <>
-              <p role="alert" className="cover-confirm">
-                {t('library.noteDeleteBody')}
-              </p>
-              <button
-                type="button"
-                role="menuitem"
-                className="btn btn-destructive"
-                onClick={() => {
-                  setMenu(null)
-                  opener.current = null
-                  onDelete?.()
-                }}
-              >
-                {t('library.noteDeleteConfirm')}
-              </button>
-              <button type="button" role="menuitem" className="btn" data-cancel onClick={close}>
-                {t('library.cancel')}
-              </button>
-            </>
-          ) : (
-            <>
+          <>
               <button type="button" role="menuitem" className="btn" aria-keyshortcuts="F2" onClick={act(onRename)}>
                 {t('library.noteRename')}
               </button>
@@ -1102,12 +1100,11 @@ function NoteMenu({
                 </button>
               )}
               {onDelete && (
-                <button ref={del} type="button" role="menuitem" className="btn" aria-keyshortcuts="Delete" onClick={() => setMenu({ confirm: true })}>
+                <button type="button" role="menuitem" className="btn" aria-keyshortcuts="Delete" onClick={act(onDelete)}>
                   {t('library.noteDelete')}
                 </button>
               )}
-            </>
-          )}
+          </>
         </div>
       )}
     </div>

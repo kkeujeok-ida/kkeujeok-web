@@ -245,7 +245,7 @@ export function paintPage(
 
     if (images?.pdf && isPdfBackground(page.background)) {
       // The part of the page on screen, for the sharp tile of a zoomed view.
-      const dpr = ctx.getTransform().a || 1
+      const dpr = ctx.getTransform().a / scale || 1 // the transform already holds the page scale
       const x0 = -offsetX / scale, y0 = -offsetY / scale
       const vis = { x0: Math.max(0, x0), y0: Math.max(0, y0), x1: Math.min(w, x0 + ctx.canvas.width / dpr / scale), y1: Math.min(h, y0 + ctx.canvas.height / dpr / scale) }
       images.pdf.paint(ctx, page, vis, scale * dpr)

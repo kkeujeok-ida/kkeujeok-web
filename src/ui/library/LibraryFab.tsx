@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useI18n } from '../../i18n'
 
-// The round "+" at the bottom right. It expands a menu holding [new note] and, with folders, [new folder] (Story 18.3).
+// The round "+" at the bottom right. It expands a menu holding [new folder] (with folders), [import PDF] and [new note], in the Android order (Story 18.3).
 // Focus: first item when opened, back on "+" when closed by Esc, x or outside press.
 export function LibraryFab({ onNewNote, onNewFolder, onImportPdf }: { onNewNote: (opener: HTMLElement | null) => void; onNewFolder?: (opener: HTMLElement | null) => void; onImportPdf?: (opener: HTMLElement | null) => void }) {
   const { t } = useI18n()
@@ -43,6 +43,24 @@ export function LibraryFab({ onNewNote, onNewFolder, onImportPdf }: { onNewNote:
       <div className="fab">
         {open && (
           <div ref={menu} className="fab-menu" role="menu" onKeyDown={onMenuKeyDown}>
+            {onNewFolder && (
+              <button
+                type="button"
+                role="menuitem"
+                className="fab-item"
+                onClick={() => {
+                  setOpen(false)
+                  onNewFolder(button.current)
+                }}
+              >
+                <span>{t('folder.add')}</span>
+                <span className="fab-item-icon" aria-hidden="true">
+                  <svg className="icon" viewBox="0 0 16 16">
+                    <path d="M2 4.5h4l1.5 1.5H14v6.5H2z" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                  </svg>
+                </span>
+              </button>
+            )}
             {onImportPdf && (
               <button
                 type="button"
@@ -77,24 +95,6 @@ export function LibraryFab({ onNewNote, onNewFolder, onImportPdf }: { onNewNote:
                 </svg>
               </span>
             </button>
-            {onNewFolder && (
-              <button
-                type="button"
-                role="menuitem"
-                className="fab-item"
-                onClick={() => {
-                  setOpen(false)
-                  onNewFolder(button.current)
-                }}
-              >
-                <span>{t('folder.add')}</span>
-                <span className="fab-item-icon" aria-hidden="true">
-                  <svg className="icon" viewBox="0 0 16 16">
-                    <path d="M2 4.5h4l1.5 1.5H14v6.5H2z" stroke="currentColor" strokeWidth="1.5" fill="none" />
-                  </svg>
-                </span>
-              </button>
-            )}
           </div>
         )}
         <button

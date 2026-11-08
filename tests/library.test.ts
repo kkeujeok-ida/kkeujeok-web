@@ -729,7 +729,7 @@ describe('library view modes', () => {
 describe('card menu (Story 7.8)', () => {
   const menuItems = () => qa('[role="menuitem"]').map((m) => m.textContent)
 
-  test('⋯ is a sibling of the card link with [이름 변경] and [삭제]; delete confirms in place and Esc steps back', async () => {
+  test('⋯ is a sibling of the card link with [이름 변경] and [삭제]; delete confirms in a centred dialog', async () => {
     await seed([mk('a', '노트 하나', '2026-01-02T00:00:00.000Z')])
     const deleted: string[] = []
     await mountLibrary({ uploads: { deleteNote: async (id) => void deleted.push(id) } })
@@ -738,14 +738,12 @@ describe('card menu (Story 7.8)', () => {
     click(button)
     expect(menuItems()).toEqual(['이름 변경', '표지 변경', '삭제']) // no folders wired: no [이동]
     click(qa('[role="menuitem"]')[2]!)
-    expect(q('[role="alert"]')!.textContent).toContain('휴지통')
-    expect(menuItems()).toEqual(['지우기', '취소'])
-    expect(document.activeElement!.textContent).toBe('취소')
-    key(document.activeElement!, 'Escape') // back to the menu, focus on [삭제]
-    expect(menuItems()).toEqual(['이름 변경', '표지 변경', '삭제'])
-    expect(deleted).toEqual([])
-    key(document.activeElement!, 'Escape') // closes, focus on ⋯
     expect(q('[role="menu"]')).toBeNull()
+    expect(dialog()!.textContent).toContain('휴지통')
+    expect(document.activeElement!.textContent).toBe('취소')
+    key(document.activeElement!, 'Escape') // cancels, focus on ⋯
+    expect(dialog()).toBeNull()
+    expect(deleted).toEqual([])
     expect(document.activeElement).toBe(button)
   })
 
@@ -756,11 +754,11 @@ describe('card menu (Story 7.8)', () => {
     const link = q<HTMLAnchorElement>('a.cover-card')!
     link.focus()
     key(link, 'Delete')
-    expect(menuItems()).toEqual(['지우기', '취소'])
+    expect(dialog()!.textContent).toContain('휴지통')
     key(document.activeElement!, 'Escape')
     expect(document.activeElement).toBe(link)
     key(link, 'Delete')
-    click(qa('[role="menuitem"]')[0]!)
+    click(qa('[role="dialog"] button').find((b) => b.textContent === '지우기')!)
     await flush()
     expect(deleted).toEqual(['a'])
   })

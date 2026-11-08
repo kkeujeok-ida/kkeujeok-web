@@ -19,6 +19,8 @@ export type ImageHost = ImageSource & {
   subscribe(fn: () => void): () => void
   /** [다시 시도] on a placeholder. */
   retry(asset: string): void
+  /** A library thumbnail of a PDF page: marks the PDF on this device when its bytes are already stored. Never fetches. */
+  thumbPdf(hash: string): void
   /** The file as bytes in the store and the sync state, ready for `insertImage`; nothing is stored on an error. */
   prepare(file: Blob): Promise<(Prepared & { stored: true }) | { error: ImportError | 'storeFailed' }>
   markConfirmed(hash: string): void
@@ -38,6 +40,7 @@ export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: Im
   d.sync.subscribe(tell)
   const pdfPages = createPdfPages({ store: d.store, sync: d.sync, changed: tell, ...(d.pdfjs && { load: d.pdfjs }) })
   let seen: Note | null = null
+  const thumbChecked = new Set<string>()
 
   // Decodes once per hash; a hash that failed is not tried again (no endless repaint).
   async function decode(hash: string) {
@@ -96,6 +99,11 @@ export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: Im
     retry(asset) {
       pdfPages.layer.retry(asset)
       d.sync.retry(asset, exts.get(asset) ?? 'jpg')
+    },
+    thumbPdf(hash) {
+      if (thumbChecked.has(hash)) return
+      thumbChecked.add(hash)
+      void d.store.get(hash).then((r) => r && d.sync.markLocal(hash))
     },
     markConfirmed: (hash) => d.sync.markConfirmed(hash),
     async discardPdf(hash) {
