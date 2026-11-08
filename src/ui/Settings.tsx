@@ -11,6 +11,8 @@ import { getLeftHanded, setLeftHanded, subscribeLeftHanded } from '../storage/le
 import { THEMES, getTheme, setTheme, subscribeTheme } from '../storage/theme'
 import { Help } from './Help'
 import { PenPaletteEditor } from './PenPaletteEditor'
+import { SMOOTH_LEVELS } from '../model/smooth'
+import { getSmooth, setSmooth, subscribeSmooth } from '../storage/smooth'
 import { PressureCurveSetting } from './PressureCurveSetting'
 import { ConfirmDialog } from './ConfirmDialog'
 import { downloadBlob } from './download'
@@ -42,6 +44,7 @@ export function Settings({
   const theme = useSyncExternalStore(subscribeTheme, getTheme, getTheme)
   const leftHanded = useSyncExternalStore(subscribeLeftHanded, getLeftHanded, getLeftHanded)
   const straighten = useSyncExternalStore(subscribeStraighten, getStraighten, getStraighten)
+  const smooth = useSyncExternalStore(subscribeSmooth, getSmooth, getSmooth)
   const [help, setHelp] = useState(false)
   const helpBtn = useRef<HTMLButtonElement>(null)
   const wasHelp = useRef(false)
@@ -166,6 +169,17 @@ export function Settings({
         <input type="checkbox" checked={straighten} onChange={(e) => setStraighten(e.target.checked)} />
         <span>{t('settings.straighten')}</span>
       </label>
+      <fieldset className="settings-group">
+        <legend>{t('settings.smooth')}</legend>
+        <div className="segmented">
+          {SMOOTH_LEVELS.map((v) => (
+            <label key={v} className="segmented-option">
+              <input type="radio" name="smooth" value={v} checked={smooth === v} onChange={() => setSmooth(v)} />
+              <span>{t(`settings.smooth.${v}`)}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <div className="settings-group" role="group" aria-labelledby="visible-tools-label">
         <span id="visible-tools-label">{t('settings.visibleTools')}</span>
         <div className="settings-stepper">

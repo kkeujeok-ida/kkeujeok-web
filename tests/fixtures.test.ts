@@ -13,6 +13,7 @@ import { round2 } from '../src/model/number'
 import { PEN_DEFAULTS, PEN_PALETTE, PEN_WIDTH, colorNameKey, defaultPenSlots, type PenTool } from '../src/model/pen'
 import { resources } from '../src/i18n'
 import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
+import { smoothPoints, type SmoothLevel } from '../src/model/smooth'
 import { straightenActive, type StraightenInput } from '../src/model/straighten'
 import { highlighterOutline } from '../src/render/highlighterOutline'
 import { History } from '../src/ops/history'
@@ -228,6 +229,13 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     expect(Math.abs(q - want.q)).toBeLessThanOrEqual(tolerance!)
     expect(Math.abs(radiusFactor(q) - want.factor)).toBeLessThanOrEqual(tolerance!)
   },
+  'stroke.smooth': ({ input, expected, tolerance }) => {
+    const i = input as { level: SmoothLevel; points: number[][] }
+    const got = smoothPoints(i.points, i.level)
+    const want = expected as number[][]
+    expect(got).toHaveLength(want.length)
+    for (const [k, p] of got.entries()) for (const [j, v] of want[k]!.entries()) expect(Math.abs(p[j]! - v)).toBeLessThanOrEqual(tolerance! + 1e-12)
+  },
   'pen.straighten': ({ input, expected }) => void expect({ active: straightenActive(input as StraightenInput) }).toEqual(expected),
   'pen.palette': ({ input, expected }) => {
     const tool = (input as { tool: PenTool }).tool
@@ -374,7 +382,6 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 // Selection and edit rules (Story 4.1) arrive with the web stories 4.3, 4.5, 4.7.
 const PENDING: string[] = [
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
-  'stroke.smooth', // Story 16.4
 ]
 
 function mergeRunner({ input, expected }: Case) {

@@ -6,6 +6,8 @@ import { isValidStroke, type Page, type Stroke } from '../model/note'
 import { pageBackground } from './pageBackground'
 import { outlinePath, strokeOutline } from './strokeOutline'
 import { getPressureCurve } from '../storage/pressureCurve'
+import { smoothPoints } from '../model/smooth'
+import { getSmooth } from '../storage/smooth'
 import { highlighterOutline, highlighterPath } from './highlighterOutline'
 import { drawableImage, paintImage, type ImageSource } from './imagePainter'
 import { dotHex, inkHex, invertLayers, lineHex, paperHex } from '../model/invert'
@@ -130,11 +132,13 @@ function cacheKey(s: Stroke): string {
   // A cheap digest of every point, so an edit in the middle invalidates too.
   let h = 0
   for (const p of pts) h = (Math.imul(h, 31) + Math.round(p[0]! * 100) + Math.imul(Math.round(p[1]! * 100), 7) + Math.round(p[2]! * 100)) | 0
-  return [s.id, s.tool, pts.length, s.width, s.usePressure ? 1 : 0, JSON.stringify(getPressureCurve()), first?.[0], first?.[1], last?.[0], last?.[1], h].join('|')
+  return [s.id, s.tool, pts.length, s.width, s.usePressure ? 1 : 0, JSON.stringify(getPressureCurve()), getSmooth(), first?.[0], first?.[1], last?.[0], last?.[1], h].join('|')
 }
 
-const strokePath = (s: Pick<Stroke, 'tool' | 'width' | 'usePressure' | 'points'>): Path2D =>
-  s.tool === 'highlighter' ? highlighterPath(highlighterOutline(s.width, s.points)) : outlinePath(strokeOutline(s.width, s.usePressure, s.points))
+const strokePath = (s: Pick<Stroke, 'tool' | 'width' | 'usePressure' | 'points'>): Path2D => {
+  const pts = smoothPoints(s.points, getSmooth()) // screen only: export and print call the outlines directly
+  return s.tool === 'highlighter' ? highlighterPath(highlighterOutline(s.width, pts)) : outlinePath(strokeOutline(s.width, s.usePressure, pts))
+}
 
 /** Outlines of finished strokes by stroke id, so a repaint rebuilds none. */
 export class StrokePathCache {
