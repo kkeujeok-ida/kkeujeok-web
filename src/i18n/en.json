@@ -140,6 +140,8 @@
   "editor.tool.fountain": "Fountain pen",
   "editor.tool.pencil": "Pencil",
   "editor.tool.tape": "Answer tape",
+  "editor.tape.closed": "Hidden answer, press to show",
+  "editor.tape.open": "Answer shown, press to hide",
   "editor.kindSlot": "{kind}, {color}, width {width} ({n})",
   "editor.toolKind": "Tool type",
   "editor.palette": "Color",

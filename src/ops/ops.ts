@@ -367,7 +367,7 @@ function segSegDist(a: Pt, b: Pt, c: Pt, d: Pt): number {
  * Pure; the width is already validated. `eraseOp` and the live preview both use it, so they cannot differ.
  */
 export function erasePieces(page: Page, path: readonly Pt[], width: number): { index: number; pieces: number[][][] }[] {
-  const r = width / 2 + EPS
+  const r0 = width / 2 + EPS
   const pathDist = (p: Pt) => {
     if (path.length === 1) return Math.hypot(p[0]! - path[0]![0]!, p[1]! - path[0]![1]!)
     let m = Infinity
@@ -384,22 +384,27 @@ export function erasePieces(page: Page, path: readonly Pt[], width: number): { i
   // A stroke whose box is farther than r from the path's box cannot be touched (keeps the live preview cheap).
   let [x0, x1, y0, y1] = [Infinity, -Infinity, Infinity, -Infinity]
   for (const p of path) [x0, x1, y0, y1] = [Math.min(x0, p[0]!), Math.max(x1, p[0]!), Math.min(y0, p[1]!), Math.max(y1, p[1]!)]
-  ;[x0, x1, y0, y1] = [x0 - r, x1 + r, y0 - r, y1 + r]
+  ;[x0, x1, y0, y1] = [x0 - r0, x1 + r0, y0 - r0, y1 + r0]
   page.elements.forEach((e, index) => {
     const el = e as El
     if (el.type !== 'stroke') return
+    const tape = el.tool === 'tape'
+    const r = tapeReach(el, r0)
     const pts = (el.points as number[][] | undefined) ?? []
     if (pts.length > 0) {
       const bb = boxOf(pts)
-      if (!(bb[0] <= x1 && bb[1] >= x0 && bb[2] <= y1 && bb[3] >= y0)) return
+      if (!(bb[0] <= x1 + (r - r0) && bb[1] >= x0 - (r - r0) && bb[2] <= y1 + (r - r0) && bb[3] >= y0 - (r - r0))) return
     }
     const erased = pts.map((p) => pathDist(p) <= r)
     const cut = pts.slice(1).map((p, i) => pathSeg(pts[i]!, p) <= r)
     if (!erased.some(Boolean) && !cut.some(Boolean)) return
-    out.push({ index, pieces: piecesOf(pts, erased, cut) })
+    out.push({ index, pieces: tape ? [] : piecesOf(pts, erased, cut) }) // a tape is removed whole, never split
   })
   return out
 }
+
+/** The reach of an eraser of radius `r` on `el`: a tape is touched by its whole band (center line + width / 2). */
+const tapeReach = (el: El, r: number): number => (el.tool === 'tape' && typeof el.width === 'number' ? r + el.width / 2 : r)
 
 /** The stroke's surviving point runs (>= 2 points) given which points are erased and which segments are cut. */
 function piecesOf(pts: number[][], erased: readonly boolean[], cut: readonly boolean[]): number[][][] {
@@ -448,8 +453,8 @@ export class EraseScan {
   push(p: Pt): void {
     const q = this.last
     this.last = p
-    const { r } = this
-    const [sx0, sx1, sy0, sy1] = q ? [Math.min(q[0]!, p[0]!) - r, Math.max(q[0]!, p[0]!) + r, Math.min(q[1]!, p[1]!) - r, Math.max(q[1]!, p[1]!) + r] : [p[0]! - r, p[0]! + r, p[1]! - r, p[1]! + r]
+    const { r: r0 } = this
+    const [sx0, sx1, sy0, sy1] = q ? [Math.min(q[0]!, p[0]!) - r0, Math.max(q[0]!, p[0]!) + r0, Math.min(q[1]!, p[1]!) - r0, Math.max(q[1]!, p[1]!) + r0] : [p[0]! - r0, p[0]! + r0, p[1]! - r0, p[1]! + r0]
     const els = this.page.elements
     for (let index = 0; index < els.length; index++) {
       const el = els[index] as El
@@ -457,7 +462,9 @@ export class EraseScan {
       const pts = (el.points as number[][] | undefined) ?? []
       if (pts.length === 0) continue
       const bb = (this.boxes[index] ??= boxOf(pts))
-      if (!(bb[0] <= sx1 && bb[1] >= sx0 && bb[2] <= sy1 && bb[3] >= sy0)) continue
+      const r = tapeReach(el, r0)
+      const m = r - r0
+      if (!(bb[0] <= sx1 + m && bb[1] >= sx0 - m && bb[2] <= sy1 + m && bb[3] >= sy0 - m)) continue
       let st = this.hit.get(index)
       let changed = false
       const flags = () => (st ??= { erased: pts.map(() => false), cut: pts.slice(1).map(() => false), els: [] })
@@ -488,7 +495,7 @@ export class EraseScan {
       if (!st) return
       const id = (e as El).id as string
       fadeIds.add(id)
-      if (!this.partial) return
+      if (!this.partial || (e as El).tool === 'tape') return
       if (st.els.length === 0) {
         const pieces = piecesOf((e as El).points as number[][], st.erased, st.cut)
         st.els = pieces.map((points, j) => ({ ...(structuredClone(e) as object), id: `${id}~${j}`, points }) as unknown as Page['elements'][number])

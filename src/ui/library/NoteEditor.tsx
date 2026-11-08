@@ -46,7 +46,7 @@ import { onResolveRequest, takeResolveRequest } from './resolveRequest'
 import { detectEditedBy } from './useLibrary'
 import { ZOOM_MAX, ZOOM_MIN } from '../../render/pagePainter'
 import type { ImageHost } from '../../render/imageHost'
-import { ARROW_STEP, Writer, ZOOM_STEP, type EditInfo, type ErasedInfo, type Tool, type SelectionBox, type ViewInfo, type WriterMessage } from './writer'
+import { ARROW_STEP, Writer, ZOOM_STEP, type EditInfo, type ErasedInfo, type Tool, type SelectionBox, type TapeNode, type ViewInfo, type WriterMessage } from './writer'
 
 /** The noteId of a `#/notes/{noteId}` hash, else null. */
 export function parseNoteRoute(hash: string): string | null {
@@ -179,6 +179,7 @@ export function NoteEditor({
   }
   const [edit, setEdit] = useState<EditInfo | null>(null)
   const [box, setBox] = useState<SelectionBox | null>(null)
+  const [tapes, setTapes] = useState<TapeNode[]>([])
   const [ratio, setRatio] = useState(true)
   const selectedRef = useRef(0)
   selectedRef.current = selected
@@ -326,6 +327,7 @@ export function NoteEditor({
               }
               w.onView = (v) => live && setView(v)
               w.onBox = (b) => live && setBox(b)
+              w.onTapes = (n) => live && setTapes(n)
               w.onErased = (i) => live && erasedRef.current(i)
               w.eraserMode = eraserRef.current.mode
               w.onEdit = (i) => live && setEdit(i)
@@ -1598,6 +1600,16 @@ export function NoteEditor({
                 </button>
               ) : null
             })}
+            {tapes.map((tp) => (
+              <button
+                key={tp.id}
+                type="button"
+                className="tape-hit"
+                aria-label={t(tp.open ? 'editor.tape.open' : 'editor.tape.closed')}
+                style={{ left: (canvas.current?.offsetLeft ?? 0) + tp.left, top: (canvas.current?.offsetTop ?? 0) + tp.top, width: tp.width, height: tp.height }}
+                onClick={() => loaded.writer.toggleTape(tp.id)}
+              />
+            ))}
             {box && !readOnly && !loaded.writer.pageLocked && (
               <SelectionMenu
                 box={box}

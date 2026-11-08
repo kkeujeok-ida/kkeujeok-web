@@ -100,16 +100,18 @@ export function strokeOutline(
   minRatio = MIN_RATIO,
   maxRatio = MAX_RATIO,
   taper = false,
+  flat = false,
 ): number[][] {
   const smp = strokeSamples(usePressure, points, curve)
   const { x: sx, y: sy, q: sq, length: total } = smp
   if (sx.length === 0) return []
 
-  const radius = (q: number) => (width / 2) * (q < 0.5 ? minRatio + (1 - minRatio) * (q / 0.5) : 1 + (maxRatio - 1) * ((q - 0.5) / 0.5))
+  const radius = (q: number) => flat ? width / 2 : (width / 2) * (q < 0.5 ? minRatio + (1 - minRatio) * (q / 0.5) : 1 + (maxRatio - 1) * ((q - 0.5) / 0.5))
 
   // 2. One point: a 16-point circle.
   if (sx.length === 1) {
     const r = radius(sq[0]!)
+    if (flat) return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([dx, dy]) => [round2(sx[0]! + dx! * r), round2(sy[0]! + dy! * r)])
     return Array.from({ length: 16 }, (_, k) => [
       round2(sx[0]! + r * Math.cos((2 * Math.PI * k) / 16)),
       round2(sy[0]! + r * Math.sin((2 * Math.PI * k) / 16)),
@@ -164,7 +166,7 @@ export function strokeOutline(
   const rStart = radius(sq[0]!) * g[0]!
   const endCap: number[][] = []
   const startCap: number[][] = []
-  for (let k = 1; k < CAP_SEGMENTS; k++) {
+  for (let k = 1; k < (flat ? 0 : CAP_SEGMENTS); k++) {
     const phi = (Math.PI * k) / CAP_SEGMENTS
     const c = Math.cos(phi)
     const s = Math.sin(phi)
@@ -174,7 +176,7 @@ export function strokeOutline(
   return [...left, ...endCap, ...right.reverse(), ...startCap].map((p) => [round2(p[0]!), round2(p[1]!)])
 }
 
-/** The outline of a stroke by its `tool`. Tape is pen-shaped until Story 24.6 gives it its own. */
+/** The outline of a stroke by its `tool`. */
 export const strokeOutlineFor = (
   tool: string | undefined,
   width: number,
@@ -186,7 +188,9 @@ export const strokeOutlineFor = (
     ? strokeOutline(width, usePressure, points, curve, 0.2, 1.6, true)
     : tool === 'pencil'
       ? strokeOutline(width, usePressure, points, curve, 0.6, 1.3)
-      : strokeOutline(width, usePressure, points, curve)
+      : tool === 'tape'
+        ? strokeOutline(width, usePressure, points, curve, 0.5, 1, false, true)
+        : strokeOutline(width, usePressure, points, curve)
 
 /** The polygon as a path; fill it with the non-zero rule. */
 export function outlinePath(polygon: readonly (readonly number[])[]): Path2D {

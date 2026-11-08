@@ -140,6 +140,8 @@
   "editor.tool.fountain": "만년필",
   "editor.tool.pencil": "연필",
   "editor.tool.tape": "정답지 테이프",
+  "editor.tape.closed": "가려진 정답, 누르면 보임",
+  "editor.tape.open": "정답이 보임, 누르면 가림",
   "editor.kindSlot": "{kind}, {color}, 두께 {width} ({n})",
   "editor.toolKind": "도구 종류",
   "editor.palette": "색",

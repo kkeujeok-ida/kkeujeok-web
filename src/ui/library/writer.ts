@@ -5,6 +5,8 @@ import { newId } from '../../model/ids'
 import { HOLD_DISTANCE, HOLD_MS, straightenActive } from '../../model/straighten'
 import { getStraighten } from '../../storage/straighten'
 import { pageOutOfBounds } from '../../model/pageBounds'
+import { TAPE_TAP_SLOP, isTapeTap, tapeAt } from '../../model/tapeHit'
+import { strokeOutlineFor } from '../../render/strokeOutline'
 import { elementClipboard } from '../../model/elementClipboard'
 import { isTextBox, selectLasso, selectRect, selectTap, selectionBounds, selectionFrame, type Bounds, type El } from '../../model/select'
 import { cpIndex, formatAt, formatRange, retextRuns, type TextFormat } from '../../model/textEdit'
@@ -144,6 +146,7 @@ export function hitSelection(l: number, t: number, r: number, b: number, x: numb
   return inside(0) ? 'move' : null
 }
 /** `page`: index of the current page (the one in view, or the one a page key moved to); `pages`: how many there are. */
+export type TapeNode = { id: string; left: number; top: number; width: number; height: number; open: boolean }
 export type ViewInfo = { scale: number; x: Thumb | null; y: Thumb | null; page: number; pages: number }
 /** A page and where it starts in the document (see `layoutSlots`); `unit` is the group it is shown with. */
 type Slot = { page: Page; x: number; y: number; unit: number }
@@ -219,6 +222,14 @@ export class Writer {
   onBox: (b: SelectionBox | null) => void = () => {}
   /** Called when the text box being edited (or its place, content or format) changed; null when none. */
   onEdit: (i: EditInfo | null) => void = () => {}
+  /** Answer tapes on screen with their box in canvas CSS px (for the keyboard/screen-reader buttons); called when it changed. */
+  onTapes: (tapes: TapeNode[]) => void = () => {}
+  /** Open answer tapes: screen state only, never in the note, ops or history (pen-kinds.md). Replaced, not edited. */
+  private openTapes: ReadonlySet<string> = new Set()
+  /** A press that began on a tape and may end as its toggle. */
+  private tapeTap: { pointer: number; id: string; x: number; y: number; t: number } | null = null
+  private lastTapes = ''
+  private tapeBox = new WeakMap<object, { left: number; top: number; right: number; bottom: number }>()
   /** Called whenever the view (scale, scrollbars) changed. */
   onView: (v: ViewInfo) => void = () => {}
   /** Someone tried to write or undo on a page with an unresolved conflict (Story 3.20). */
@@ -668,6 +679,7 @@ export class Writer {
     const vp = this.viewport
     for (const [id, c] of [...this.caches]) if (!this.history.note.pages.some((p) => p.id === id)) (c.dispose(), this.caches.delete(id))
     this.images?.watch(this.history.note)
+    this.pruneTapes()
     const live = this.drawing ? this.build(this.shown(this.drawing), this.drawing.strokeId, !!this.drawing.hold?.active) : null
     const draft = this.edit ? { pageId: this.edit.pageId, id: this.edit.id, el: this.draftEl(this.edit) } : null
     for (const s of this.slots().list) {
@@ -686,8 +698,9 @@ export class Writer {
       }
       const pv = er && er.pageId === s.page.id ? er.preview : null
       const shown = pv ? { ...s.page, elements: pv.elements } : s.page
-      paintPage(ctx, shown, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null, draft && draft.pageId === s.page.id ? draft : null, this.images ?? undefined, pv ? { ids: pv.fadeIds, alpha: eraserPreviewOpacity(c) } : null)
+      paintPage(ctx, shown, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null, draft && draft.pageId === s.page.id ? draft : null, this.images ?? undefined, pv ? { ids: pv.fadeIds, alpha: eraserPreviewOpacity(c) } : null, undefined, this.openTapes)
     }
+    this.emitTapes()
     if (this.ring && this.pointer && (this.tool === 'eraser' || this.erase)) {
       const [rx, ry] = this.local(this.pointer.x, this.pointer.y)
       ctx.save()
@@ -711,6 +724,49 @@ export class Writer {
       const ts = this.textSel()
       paintSelection(ctx, vp, box, path, selectionColors(c), pv.angle, ts && !this.xform ? [ts.l, ts.r] : [])
     }
+  }
+
+  /** A tape that is gone (deleted, undone away) forgets that it was open; one that returns comes back closed. */
+  private pruneTapes(): void {
+    if (this.openTapes.size === 0) return
+    const live = new Set<string>()
+    for (const p of this.history.note.pages) for (const e of p.elements as El[]) if (e.tool === 'tape' && typeof e.id === 'string') live.add(e.id)
+    if ([...this.openTapes].some((id) => !live.has(id))) this.openTapes = new Set([...this.openTapes].filter((id) => live.has(id)))
+  }
+
+  /** Toggles one tape (also on a read-only or conflicted page: it changes nothing in the note). */
+  toggleTape(id: string): void {
+    const o = new Set(this.openTapes)
+    if (!o.delete(id)) o.add(id)
+    this.openTapes = o
+    this.redraw()
+  }
+
+  private emitTapes(): void {
+    const v = this.viewport
+    const nodes: TapeNode[] = []
+    for (const s of this.slots().list) {
+      for (const e of s.page.elements as El[]) {
+        if (e.tool !== 'tape' || typeof e.id !== 'string' || !Array.isArray(e.points) || typeof e.width !== 'number') continue
+        let b = this.tapeBox.get(e)
+        if (!b) {
+          const poly = strokeOutlineFor('tape', e.width, false, e.points)
+          if (poly.length === 0) continue
+          b = { left: Math.min(...poly.map((p) => p[0]!)), right: Math.max(...poly.map((p) => p[0]!)), top: Math.min(...poly.map((p) => p[1]!)), bottom: Math.max(...poly.map((p) => p[1]!)) }
+          this.tapeBox.set(e, b)
+        }
+        const left = v.offsetX + (b.left + s.x) * v.scale
+        const top = v.offsetY + (b.top + s.y) * v.scale
+        const width = (b.right - b.left) * v.scale
+        const height = (b.bottom - b.top) * v.scale
+        if (left > this.cssW || top > this.cssH || left + width < 0 || top + height < 0) continue
+        nodes.push({ id: e.id, left, top, width, height, open: this.openTapes.has(e.id) })
+      }
+    }
+    const key = JSON.stringify(nodes)
+    if (key === this.lastTapes) return
+    this.lastTapes = key
+    this.onTapes(nodes)
   }
 
   /** The selected elements that still exist (undo or a merge may have removed some), with their page's place. */
@@ -1605,6 +1661,14 @@ export class Writer {
     const side = e.pointerType === 'pen' && ((e.buttons & (2 | 32)) !== 0 || e.button === 2 || e.button === 5)
     if (e.pointerType !== 'touch') this.ring = true
     if (this.mode === 'none' && !side && this.doubleDown(e)) return
+    this.tapeTap = null
+    // A press on a tape may become its toggle: not in select, eraser, text or hand mode, nor from a side button or a second finger.
+    if (this.mode === 'none' && !side && !this.hand && e.button === 0 && this.tool !== 'lasso' && this.tool !== 'eraser' && this.tool !== 'text') {
+      const s = this.under(e)
+      const p = s && this.point(e, e.timeStamp, undefined, s)
+      const id = s && p ? tapeAt(s.page.elements as El[], [p[0]!, p[1]!]) : null
+      if (id) this.tapeTap = { pointer: e.pointerId, id, x: e.clientX, y: e.clientY, t: e.timeStamp }
+    }
     if (e.pointerType === 'touch') return this.touchDown(e)
     const middle = e.pointerType === 'mouse' && e.button === 1
     if (side && this.readOnly) return
@@ -1772,6 +1836,7 @@ export class Writer {
   private onMove(e: PointerEvent): void {
     this.notePen(e)
     this.pointer = { x: e.clientX, y: e.clientY }
+    if (this.tapeTap?.pointer === e.pointerId && Math.hypot(e.clientX - this.tapeTap.x, e.clientY - this.tapeTap.y) >= TAPE_TAP_SLOP) this.tapeTap = null
     if (this.leaving) return
     if (e.pointerType !== 'touch') this.ring = true
     // The button came up where we could not see it: end the stroke or drag.
@@ -1833,6 +1898,18 @@ export class Writer {
   }
 
   private onUp(e: PointerEvent): void {
+    const tt = this.tapeTap
+    if (tt?.pointer === e.pointerId) {
+      this.tapeTap = null
+      if (!this.leaving && this.mode !== 'gesture' && isTapeTap(e.timeStamp - tt.t, Math.hypot(e.clientX - tt.x, e.clientY - tt.y))) {
+        // The tape consumes the tap: no stroke, no pan, no text box.
+        this.discardStroke()
+        this.lastTap = null
+        this.release(e.pointerId)
+        this.toggleTape(tt.id)
+        return
+      }
+    }
     if (this.mode === 'xform' && this.xform?.id === e.pointerId) {
       const x = this.xform
       const [dx, dy] = toPage(this.viewport, ...this.local(e.clientX, e.clientY))
@@ -1877,6 +1954,7 @@ export class Writer {
   }
 
   private onCancel(e: PointerEvent): void {
+    if (this.tapeTap?.pointer === e.pointerId) this.tapeTap = null
     if (this.mode === 'xform' && this.xform?.id === e.pointerId) {
       this.xform = null
       this.mode = 'none'

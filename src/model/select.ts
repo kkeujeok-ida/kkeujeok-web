@@ -50,7 +50,8 @@ function area(poly: readonly P[]): number {
   return Math.abs(s) / 2
 }
 
-function inPolygon([px, py]: P, poly: readonly P[]): boolean {
+/** Point in polygon, boundary included. */
+export function inPolygon([px, py]: P, poly: readonly P[]): boolean {
   let inside = false
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, yi] = poly[i]!

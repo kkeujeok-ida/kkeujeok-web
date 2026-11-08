@@ -239,6 +239,8 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     outlineCase((w, u, p) => strokeOutlineFor('fountain', w, u, p), input, expected, tolerance),
   'stroke.outline.pencil': ({ input, expected, tolerance }) =>
     outlineCase((w, u, p) => strokeOutlineFor('pencil', w, u, p), input, expected, tolerance),
+  'stroke.outline.tape': ({ input, expected, tolerance }) =>
+    outlineCase((w, u, p) => strokeOutlineFor('tape', w, u, p), input, expected, tolerance),
   'stroke.texture.pencil': ({ input, expected, tolerance }) => {
     const i = input as { fn: string; id: string; seed: number; i: number; j: number; q: number; x: number; y: number }
     const e = expected as Record<string, number | boolean>
@@ -423,7 +425,6 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
 const PENDING: string[] = [
   // Epic 24 pen kinds (Story 24.1): the runners arrive with Story 24.3 (pen.*,
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
-  'stroke.outline.tape',
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.brush',
   'note.shape',

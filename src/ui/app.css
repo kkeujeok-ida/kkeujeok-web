@@ -1273,6 +1273,18 @@ h1 {
   -webkit-user-select: none;
 }
 
+.tape-hit {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: none; /* the canvas takes the pointer; this is for keyboard and screen readers */
+}
+
+.tape-hit:focus-visible {
+  outline: var(--components-focus-ring-width, 2px) solid currentColor;
+}
+
 .editor-canvas:focus-visible {
   outline: none;
 }

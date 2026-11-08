@@ -249,6 +249,8 @@ export function paintPage(
   fade?: { ids: ReadonlySet<string>; alpha: number } | null,
   /** Draw in All Dark; default: the current theme. A copy that is saved or exported passes false. */
   allDark: boolean = isAllDark(),
+  /** Ids of answer tapes that are open (screen state, pen-kinds.md): drawn as an outline only. */
+  openTapes?: ReadonlySet<string>,
 ): void {
   const { width: w, height: h } = page
   const { scale, offsetX, offsetY } = viewport
@@ -340,7 +342,14 @@ export function paintPage(
         }
         const fa = fade?.ids.has(e.id) ? fade.alpha : 1
         const tex = e.tool === 'pencil' && texturesOn && pencilTouches(e, view) ? cache.textures.lookup(e) : null
-        if (tex) fillPencil(ctx, tex, e.color, fa, dark)
+        if (e.tool === 'tape' && openTapes?.has(e.id)) {
+          ctx.save()
+          ctx.globalAlpha = 0.6 * fa
+          ctx.lineWidth = 1.5 / scale
+          ctx.strokeStyle = COLOR.test(e.color) ? e.color : '#000000'
+          ctx.stroke(cache.pathOf(e))
+          ctx.restore()
+        } else if (tex) fillPencil(ctx, tex, e.color, fa, dark)
         else fill(ctx, cache.pathOf(e), e.color, e.tool, e.tool === 'pencil' ? fa * pencilAlpha(e) : fa, dark)
         if (pcs) ctx.restore()
       } catch {
