@@ -1,6 +1,8 @@
 // spec rule `stroke.outline.pen` (stroke-geometry.md): the closed polygon of a
 // pen stroke, built from the stored points only when drawing; never stored.
 import { round2 } from '../model/number'
+import { pressureCurve, type PressureCurve } from '../model/pressureCurve'
+import { getPressureCurve } from '../storage/pressureCurve'
 
 export const DEDUPE_DISTANCE = 0.01
 const SMOOTHING_PASSES = 2
@@ -10,15 +12,24 @@ const MIN_RATIO = 0.25
 const MAX_RATIO = 1.75
 const CAP_SEGMENTS = 8
 
-function pressure(usePressure: boolean, p: readonly number[]): number {
+function pressure(usePressure: boolean, p: readonly number[], curve: PressureCurve | null): number {
   if (!usePressure) return 0.5
   const v = p[2]
   if (typeof v !== 'number' || !Number.isFinite(v)) return 0.5
-  return Math.min(1, Math.max(0, v))
+  return curve ? pressureCurve(curve, v) : Math.min(1, Math.max(0, v))
 }
 
-/** `points` are `[x, y, pressure, t]`. Returns `[]` for no points. */
-export function strokeOutline(width: number, usePressure: boolean, points: readonly (readonly number[])[]): number[][] {
+/**
+ * `points` are `[x, y, pressure, t]`. Returns `[]` for no points. `curve` defaults to the device setting (pen-feel.md).
+ * A mouse stores 0.5 for every point: a stroke with no other pressure gets no curve.
+ */
+export function strokeOutline(
+  width: number,
+  usePressure: boolean,
+  points: readonly (readonly number[])[],
+  curve: PressureCurve = getPressureCurve(),
+): number[][] {
+  const useCurve = usePressure && points.some((p) => p[2] !== 0.5) ? curve : null
   // 1. Prepare: dedupe against the last kept point.
   const xs: number[] = []
   const ys: number[] = []
@@ -29,7 +40,7 @@ export function strokeOutline(width: number, usePressure: boolean, points: reado
     if (xs.length > 0 && Math.hypot(x - xs[xs.length - 1]!, y - ys[ys.length - 1]!) < DEDUPE_DISTANCE) continue
     xs.push(x)
     ys.push(y)
-    qs.push(pressure(usePressure, p))
+    qs.push(pressure(usePressure, p, useCurve))
   }
   if (xs.length === 0) return []
 

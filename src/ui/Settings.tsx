@@ -10,6 +10,7 @@ import { getLeftHanded, setLeftHanded, subscribeLeftHanded } from '../storage/le
 import { THEMES, getTheme, setTheme, subscribeTheme } from '../storage/theme'
 import { Help } from './Help'
 import { PenPaletteEditor } from './PenPaletteEditor'
+import { PressureCurveSetting } from './PressureCurveSetting'
 import { ConfirmDialog } from './ConfirmDialog'
 import { downloadBlob } from './download'
 
@@ -172,6 +173,7 @@ export function Settings({
         </div>
       </div>
       <PenPaletteEditor />
+      <PressureCurveSetting />
       <button ref={helpBtn} type="button" className="btn" onClick={() => setHelp(true)}>
         {t('settings.help')}
       </button>

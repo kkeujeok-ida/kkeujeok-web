@@ -202,7 +202,7 @@ export async function buildPdf(job: PdfJob): Promise<PdfResult> {
       const pe = keep.get(e.id)
       if (!pe) continue
       if (pe.kind === 'pen') {
-        const poly = strokeOutline(e.width, e.usePressure, e.points)
+        const poly = strokeOutline(e.width, e.usePressure, e.points, 'normal') // a file does not depend on a device setting
         if (poly.length) { ops.push(fillRgb(e.color)); polygon(ops, poly); ops.push(fill()) }
       } else if (pe.kind === 'highlighter') {
         // all rectangles of one stroke are one layer: one fill, one alpha
