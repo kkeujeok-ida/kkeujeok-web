@@ -478,6 +478,11 @@ const PENDING: string[] = [
   'note.shape',
   'brush.curve',
   'stroke.texture.pencilStamps',
+  // Story 26.11: runners arrive with the 26.x stories.
+  'shape.corners',
+  'shape.outline',
+  'shape.recognizeTilted',
+  'shape.holdResize',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
 
