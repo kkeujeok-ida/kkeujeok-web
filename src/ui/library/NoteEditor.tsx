@@ -30,6 +30,7 @@ import { SyncIndicator } from '../sync/SyncIndicator'
 import { ConflictDialog, type ConflictItem, type ResolveOutcome, pageNo, resultKey } from './ConflictDialog'
 import { PenPopover } from './PenPopover'
 import { EraserPopover } from './EraserPopover'
+import { ShapePopover } from './ShapePopover'
 import { sharedEraserSettings, type EraserSettingsStore } from '../../storage/eraserSettings'
 import { PenToolbar } from './PenToolbar'
 import { sharedToolbarPosition, type ToolbarPositionStore } from '../../storage/toolbarPosition'
@@ -166,7 +167,8 @@ export function NoteEditor({
   const [hintAt, setHintAt] = useState<{ left: number; top: number }>()
   const popoverOpen = useRef(false)
   const [eraserPop, setEraserPop] = useState(false)
-  popoverOpen.current = popover !== null || eraserPop
+  const [shapePop, setShapePop] = useState(false)
+  popoverOpen.current = popover !== null || eraserPop || shapePop
   const [selected, setSelected] = useState(0)
   const [tool, setTool] = useState<Tool>('pen')
   const [shapeKind, setShapeKind] = useState<ShapeKind>('rect')
@@ -1449,8 +1451,7 @@ export function NoteEditor({
               onRedo={() => loaded.writer.redo()}
               tool={tool}
               onToolChange={setTool}
-              shapeKind={shapeKind}
-              onShapeKind={setShapeKind}
+              onShapeEdit={() => !readOnly && !loaded.writer.busy() && setShapePop(true)}
               eraserMode={eraser.mode}
               onEraserEdit={() => {
                 if (readOnly || loaded.writer.busy()) return
@@ -1810,6 +1811,21 @@ export function NoteEditor({
               onClose={() => {
                 setEraserPop(false)
                 toolbar.current?.querySelector<HTMLElement>('[data-tool="eraser"]')?.focus()
+              }}
+            />
+          )}
+          {shapePop && !readOnly && (
+            <ShapePopover
+              kind={shapeKind}
+              anchor={toolbar.current}
+              tool='[data-tool="shape"]'
+              onChange={(k) => {
+                setShapeKind(k)
+                setAnnounce(t(`editor.shape.${k}`))
+              }}
+              onClose={() => {
+                setShapePop(false)
+                toolbar.current?.querySelector<HTMLElement>('[data-tool="shape"]')?.focus()
               }}
             />
           )}

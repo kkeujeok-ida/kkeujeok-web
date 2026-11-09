@@ -20,7 +20,7 @@ const DRAG_PX = 6
  * divider | undo, redo. Slots are one radiogroup; activating the selected one
  * opens the pen popover (onEdit). The slot buttons carry data-slot for the owner.
  */
-export function PenToolbar({ shapeKind = 'rect', onShapeKind, pens, selected, onSelect, onEdit, onAdd, onMove, tool, onToolChange, eraserMode, onEraserEdit, onImage, dock = STATIC_DOCK, onDocked, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
+export function PenToolbar({ onShapeEdit, pens, selected, onSelect, onEdit, onAdd, onMove, tool, onToolChange, eraserMode, onEraserEdit, onImage, dock = STATIC_DOCK, onDocked, canUndo, canRedo, onUndo, onRedo, readOnly = false, ref }: {
   pens: readonly Pen[]
   selected: number
   onSelect: (i: number) => void
@@ -32,9 +32,8 @@ export function PenToolbar({ shapeKind = 'rect', onShapeKind, pens, selected, on
   /** The lasso and the text tool are toggles: pressed = that tool, else the pen. The lasso works read-only too (selecting changes nothing); the text tool does not. */
   tool: 'pen' | 'eraser' | 'lasso' | 'text' | 'shape'
   onToolChange: (t: 'pen' | 'eraser' | 'lasso' | 'text' | 'shape') => void
-  /** The shape tool is a toggle like the text tool; its kind buttons show while it is on. */
-  shapeKind?: 'triangle' | 'rect' | 'circle'
-  onShapeKind?: (k: 'triangle' | 'rect' | 'circle') => void
+  /** Clicking the selected shape tool calls onShapeEdit (its kind popover), like the eraser. */
+  onShapeEdit: () => void
   /** The eraser works per stroke or partly: shown in its name and icon. Clicking the selected eraser calls onEraserEdit (its popover). */
   eraserMode: EraserMode
   onEraserEdit: () => void
@@ -55,7 +54,7 @@ export function PenToolbar({ shapeKind = 'rect', onShapeKind, pens, selected, on
   const { t } = useI18n()
   // Roving tab index: one toolbar item is a tab stop, the arrows move between items.
   const [stop, setStop] = useState('')
-  const keys = ['handle', ...pens.map((_, i) => `slot-${i}`), 'add', 'undo', 'redo', 'eraser', 'lasso', 'text', 'shape', 'triangle', 'rect', 'circle', 'image']
+  const keys = ['handle', ...pens.map((_, i) => `slot-${i}`), 'add', 'undo', 'redo', 'eraser', 'lasso', 'text', 'shape', 'image']
   const tabKey = keys.includes(stop) ? stop : `slot-${selected}`
   const rv = (key: string) => ({ 'data-roving': key, tabIndex: key === tabKey ? 0 : -1 })
   const slotsEl = useRef<HTMLDivElement>(null)
@@ -385,15 +384,17 @@ export function PenToolbar({ shapeKind = 'rect', onShapeKind, pens, selected, on
         className="toolbar-action"
         data-tool="shape"
         {...rv('shape')}
-        onClick={() => !readOnly && onToolChange(tool === 'shape' ? 'pen' : 'shape')}
+        onClick={() => !readOnly && (tool === 'shape' ? onShapeEdit() : onToolChange('shape'))}
       >
         <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 3L2 20h20L12 3zm0 4.5L18.5 18h-13L12 7.5z" fill="currentColor" />
+          <g fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round">
+            <path d="M8 3L2 13h12z" />
+            <rect x="9" y="10" width="11" height="10" />
+            <circle cx="8" cy="16" r="5" />
+          </g>
         </svg>
       </button>
-      {tool === 'shape' &&
-        (['triangle', 'rect', 'circle'] as const).map((k) => (
-          <button
+      <button
             key={k}
             type="button"
             aria-pressed={shapeKind === k}

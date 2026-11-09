@@ -2127,6 +2127,18 @@ h1 {
   cursor: pointer;
 }
 
+.shape-popover {
+  width: auto;
+}
+
+.shape-popover .pen-tool-switch [role='radio'] {
+  flex: none;
+  min-width: var(--spacing-hit-min-web);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .pen-tool-switch [aria-checked='true'] {
   background: var(--color-accent-soft);
 }
