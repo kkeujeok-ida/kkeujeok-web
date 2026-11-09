@@ -583,9 +583,6 @@
   "editor.brush.tilt.size": "굵기",
   "editor.brush.tilt.opacity": "농도",
   "editor.brush.opacity": "농도",
-  "editor.brush.texture": "질감",
-  "editor.brush.texture.none": "매끈하게",
-  "editor.brush.texture.pencil": "연필 결",
   "brush.tiltCurve.graph": "기울기 곡선 그래프. 방향키로 점을 옮기거나 끌어서 옮겨요",
   "brush.tiltCurve.in": "기울기",
   "brush.tiltCurve.out": "효과",
@@ -599,5 +596,7 @@
   "editor.brush.presetUse": "쓰기:",
   "editor.brush.presetDelete": "프리셋 지우기",
   "editor.brush.presetName": "프리셋 이름",
-  "editor.brush.presetSave": "현재 펜을 프리셋으로 저장"
+  "editor.brush.presetSave": "프리셋 저장",
+  "editor.brush.presetMenu": "프리셋 옵션",
+  "editor.brush.presetRename": "이름 바꾸기"
 }

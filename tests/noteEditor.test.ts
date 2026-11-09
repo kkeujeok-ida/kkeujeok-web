@@ -1811,16 +1811,16 @@ describe('pen pressure toggle', () => {
     const seen: string[] = []
     let ev = tab(first)
     expect(ev.defaultPrevented).toBe(true)
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 9; i++) {
       const el = document.activeElement as HTMLElement
       seen.push(el.closest('.pen-palette') ? 'palette' : el.closest('.pen-recent') ? 'recent' : el.className || el.getAttribute('role')!)
       ev = tab(el)
     }
     // tools and kinds (one row), palette, (recent is empty), slider, down, up, switch, delete, back to the tool
-    expect(seen).toEqual(['palette', 'pen-width-slider', 'pen-step pen-step-down', 'pen-step', 'pen-popover-switch', 'pen-popover-delete'])
+    expect(seen).toEqual(['palette', 'pen-width-slider', 'pen-step pen-step-down', 'pen-step', 'pen-popover-switch', 'pen-popover-switch', 'pen-advanced-toggle', 'pen-popover-delete', 'pen-chip pen-chip-save'])
     expect(document.activeElement).toBe(first)
     tab(first, true)
-    expect(document.activeElement).toBe(q('.pen-popover-delete'))
+    expect(document.activeElement).toBe(q('.pen-chip-save'))
     act(() => void q('.pen-popover-scrim')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
     expect(dialog()).toBeNull()
     expect(storedUp(m)).toBe(false)

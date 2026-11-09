@@ -3073,9 +3073,63 @@ h1 {
   cursor: pointer;
 }
 
-.pen-advanced-body {
+
+/* Story 25.12: advanced columns and preset labels sit outside the pen bubble, to its right; a narrow screen scrolls them sideways. */
+.pen-popover-aside {
+  position: fixed;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-3);
+  box-sizing: border-box;
+  max-height: calc(100vh - var(--spacing-3) * 2);
+  overflow: auto;
+}
+
+.pen-adv-col {
   display: grid;
+  flex: none;
   gap: var(--spacing-2);
-  max-height: 50vh;
-  overflow-y: auto;
+  box-sizing: border-box;
+  width: 17rem;
+  padding: var(--components-popover-padding);
+  border-radius: var(--components-popover-rounded);
+  background: var(--components-popover-background);
+  box-shadow: var(--components-popover-shadow);
+}
+
+.pen-presets {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-2);
+}
+
+.pen-preset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
+.pen-preset-menu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.pen-chip {
+  min-height: var(--spacing-hit-min-web);
+  padding: 0 var(--spacing-3);
+  border: 0;
+  border-radius: 999px;
+  background: var(--components-popover-background);
+  box-shadow: var(--components-popover-shadow);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pen-chip-more {
+  padding: 0 var(--spacing-2);
 }

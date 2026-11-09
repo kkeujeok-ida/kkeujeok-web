@@ -67,6 +67,11 @@ export function createBrushPresets(storage: Store | undefined = browserStorage()
       const { tool, width, usePressure, brush } = pen
       return write([...list, { id, name: n, tool, width, usePressure, ...(brush ? { brush: structuredClone(brush) } : {}) }])
     },
+    /** An empty name changes nothing. */
+    rename: (id: string, name: string): BrushPreset[] => {
+      const n = name.trim().slice(0, MAX_PRESET_NAME)
+      return n ? write(read().map((p) => (p.id === id ? { ...p, name: n } : p))) : read()
+    },
     remove: (id: string): BrushPreset[] => write(read().filter((p) => p.id !== id)),
   }
 }

@@ -15,13 +15,15 @@ const tailAt = (p: Placement & { w: number; h: number }) => {
  * The modal shell of the toolbar popovers: a scrim that takes the pointer, a speech bubble on the tool button `tool` inside the toolbar `anchor` (placement: bubblePlace.ts; its tail is a sibling span), Tab cycling the `[tabindex="0"]` stops inside, Esc and a press outside close it.
  * The owner puts focus back in onClose. `relayout` changes when the content's height may have changed.
  */
-export function PopoverShell({ anchor, tool, onClose, labelledBy, className, relayout, children }: {
+export function PopoverShell({ anchor, tool, onClose, labelledBy, className, relayout, aside, children }: {
   anchor: HTMLElement | null // the toolbar
   tool: string // selector of the tool button inside it that the tail points at
   onClose: () => void
   labelledBy: string
   className: string
   relayout?: string | number
+  /** Columns outside the bubble, to its right (advanced settings, presets). They come after the bubble in the Tab and reading order. */
+  aside?: ReactNode
   children: ReactNode
 }) {
   const box = useRef<HTMLDivElement>(null)
@@ -48,7 +50,7 @@ export function PopoverShell({ anchor, tool, onClose, labelledBy, className, rel
       onClose()
     } else if (e.key === 'Tab') {
       e.preventDefault() // the stops inside: [tabindex="0"], in document order
-      const stops = Array.from(box.current?.querySelectorAll<HTMLElement>('[tabindex="0"]') ?? [])
+      const stops = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[tabindex="0"]') ?? [])
       if (stops.length === 0) return
       const at = stops.indexOf(document.activeElement as HTMLElement)
       stops[(at + (e.shiftKey ? -1 : 1) + stops.length) % stops.length]!.focus()
@@ -74,6 +76,11 @@ export function PopoverShell({ anchor, tool, onClose, labelledBy, className, rel
       >
         {children}
       </div>
+      {pos && aside && (
+        <div className="pen-popover-aside" style={{ left: pos.left + pos.w + 8, top: pos.top, maxWidth: window.innerWidth - (pos.left + pos.w + 8) - 12 }}>
+          {aside}
+        </div>
+      )}
       {pos && pos.tail !== null && <span className="pen-popover-tail" data-side={pos.side} style={tailAt(pos)} />}
     </div>
   )

@@ -14,6 +14,8 @@ describe('brush presets (device setting)', () => {
     expect(s.save('  soft  ', pen, 'a')).toEqual([{ id: 'a', name: 'soft', tool: 'pen', width: 2, usePressure: true, brush: { opacity: 0.5 } }])
     expect(createBrushPresets(storage).read()[0]!.brush).toEqual({ opacity: 0.5 })
     expect(JSON.parse(m.get(BRUSH_PRESETS_KEY)!)[0].name).toBe('soft')
+    expect(s.rename('a', ' hard ')[0]!.name).toBe('hard')
+    expect(s.rename('a', '  ')[0]!.name).toBe('hard')
     expect(s.remove('a')).toEqual([])
   })
   test('empty name and a full list save nothing', () => {

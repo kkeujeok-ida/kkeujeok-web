@@ -583,9 +583,6 @@
   "editor.brush.tilt.size": "Width",
   "editor.brush.tilt.opacity": "Opacity",
   "editor.brush.opacity": "Opacity",
-  "editor.brush.texture": "Texture",
-  "editor.brush.texture.none": "Plain",
-  "editor.brush.texture.pencil": "Pencil grain",
   "brush.tiltCurve.graph": "Tilt curve graph. Move a point with the arrow keys or drag it",
   "brush.tiltCurve.in": "Tilt",
   "brush.tiltCurve.out": "Effect",
@@ -599,5 +596,7 @@
   "editor.brush.presetUse": "Use",
   "editor.brush.presetDelete": "Delete preset",
   "editor.brush.presetName": "Preset name",
-  "editor.brush.presetSave": "Save current pen as preset"
+  "editor.brush.presetSave": "Save preset",
+  "editor.brush.presetMenu": "Preset options",
+  "editor.brush.presetRename": "Rename"
 }
