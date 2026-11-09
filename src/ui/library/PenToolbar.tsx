@@ -2,6 +2,7 @@ import { penGlyphD } from '../../model/penGlyph'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
 import { colorNameKey, type Pen } from '../../model/pen'
 import { fmt, useI18n } from '../../i18n'
+import { SHAPES_GLYPH_D, SHAPE_KIND_D } from './ShapePopover'
 import type { EraserMode } from '../../storage/eraserSettings'
 import { sharedVisibleTools } from '../../storage/toolbarVisibleTools'
 import type { Dock } from '../../storage/toolbarPosition'
@@ -388,9 +389,7 @@ export function PenToolbar({ onShapeEdit, pens, selected, onSelect, onEdit, onAd
       >
         <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
           <g fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round">
-            <path d="M8 3L2 13h12z" />
-            <rect x="9" y="10" width="11" height="10" />
-            <circle cx="8" cy="16" r="5" />
+            <path d={SHAPES_GLYPH_D} />
           </g>
         </svg>
       </button>
@@ -406,9 +405,7 @@ export function PenToolbar({ onShapeEdit, pens, selected, onSelect, onEdit, onAd
             onClick={() => onShapeKind?.(k)}
           >
             <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
-              {k === 'triangle' && <path d="M12 5L3 19h18z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />}
-              {k === 'rect' && <rect x="4" y="6" width="16" height="12" fill="none" stroke="currentColor" strokeWidth="2" />}
-              {k === 'circle' && <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="2" />}
+              <path d={SHAPE_KIND_D[k]} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
             </svg>
           </button>
         ))}

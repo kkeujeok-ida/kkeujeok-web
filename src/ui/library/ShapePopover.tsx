@@ -3,14 +3,21 @@ import { useI18n } from '../../i18n'
 import { SHAPE_KINDS, type ShapeKind } from '../../model/shape'
 import { PopoverShell } from './PopoverShell'
 
+// spec/tool-icons.md: only M L H V Z; the circle is a 16-gon.
+export const SHAPE_KIND_D: Record<ShapeKind, string> = {
+  triangle: 'M12 3L21 20H3Z',
+  rect: 'M4 4H20V20H4Z',
+  circle: 'M20 12L19.4 15.1L17.7 17.7L15.1 19.4L12 20L8.9 19.4L6.3 17.7L4.6 15.1L4 12L4.6 8.9L6.3 6.3L8.9 4.6L12 4L15.1 4.6L17.7 6.3L19.4 8.9Z',
+}
+export const SHAPES_GLYPH_D =
+  'M8 3L14.5 14H1.5ZM3 10H12V19H3ZM21.5 15L21.04 17.3L19.74 19.24L17.8 20.54L15.5 21L13.2 20.54L11.26 19.24L9.96 17.3L9.5 15L9.96 12.7L11.26 10.76L13.2 9.46L15.5 9L17.8 9.46L19.74 10.76L21.04 12.7Z'
+
 /** One icon per kind (spec/shape.md "Shape tool bar"): line art in the tool color, like tool-icons.md. */
 export function ShapeKindIcon({ kind }: { kind: ShapeKind }) {
   return (
     <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
       <g fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round">
-        {kind === 'triangle' && <path d="M12 4L3 19h18z" />}
-        {kind === 'rect' && <rect x="4" y="6" width="16" height="12" />}
-        {kind === 'circle' && <circle cx="12" cy="12" r="8" />}
+        <path d={SHAPE_KIND_D[kind]} />
       </g>
     </svg>
   )
