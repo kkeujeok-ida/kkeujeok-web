@@ -3,7 +3,7 @@ import { type Note, type Page, type Stroke, SUPPORTED_FORMAT_VERSION, isValidStr
 import { addPage, deletePage, duplicatePage, insertPages, movePages, setPageBackground, setPageOrder, setPageOrientation } from './pageOps'
 import { normalizeTitle } from '../model/noteTitle'
 import { round2 } from '../model/number'
-import { isKnownShape, shapePoints, transformShape } from '../model/shape'
+import { isKnownShape, shapeCorners, shapePoints, transformShape } from '../model/shape'
 import { PEN_WIDTH, type PenTool } from '../model/pen'
 import { IMAGE_SIZE_MIN, isAssetHash } from '../model/imageRules'
 import { isTextBox, selectionBounds, type El } from '../model/select'
@@ -201,7 +201,7 @@ function transformOp(note: Note, op: Op, ctx: Ctx): OpResult {
     if (e.type === 'stroke') {
       // A shape stroke follows its `shape`; its points are made again (spec shape.md). A collapsed one (scale to 0) stays as it is.
       if (isKnownShape(e.shape)) {
-        if (transformShape(e.shape, f, sx, sy, turn)) e.points = shapePoints(e.shape)!
+        if (transformShape(e.shape, f, sx, sy, turn)) e.points = shapeCorners(e.shape)!
         continue
       }
       for (const p of (e.points as number[][] | undefined) ?? []) {
@@ -425,7 +425,7 @@ export function erasePieces(page: Page, path: readonly Pt[], width: number): { i
     if (el.type !== 'stroke') return
     const tape = el.tool === 'tape'
     const r = tapeReach(el, r0)
-    const pts = (el.points as number[][] | undefined) ?? []
+    const pts = erasePoints(el)
     if (pts.length > 0) {
       const bb = boxOf(pts)
       if (!(bb[0] <= x1 + (r - r0) && bb[1] >= x0 - (r - r0) && bb[2] <= y1 + (r - r0) && bb[3] >= y0 - (r - r0))) return
@@ -437,6 +437,9 @@ export function erasePieces(page: Page, path: readonly Pt[], width: number): { i
   })
   return out
 }
+
+/** The points an eraser cuts: a shape stroke stores only its corners, so it is cut along its dense points (spec shape.md). */
+const erasePoints = (el: El): number[][] => (isKnownShape(el.shape) ? shapePoints(el.shape)! : (el.points as number[][] | undefined) ?? [])
 
 /** The reach of an eraser of radius `r` on `el`: a tape is touched by its whole band (center line + width / 2). */
 const tapeReach = (el: El, r: number): number => (el.tool === 'tape' && typeof el.width === 'number' ? r + el.width / 2 : r)
@@ -494,7 +497,7 @@ export class EraseScan {
     for (let index = 0; index < els.length; index++) {
       const el = els[index] as El
       if (el.type !== 'stroke') continue
-      const pts = (el.points as number[][] | undefined) ?? []
+      const pts = erasePoints(el)
       if (pts.length === 0) continue
       const bb = (this.boxes[index] ??= boxOf(pts))
       const r = tapeReach(el, r0)
@@ -532,7 +535,7 @@ export class EraseScan {
       fadeIds.add(id)
       if (!this.partial || (e as El).tool === 'tape') return
       if (st.els.length === 0) {
-        const pieces = piecesOf((e as El).points as number[][], st.erased, st.cut)
+        const pieces = piecesOf(erasePoints(e as El), st.erased, st.cut)
         st.els = pieces.map((points, j) => ({ ...(plainClone(e) as object), id: `${id}~${j}`, points }) as unknown as Page['elements'][number])
         if (st.els.length === 0) st.els = EMPTY
       }

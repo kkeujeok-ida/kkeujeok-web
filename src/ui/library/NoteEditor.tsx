@@ -791,6 +791,7 @@ export function NoteEditor({
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || e.altKey) return
       if (e.key === 'Escape') {
+        if (writer.cancelHeldShape()) return void e.preventDefault()
         if (typingTarget(e.target)) return
         // Esc in the selection menu only returns to the canvas (the selection stays).
         if ((e.target as HTMLElement | null)?.closest?.('[data-selection-menu]')) return

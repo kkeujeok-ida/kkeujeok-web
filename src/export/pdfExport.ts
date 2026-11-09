@@ -14,6 +14,7 @@ import { highlighterOutline, windAlike } from '../render/highlighterOutline'
 import { pageBackground } from '../render/pageBackground'
 import { pencilDensity } from '../render/pencilTexture'
 import { meanPressure, strokeOutlineFor } from '../render/strokeOutline'
+import { shapeRings } from '../model/shape'
 import { exportPlan, type PlanInput, type PlanResult, type RangeError } from './exportRules'
 
 type El = Record<string, any>
@@ -217,20 +218,24 @@ export async function buildPdf(job: PdfJob): Promise<PdfResult> {
       const pe = keep.get(e.id)
       if (!pe) continue
       if (pe.kind === 'pen' || pe.kind === 'fountain' || pe.kind === 'pencil') {
-        const poly = strokeOutlineFor(e.tool, e.width, e.usePressure, e.points, 'normal') // a file does not depend on a device setting
+        const rings = shapeRings(e as never)
+        const poly = rings ? rings.flat() : strokeOutlineFor(e.tool, e.width, e.usePressure, e.points, 'normal') // a file does not depend on a device setting
         if (poly.length) {
           // pencil: one path at the mean density alpha, never cells (spec "Pencil")
           const a = pe.kind === 'pencil' ? pencilDensity(meanPressure(e.usePressure, e.points, 'normal')).density : 1
           ops.push(pushGraphicsState())
           if (a !== 1) ops.push(setGraphicsState(page.node.newExtGState('Pc', doc.context.register(doc.context.obj({ Type: 'ExtGState', ca: a })))))
           ops.push(fillRgb(e.color))
-          polygon(ops, poly)
+          if (rings) rings.forEach((r) => polygon(ops, r))
+          else polygon(ops, poly)
           ops.push(fill(), popGraphicsState())
         }
       } else if (pe.kind === 'highlighter') {
         // all rectangles of one stroke are one layer: one fill, one alpha
         ops.push(pushGraphicsState(), setGraphicsState(gs), fillRgb(e.color))
-        for (const rect of windAlike(highlighterOutline(e.width, e.points))) polygon(ops, rect)
+        const rings = shapeRings(e as never)
+        if (rings) rings.forEach((r) => polygon(ops, r))
+        else for (const rect of windAlike(highlighterOutline(e.width, e.points))) polygon(ops, rect)
         ops.push(fill(), popGraphicsState())
       } else if (pe.kind === 'text') {
         drawText(ops, e, fonts, nameOf)

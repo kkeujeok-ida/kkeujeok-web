@@ -16,7 +16,7 @@ import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
 import { brushResolve } from '../src/model/brush'
 import { curveEval, curveToPoints, opacityPressureCurve } from '../src/model/curve'
 import { smoothPoints } from '../src/model/smooth'
-import { recognizeShape, shapeFromDrag, shapePoints, shapeResize, shapeRotate, type Shape } from '../src/model/shape'
+import { holdResize, recognizeShape, recognizeTilted, shapeCorners, shapeFromDrag, shapeOutline, shapePoints, shapeResize, shapeRotate, type Shape } from '../src/model/shape'
 import { lineSnapEnd, straightenActive, type StraightenInput } from '../src/model/straighten'
 import { highlighterOutline } from '../src/render/highlighterOutline'
 import { History } from '../src/ops/history'
@@ -318,6 +318,47 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
       for (const j of [0, 1]) expect(Math.abs(p[j]! - want[k]![j]!)).toBeLessThanOrEqual(tolerance! + 1e-12)
     }
   },
+  'shape.corners': ({ input, expected, tolerance }) => {
+    const got = shapeCorners((input as { shape: unknown }).shape)!
+    const want = (expected as { points: number[][] }).points
+    expect(got).toHaveLength(want.length)
+    for (const [k, p] of got.entries()) {
+      expect(p[2]).toBe(want[k]![2])
+      expect(p[3]).toBe(want[k]![3])
+      for (const j of [0, 1]) expect(Math.abs(p[j]! - want[k]![j]!)).toBeLessThanOrEqual(tolerance! + 1e-12)
+    }
+  },
+  'shape.outline': ({ input, expected, tolerance }) => {
+    const i = input as { points: number[][]; width: number; join: 'miter' | 'round' }
+    const got = shapeOutline(i.points, i.width, i.join)
+    const want = (expected as { rings: number[][][] }).rings
+    expect(got).toHaveLength(want.length)
+    got.forEach((ring, r) => {
+      expect(ring).toHaveLength(want[r]!.length)
+      ring.forEach((p, k) => p.forEach((v, j) => expect(Math.abs(v - want[r]![k]![j]!)).toBeLessThanOrEqual(tolerance! + 1e-12)))
+    })
+  },
+  'shape.recognizeTilted': ({ input, expected, tolerance }) => {
+    const got = recognizeTilted((input as { points: number[][] }).points)
+    const want = expected as { shape: Record<string, unknown> | null; line: boolean }
+    expect(got.line).toBe(want.line)
+    if (!want.shape) return void expect(got.shape).toBeNull()
+    expect(got.shape!.kind).toBe(want.shape.kind)
+    const flat = (m: Record<string, unknown>) => (m.vertices ? (m.vertices as number[][]).flat() : ['x', 'y', 'width', 'height', 'rotation'].map((k) => m[k] as number))
+    const a = flat(got.shape!), b = flat(want.shape)
+    expect(a).toHaveLength(b.length)
+    a.forEach((v, k) => expect(Math.abs(v - b[k]!)).toBeLessThanOrEqual(tolerance! + 1e-12))
+  },
+  'shape.holdResize': ({ input, expected, tolerance }) => {
+    const i = input as { shape: Shape; P0: number[]; P: number[] }
+    const got = holdResize(i.shape, i.P0, i.P)
+    const want = (expected as { shape: Record<string, unknown> }).shape
+    expect(got.kind).toBe(want.kind)
+    const flat = (m: Record<string, unknown>) => (m.vertices ? (m.vertices as number[][]).flat() : ['x', 'y', 'width', 'height', 'rotation'].map((k) => m[k] as number))
+    const a = flat(got), b = flat(want)
+    expect(a).toHaveLength(b.length)
+    a.forEach((v, k) => expect(Math.abs(v - b[k]!)).toBeLessThanOrEqual(tolerance! + 1e-12))
+  },
   'shape.recognize': ({ input, expected, tolerance }) => {
     const got = recognizeShape((input as { points: number[][] }).points)
     const want = (expected as { shape: Record<string, unknown> | null }).shape
@@ -494,11 +535,6 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
-  // Story 26.11: runners arrive with the 26.x stories.
-  'shape.corners',
-  'shape.outline',
-  'shape.recognizeTilted',
-  'shape.holdResize',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
 

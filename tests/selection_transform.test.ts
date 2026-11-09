@@ -7,7 +7,7 @@ import { I18nContext, createI18n } from '../src/i18n'
 import { defaultPen } from '../src/model/pen'
 import { History } from '../src/ops/history'
 import { createNote } from '../src/ops/ops'
-import { shapePoints } from '../src/model/shape'
+import { shapeCorners } from '../src/model/shape'
 import { SelectionMenu } from '../src/ui/library/SelectionMenu'
 import { Writer, hitSelection } from '../src/ui/library/writer'
 
@@ -207,10 +207,10 @@ describe('Writer transform', () => {
       expect(el0(w).points.map((p) => [p[0], p[1]])).toEqual([[100, 300], [200, 300]])
     })
     test('a corner handle resizes a shape keeping the opposite corner; points follow the shape', () => {
-      const w = pick({ id: 'r', type: 'stroke', tool: 'pen', color: '#000000', width: 2, usePressure: false, shape: rect, points: shapePoints(rect)! }, [100, 125])
+      const w = pick({ id: 'r', type: 'stroke', tool: 'pen', color: '#000000', width: 2, usePressure: false, shape: rect, points: shapeCorners(rect)! }, [100, 125])
       drag([200, 150], [260, 190], { shiftKey: true }) // Shift: free ratio (the lock is on by default)
       expect(el0(w).shape).toMatchObject({ x: 100, y: 100, width: 160, height: 90 })
-      expect(el0(w).points).toEqual(shapePoints(el0(w).shape))
+      expect(el0(w).points).toEqual(shapeCorners(el0(w).shape))
       expect(w.history.undoDepth).toBe(1)
     })
     test('Ctrl+Arrow steps the end of a line by 1 pt; a run is one undo step', () => {

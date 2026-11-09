@@ -3,6 +3,7 @@
 // page points (pt, top-left origin) into CSS pixels of the canvas.
 import { isPdfBackground, patternOf } from '../model/pdfRules'
 import { isValidStroke, type Page, type Stroke } from '../model/note'
+import { shapeRings } from '../model/shape'
 import { pageBackground } from './pageBackground'
 import { outlinePath, strokeOutlineFor } from './strokeOutline'
 import { brushAlphaFactor, brushResolve, tiltSizeFactor } from '../model/brush'
@@ -139,7 +140,16 @@ function cacheKey(s: Stroke): string {
   return [s.id, s.tool, pts.length, s.width, s.usePressure ? 1 : 0, JSON.stringify(getPressureCurve()), JSON.stringify(s.brush ?? null), getSmooth(), first?.[0], first?.[1], last?.[0], last?.[1], h].join('|')
 }
 
-const strokePath = (s: Pick<Stroke, 'tool' | 'width' | 'usePressure' | 'points'> & { brush?: unknown }): Path2D => {
+const strokePath = (s: Pick<Stroke, 'tool' | 'width' | 'usePressure' | 'points'> & { brush?: unknown; shape?: unknown }): Path2D => {
+  const rings = shapeRings(s) // a shape is a closed outline of one width: no pressure, taper or smoothing
+  if (rings) {
+    const path = new Path2D()
+    for (const ring of rings) {
+      ring.forEach((p, i) => (i === 0 ? path.moveTo(p[0]!, p[1]!) : path.lineTo(p[0]!, p[1]!)))
+      path.closePath()
+    }
+    return path
+  }
   const pts = smoothPoints(s.points, getSmooth()) // screen only: export and print call the outlines directly
   if (s.tool === 'highlighter') return highlighterPath(highlighterOutline(s.width, pts))
   if (s.brush === undefined) return outlinePath(strokeOutlineFor(s.tool, s.width, s.usePressure, pts))
