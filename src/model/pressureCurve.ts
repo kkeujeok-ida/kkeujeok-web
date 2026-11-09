@@ -1,7 +1,9 @@
 // spec rule `pen.pressureCurve` (pen-feel.md): maps a stored pressure p to the drawing pressure q.
+import { curveEval } from './curve'
+
 /** The inner points as a flat list `[x1, y1, x2, y2, ...]`; the curve also passes (0,0) and (1,1). */
 export type CurveValues = readonly number[]
-export type PressureCurve = 'soft' | 'normal' | 'firm' | CurveValues
+export type PressureCurve = 'soft' | 'normal' | 'firm' | CurveValues | readonly (readonly number[])[]
 export const PRESETS = ['soft', 'normal', 'firm'] as const
 export const PRESET_VALUES: Record<(typeof PRESETS)[number], CurveValues> = {
   soft: [0.2, 0.4, 0.5, 0.8],
@@ -31,8 +33,22 @@ export function curveValues(c: unknown): CurveValues {
   return validCurveValues(c) ? c : PRESET_VALUES.normal
 }
 
-/** q for a stored pressure p (clamped to 0..1): monotone cubic Hermite with Fritsch-Butland tangents. */
+/** Cubic Hermite through knots (x, y) with tangents m, at p inside [x0, xn]. */
+export function hermite(x: number[], y: number[], m: number[], p: number): number {
+  const n = x.length - 1
+  let k = 0
+  while (k < n - 1 && p > x[k + 1]!) k++
+  const h = x[k + 1]! - x[k]!
+  const u = (p - x[k]!) / h
+  const u2 = u * u
+  const u3 = u2 * u
+  const r = (2 * u3 - 3 * u2 + 1) * y[k]! + (u3 - 2 * u2 + u) * h * m[k]! + (-2 * u3 + 3 * u2) * y[k + 1]! + (u3 - u2) * h * m[k + 1]!
+  return Math.min(1, Math.max(0, r))
+}
+
+/** q for a stored pressure p (clamped to 0..1): monotone cubic Hermite with Fritsch-Butland tangents; a point-list curve (brush.curve) goes through `curveEval`. */
 export function pressureCurve(curve: unknown, p: number): number {
+  if (Array.isArray(curve) && Array.isArray(curve[0])) return curveEval(curve, p) ?? Math.min(1, Math.max(0, p))
   const v = curveValues(curve)
   p = Math.min(1, Math.max(0, p))
   if (p === 0 || p === 1 || v.length === 0) return p
@@ -50,17 +66,7 @@ export function pressureCurve(curve: unknown, p: number): number {
     const w2 = h[k]! + 2 * h[k - 1]!
     m[k] = (w1 + w2) / (w1 / d[k - 1]! + w2 / d[k]!)
   }
-  let k = 0
-  while (k < n - 1 && p > x[k + 1]!) k++
-  const u = (p - x[k]!) / h[k]!
-  const u2 = u * u
-  const u3 = u2 * u
-  const r =
-    (2 * u3 - 3 * u2 + 1) * y[k]! +
-    (u3 - 2 * u2 + u) * h[k]! * m[k]! +
-    (-2 * u3 + 3 * u2) * y[k + 1]! +
-    (u3 - u2) * h[k]! * m[k + 1]!
-  return Math.min(1, Math.max(0, r))
+  return hermite(x, y, m, p)
 }
 
 /** Radius factor f(q) of stroke-geometry.md. */

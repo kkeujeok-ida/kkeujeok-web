@@ -1,6 +1,7 @@
 import { useId, useState } from 'react'
 import { useI18n } from '../../i18n'
 import { type BrushPatch, brushResolve, patchBrush } from '../../model/brush'
+import { curveToPoints, editPoints, opacityPressureCurve } from '../../model/curve'
 import type { Pen } from '../../model/pen'
 import { sharedBrushPresets } from '../../storage/brushPresets'
 import { CurveEditor } from '../CurveEditor'
@@ -20,6 +21,8 @@ export function PenAdvanced({ pen, onChange, open, onToggle }: { pen: Pen; onCha
   const set = (patch: BrushPatch) => onChange({ brush: patchBrush(pen.tool, pen.brush, patch) })
   const flat = pen.tool === 'highlighter' || pen.tool === 'tape'
   const ownPressure = b.pressureCurve !== null
+  const opacityCurve = opacityPressureCurve(pen.brush)
+  const linear = curveToPoints(LINEAR)!
   const [presets, setPresets] = useState(() => sharedBrushPresets().read())
   const [name, setName] = useState('')
   const save = () => {
@@ -79,7 +82,18 @@ export function PenAdvanced({ pen, onChange, open, onToggle }: { pen: Pen; onCha
                   <span className="switch-thumb" />
                 </span>
               </button>
-              {ownPressure && <CurveEditor value={b.pressureCurve!} fixedCount={2} onChange={(v) => set({ pressureCurve: v })} />}
+              {ownPressure && <CurveEditor value={editPoints(b.pressureCurve)!} fixedCount={2} onChange={(v) => set({ pressureCurve: v })} />}
+            </>
+          )}
+          {pen.tool !== 'tape' && pen.usePressure && (
+            <>
+              <button type="button" role="switch" aria-checked={opacityCurve !== null} className="pen-popover-switch" onClick={() => set({ opacityPressureCurve: opacityCurve ? null : linear })}>
+                <span>{t('editor.brush.opacityPressure')}</span>
+                <span className="switch-track" aria-hidden="true">
+                  <span className="switch-thumb" />
+                </span>
+              </button>
+              {opacityCurve && <CurveEditor value={editPoints(opacityCurve)!} fixedCount={2} pad={false} i18n="brush.opacityCurve" onChange={(v) => set({ opacityPressureCurve: v })} />}
             </>
           )}
           {!flat && (
@@ -92,7 +106,7 @@ export function PenAdvanced({ pen, onChange, open, onToggle }: { pen: Pen; onCha
                   </label>
                 ))}
               </div>
-              {b.tiltTarget !== 'none' && <CurveEditor value={b.tiltCurve} mode="tilt" fixedCount={2} i18n="brush.tiltCurve" onChange={(v) => set({ tiltCurve: v })} />}
+              {b.tiltTarget !== 'none' && <CurveEditor value={editPoints(b.tiltCurve)!} mode="tilt" fixedCount={2} i18n="brush.tiltCurve" onChange={(v) => set({ tiltCurve: v })} />}
             </>
           )}
           {pen.tool !== 'tape' && (

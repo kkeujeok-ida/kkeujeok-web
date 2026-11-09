@@ -148,8 +148,8 @@ const strokePath = (s: Pick<Stroke, 'tool' | 'width' | 'usePressure' | 'points'>
 }
 
 /** Layer alpha of a stroke from its brush, and whether it is drawn through the pencil grain. */
-const brushDraw = (s: { tool?: unknown; brush?: unknown; points: readonly (readonly number[])[] }) => ({
-  alpha: brushAlphaFactor(s.tool, s.brush, s.points),
+const brushDraw = (s: { tool?: unknown; brush?: unknown; usePressure?: boolean; points: readonly (readonly number[])[] }) => ({
+  alpha: brushAlphaFactor(s.tool, s.brush, s.points, s.usePressure !== false),
   grain: s.tool === 'highlighter' || s.tool === 'tape' ? false : s.brush === undefined ? s.tool === 'pencil' : brushResolve(s.tool, s.brush).texture === 'pencil',
 })
 

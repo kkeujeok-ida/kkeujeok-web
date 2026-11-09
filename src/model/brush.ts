@@ -1,17 +1,16 @@
 // spec rule `brush.resolve` (spec/brush.md): the drawing parameters of a stroke from its `tool` and optional `brush`.
+import { type Curve, opacityPressureCurve, validCurve } from './curve'
 import { pressureCurve } from './pressureCurve'
 
 export type BrushParams = {
-  pressureCurve: number[] | null
-  tiltCurve: number[]
+  pressureCurve: Curve | null
+  tiltCurve: Curve
   tiltTarget: 'none' | 'size' | 'opacity'
   opacity: number
   texture: 'none' | 'pencil'
 }
 
 const LINEAR = [1 / 3, 1 / 3, 2 / 3, 2 / 3]
-const curve4 = (v: unknown): number[] | null =>
-  Array.isArray(v) && v.length === 4 && v.every((n) => typeof n === 'number' && n >= 0 && n <= 1) ? v.slice() : null
 
 /** Default opacity of a tool; the highlighter layer alpha. */
 export const toolOpacity = (tool: unknown) => (tool === 'highlighter' ? 0.4 : 1)
@@ -22,8 +21,8 @@ export function brushResolve(tool: unknown, brush: unknown): BrushParams {
   const opacity = tool === 'tape' ? 1 : typeof o === 'number' && o >= 0.05 && o <= 1 ? o : toolOpacity(tool)
   const tx = b.texture
   return {
-    pressureCurve: curve4(b.pressureCurve),
-    tiltCurve: curve4(b.tiltCurve) ?? LINEAR,
+    pressureCurve: validCurve(b.pressureCurve),
+    tiltCurve: validCurve(b.tiltCurve) ?? LINEAR,
     tiltTarget: b.tiltTarget === 'size' || b.tiltTarget === 'opacity' ? b.tiltTarget : 'none',
     opacity,
     texture: tx === 'none' || tx === 'pencil' ? tx : tool === 'pencil' ? 'pencil' : 'none',
@@ -46,7 +45,7 @@ export const tiltSizeFactor = (p: readonly number[], curve: readonly number[]) =
  * Multiplier of the stroke's layer alpha relative to the tool default.
  * shortcut: tilt `opacity` is one mean value per stroke (a stroke is one filled layer), not per point; upgrade with a per-segment renderer.
  */
-export function brushAlphaFactor(tool: unknown, brush: unknown, points: readonly (readonly number[])[]): number {
+export function brushAlphaFactor(tool: unknown, brush: unknown, points: readonly (readonly number[])[], usePressure = true): number {
   if (brush === undefined) return 1
   const b = brushResolve(tool, brush)
   let a = b.opacity / toolOpacity(tool)
@@ -54,11 +53,17 @@ export function brushAlphaFactor(tool: unknown, brush: unknown, points: readonly
     const qs = points.map((p) => tiltQ(p, b.tiltCurve)).filter((q): q is number => q !== null)
     if (qs.length) a *= qs.reduce((x, y) => x + y, 0) / qs.length
   }
+  const oc = tool === 'tape' ? null : opacityPressureCurve(brush)
+  if (oc && points.length) {
+    // pressure alone drives it; usePressure off counts as 0.5 (spec/brush.md)
+    const q = (p: readonly number[]) => pressureCurve(oc, usePressure && Number.isFinite(p[2]) ? p[2]! : 0.5)
+    a *= points.reduce((x, p) => x + q(p), 0) / points.length
+  }
   return a
 }
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
-export type BrushPatch = Partial<Record<'pressureCurve' | 'tiltCurve' | 'tiltTarget' | 'opacity' | 'texture', unknown>>
+export type BrushPatch = Partial<Record<'pressureCurve' | 'tiltCurve' | 'opacityPressureCurve' | 'tiltTarget' | 'opacity' | 'texture', unknown>>
 
 /**
  * `brush` with `patch` applied, keeping only what differs from the tool default (spec/brush.md).

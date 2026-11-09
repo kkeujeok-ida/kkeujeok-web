@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../i18n'
+import { MAX_POINTS, type Pt, isPointList } from '../model/curve'
 import { MAX_INNER, pressureCurve } from '../model/pressureCurve'
 import { tiltSizeFactor } from '../model/brush'
 import { strokeOutline, strokeOutlineFor } from '../render/strokeOutline'
@@ -9,11 +10,17 @@ const PREVIEW_WIDTH = 6
 const SIZE = 220 // graph side, CSS px
 const EPS = 0.01 // least gap between neighbouring points
 
-type Pt = [number, number]
 const toPts = (v: readonly number[]): Pt[] => Array.from({ length: Math.floor(v.length / 2) }, (_, i) => [v[2 * i]!, v[2 * i + 1]!])
 
 /** Point i of p moved to (x, y), held between its neighbours; null when there is no room. */
-function clampAt(p: Pt[], i: number, x: number, y: number): Pt | null {
+function clampAt(p: Pt[], i: number, x: number, y: number, points: boolean): Pt | null {
+  if (points) {
+    // point list: the ends keep x 0 and 1 and move freely up and down; inner points stay between their neighbours
+    const yy = Math.min(1, Math.max(0, y))
+    if (i === 0 || i === p.length - 1) return [i === 0 ? 0 : 1, yy]
+    if (p[i + 1]![0] - p[i - 1]![0] < 2 * EPS) return null
+    return [Math.min(p[i + 1]![0] - EPS, Math.max(p[i - 1]![0] + EPS, x)), yy]
+  }
   const lo = i === 0 ? [0, 0] : p[i - 1]!
   const hi = i === p.length - 1 ? [1, 1] : p[i + 1]!
   if (hi[0]! - lo[0]! < 2 * EPS) return null
@@ -21,9 +28,9 @@ function clampAt(p: Pt[], i: number, x: number, y: number): Pt | null {
 }
 
 export type CurveEditorProps = {
-  /** The inner points `[x1, y1, x2, y2, ...]`; the curve also passes (0,0) and (1,1). */
-  value: readonly number[]
-  onChange: (next: number[]) => void
+  /** The inner points `[x1, y1, x2, y2, ...]` (the curve also passes (0,0) and (1,1)), or a point list `[[x, y], ...]` with free end values (brush.md). */
+  value: readonly number[] | readonly (readonly number[])[]
+  onChange(next: number[] | Pt[]): void
   /** `pressure`: the test pad draws with the pen's pressure; `tilt`: with the pen's tilt as the width. */
   mode?: 'pressure' | 'tilt'
   /** A fixed number of points (no add or remove), e.g. the 2 points of a brush curve. */
@@ -32,14 +39,17 @@ export type CurveEditorProps = {
   i18n?: string
   onReset?: () => void
   /** The device curve a pressure test stroke is drawn with when `mode` is `pressure`; defaults to `value`. */
-  curveOf?: (value: readonly number[]) => Parameters<typeof strokeOutline>[3]
+  curveOf?: (value: CurveEditorProps['value']) => Parameters<typeof strokeOutline>[3]
+  /** false: no test pad (e.g. for a curve that is not a width). */
+  pad?: boolean
 }
 
 /** A curve graph with draggable, keyboard-movable points, number sliders, and a pen-only test pad (pen-feel.md, brush.md). */
-export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i18n = 'settings.pressureCurve', onReset, curveOf }: CurveEditorProps) {
+export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i18n = 'settings.pressureCurve', onReset, curveOf, pad: showPad = true }: CurveEditorProps) {
   const { t } = useI18n()
   const k = (name: string) => t(`${i18n}.${name}` as never)
-  const p = toPts(value)
+  const points = isPointList(value)
+  const p = points ? (value as Pt[]) : toPts(value as number[])
   const [sel, setSel] = useState(-1)
   const drag = useRef(-1)
   const lastTap = useRef({ i: -1, at: 0 })
@@ -49,9 +59,9 @@ export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i1
   const selected = sel >= 0 && sel < p.length ? sel : -1
   const fixed = fixedCount !== undefined
 
-  const save = (next: Pt[]) => onChange(next.flat())
+  const save = (next: Pt[]) => onChange(points ? next : next.flat())
   const remove = (i: number) => {
-    if (fixed || i < 0) return
+    if (fixed || i < 0 || (points && (i === 0 || i === p.length - 1))) return
     setSel(-1)
     save(p.filter((_, k) => k !== i))
   }
@@ -67,7 +77,7 @@ export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i1
     ctx.beginPath()
     const poly =
       mode === 'tilt'
-        ? strokeOutlineFor('pen', PREVIEW_WIDTH, false, pts.current, 'normal', (q) => tiltSizeFactor(q, value))
+        ? strokeOutlineFor('pen', PREVIEW_WIDTH, false, pts.current, 'normal', (q) => tiltSizeFactor(q, value as never))
         : strokeOutline(PREVIEW_WIDTH, true, pts.current, curveOf ? curveOf(value) : (value as never))
     for (const [i, q] of poly.entries()) {
       if (i) ctx.lineTo(q[0]! * k, q[1]! * k)
@@ -95,12 +105,12 @@ export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i1
       const again = i === lastTap.current.i && e.timeStamp - lastTap.current.at < 350
       lastTap.current = { i: again ? -1 : i, at: e.timeStamp }
       if (again && !fixed) return remove(i)
-    } else if (!fixed && p.length < MAX_INNER) {
+    } else if (!fixed && p.length < (points ? MAX_POINTS : MAX_INNER)) {
       lastTap.current = { i: -1, at: 0 }
       i = p.findIndex((q) => q[0] > x)
       if (i < 0) i = p.length
       const next = [...p.slice(0, i), [x, y] as Pt, ...p.slice(i)]
-      const c = clampAt(next, i, x, y)
+      const c = clampAt(next, i, x, y, points)
       if (!c) return
       next[i] = c
       save(next)
@@ -111,17 +121,17 @@ export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i1
   }
   const graphMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (drag.current < 0 || drag.current >= p.length) return
-    const c = clampAt(p, drag.current, ...at(e))
+    const c = clampAt(p, drag.current, ...at(e), points)
     if (c) save(p.map((q, k) => (k === drag.current ? c : q)))
   }
   // A point on the curve in the widest gap.
   const addMid = () => {
-    const xs = [0, ...p.map((q) => q[0]), 1]
+    const xs = points ? p.map((q) => q[0]) : [0, ...p.map((q) => q[0]), 1]
     let g = 0
     for (let k = 1; k < xs.length - 1; k++) if (xs[k + 1]! - xs[k]! > xs[g + 1]! - xs[g]!) g = k
     const x = (xs[g]! + xs[g + 1]!) / 2
-    setSel(g)
-    save([...p.slice(0, g), [x, pressureCurve(value, x)] as Pt, ...p.slice(g)])
+    setSel(points ? g + 1 : g)
+    save([...p.slice(0, points ? g + 1 : g), [x, pressureCurve(value, x)] as Pt, ...p.slice(points ? g + 1 : g)])
   }
   const edit = (axis: 0 | 1, v: number) => selected >= 0 && save(p.map((q, k) => (k === selected ? (axis ? [q[0], v] : [v, q[1]]) : q) as Pt))
   // A focused point moves with the arrow keys (Shift: 5 times as far); Delete removes it.
@@ -134,7 +144,7 @@ export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i1
     if (!d) return
     e.preventDefault()
     const horizontal = e.key === 'ArrowLeft' || e.key === 'ArrowRight'
-    const c = clampAt(p, i, p[i]![0] + (horizontal ? d : 0), p[i]![1] + (horizontal ? 0 : d))
+    const c = clampAt(p, i, p[i]![0] + (horizontal ? d : 0), p[i]![1] + (horizontal ? 0 : d), points)
     if (c) save(p.map((q, k) => (k === i ? c : q)))
   }
   const prev: Pt = selected > 0 ? p[selected - 1]! : [0, 0]
@@ -186,8 +196,9 @@ export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i1
                 <input
                   type="range"
                   className="setting-range"
-                  min={axis ? prev[1] : prev[0] + EPS}
-                  max={axis ? next[1] : next[0] - EPS}
+                  min={axis ? (points ? 0 : prev[1]) : points && selected === 0 ? 0 : prev[0] + EPS}
+                  max={axis ? (points ? 1 : next[1]) : points && selected === p.length - 1 ? 1 : next[0] - EPS}
+                  disabled={points && axis === 0 && (selected === 0 || selected === p.length - 1)}
                   step={0.01}
                   value={p[selected]![axis]}
                   onChange={(e) => edit(axis, Number(e.target.value))}
@@ -196,6 +207,7 @@ export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i1
               </label>
             ))}
         </div>
+        {showPad && (
         <canvas
           ref={pad}
           className="pressure-pad"
@@ -214,11 +226,12 @@ export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i1
           onPointerUp={() => setDrawing(false)}
           onPointerCancel={() => setDrawing(false)}
         />
+        )}
       </div>
       <div className="pressure-graph-actions">
         {!fixed && (
           <>
-            <button type="button" className="btn" disabled={p.length >= MAX_INNER} onClick={addMid}>
+            <button type="button" className="btn" disabled={p.length >= (points ? MAX_POINTS : MAX_INNER)} onClick={addMid}>
               {k('add')}
             </button>
             <button type="button" className="btn" disabled={selected < 0} onClick={() => remove(selected)}>

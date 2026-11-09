@@ -14,6 +14,7 @@ import { PEN_DEFAULTS, PEN_PALETTE, PEN_WIDTH, colorNameKey, defaultPenSlots, pa
 import { resources } from '../src/i18n'
 import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
 import { brushResolve } from '../src/model/brush'
+import { curveEval, curveToPoints, opacityPressureCurve } from '../src/model/curve'
 import { smoothPoints } from '../src/model/smooth'
 import { recognizeShape, shapeFromDrag, shapePoints, shapeResize, shapeRotate, type Shape } from '../src/model/shape'
 import { lineSnapEnd, straightenActive, type StraightenInput } from '../src/model/straighten'
@@ -130,6 +131,13 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'note.formatVersion': noteFormatVersion,
   'note.penKinds': noteFormatVersion,
   'note.brush': noteFormatVersion,
+  'brush.curve': ({ input, expected, tolerance }) => {
+    const i = input as { fn: 'eval' | 'convert' | 'resolve'; curve?: unknown; x?: number; brush?: unknown }
+    const got = i.fn === 'eval' ? { y: curveEval(i.curve, i.x!) } : i.fn === 'convert' ? { points: curveToPoints(i.curve) } : { opacityPressureCurve: opacityPressureCurve(i.brush) }
+    const deep = (g: unknown, e: unknown): void =>
+      typeof e === 'number' ? expect(Math.abs((g as number) - e)).toBeLessThanOrEqual((tolerance ?? 0) + 1e-9) : Array.isArray(e) ? (expect((g as unknown[]).length).toBe(e.length), e.forEach((v, k) => deep((g as unknown[])[k], v))) : e && typeof e === 'object' ? Object.keys(e).forEach((k) => deep((g as Record<string, unknown>)[k], (e as Record<string, unknown>)[k])) : expect(g).toEqual(e)
+    deep(got, expected)
+  },
   'brush.resolve': ({ input, expected }) => {
     const i = input as { tool: string; brush?: unknown }
     expect({ params: brushResolve(i.tool, i.brush) }).toEqual(expected)
@@ -476,7 +484,6 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
-  'brush.curve',
   'stroke.texture.pencilStamps',
   // Story 26.11: runners arrive with the 26.x stories.
   'shape.corners',

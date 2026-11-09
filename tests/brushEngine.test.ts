@@ -26,3 +26,17 @@ describe('brush engine (spec/brush.md)', () => {
     expect(brushAlphaFactor('pen', { tiltTarget: 'opacity' }, pts)).toBeCloseTo(0.5, 5)
   })
 })
+
+describe('opacityPressureCurve (Story 25.10)', () => {
+  const brush = { opacityPressureCurve: [[0, 0], [1, 1]] }
+  const pts = [[0, 0, 0.2, 0], [1, 0, 0.6, 1]]
+  it('alpha is the mean q of the point pressures; flipping it inverts', () => {
+    expect(brushAlphaFactor('pen', brush, pts)).toBeCloseTo(0.4)
+    expect(brushAlphaFactor('pen', { opacityPressureCurve: [[0, 1], [1, 0]] }, pts)).toBeCloseTo(0.6)
+  })
+  it('multiplies with opacity; usePressure off uses pressure 0.5; tape ignores it', () => {
+    expect(brushAlphaFactor('pen', { ...brush, opacity: 0.5 }, pts)).toBeCloseTo(0.2)
+    expect(brushAlphaFactor('pen', brush, pts, false)).toBeCloseTo(0.5)
+    expect(brushAlphaFactor('tape', brush, pts)).toBe(1)
+  })
+})
