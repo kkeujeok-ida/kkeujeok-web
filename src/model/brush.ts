@@ -45,15 +45,15 @@ export const tiltSizeFactor = (p: readonly number[], curve: readonly number[]) =
  * Multiplier of the stroke's layer alpha relative to the tool default.
  * shortcut: tilt `opacity` is one mean value per stroke (a stroke is one filled layer), not per point; upgrade with a per-segment renderer.
  */
-export function brushAlphaFactor(tool: unknown, brush: unknown, points: readonly (readonly number[])[], usePressure = true): number {
+export function brushAlphaFactor(tool: unknown, brush: unknown, points: readonly (readonly number[])[], usePressure = true, perStamp = false): number {
   if (brush === undefined) return 1
   const b = brushResolve(tool, brush)
-  let a = b.opacity / toolOpacity(tool)
+  let a = perStamp ? 1 : b.opacity / toolOpacity(tool) // perStamp: opacity and its pressure curve are inside each pencil stamp
   if (b.tiltTarget === 'opacity' && tool !== 'tape') {
     const qs = points.map((p) => tiltQ(p, b.tiltCurve)).filter((q): q is number => q !== null)
     if (qs.length) a *= qs.reduce((x, y) => x + y, 0) / qs.length
   }
-  const oc = tool === 'tape' ? null : opacityPressureCurve(brush)
+  const oc = tool === 'tape' || perStamp ? null : opacityPressureCurve(brush)
   if (oc && points.length) {
     // pressure alone drives it; usePressure off counts as 0.5 (spec/brush.md)
     const q = (p: readonly number[]) => pressureCurve(oc, usePressure && Number.isFinite(p[2]) ? p[2]! : 0.5)

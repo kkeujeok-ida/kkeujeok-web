@@ -72,7 +72,7 @@ export async function renderPageRaster(page: Page, wPx: number, hPx: number, ass
       s.ctx.fillRect(0, 0, wPx, hPx)
       paintPage(s.ctx, page, { scale: 2.5, offsetX: 0, offsetY: 0 }, cache, null, null, src, null, false)
     }
-    await cache.textures.settled() // the pencil grain tile
+    await cache.textures.settled() // the pencil stamp image
     draw()
     if (ground) ground.width = 0
     return await toPng(s.canvas)

@@ -33,7 +33,7 @@ import { layoutText, type LineBox } from '../src/model/textLayout'
 import { snapScale } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
 import { strokeOutline, strokeOutlineFor } from '../src/render/strokeOutline'
-import { pencilDensity } from '../src/render/pencilTexture'
+import { pencilDensity, pencilStamps } from '../src/render/pencilTexture'
 import { hasUnsentRule } from '../src/sync/hasUnsent'
 import { checkLogEntry } from '../src/sync/syncLogEntry'
 import { driveDuplicatesRule } from '../src/drive/duplicates'
@@ -265,6 +265,16 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     expect(d.threshold).toBe(e.threshold)
     expect(Math.abs(d.density - e.density)).toBeLessThanOrEqual(tolerance! + 1e-9)
   },
+  'stroke.texture.pencilStamps': ({ input, expected, tolerance }) => {
+    const i = input as { id: string; width: number; usePressure: boolean; points: number[][]; opacity?: number }
+    const want = (expected as { stamps: Record<string, number>[] }).stamps
+    const got = pencilStamps(i)
+    expect(got).toHaveLength(want.length)
+    for (const [k, w] of want.entries()) {
+      for (const f of ['x', 'y', 'size', 'angle'] as const) expect(Math.abs(got[k]![f] - w[f]!), `${k} ${f}`).toBeLessThanOrEqual(tolerance! + 1e-9)
+      expect(Math.abs(got[k]!.alpha - w.alpha!), `${k} alpha`).toBeLessThanOrEqual(0.01 + 1e-9)
+    }
+  },
   'stroke.outline.highlighter': ({ input, expected, tolerance }) => {
     const i = input as { width: number; points: number[][] }
     const want = (expected as { polygons: number[][][] }).polygons
@@ -484,7 +494,6 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
-  'stroke.texture.pencilStamps',
   // Story 26.11: runners arrive with the 26.x stories.
   'shape.corners',
   'shape.outline',

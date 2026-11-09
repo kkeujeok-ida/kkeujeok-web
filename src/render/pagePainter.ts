@@ -14,7 +14,8 @@ import { drawableImage, paintImage, type ImageSource } from './imagePainter'
 import { dotHex, inkHex, invertLayers, lineHex, paperHex } from '../model/invert'
 import { isAllDark } from '../storage/theme'
 import { drawableText, paintTextBox } from './textPainter'
-import { PENCIL_GRAIN_SCALE, PencilTextures, pencilDensity } from './pencilTexture'
+import { type PencilStamp, PencilTextures, pencilDensity, pencilStamps } from './pencilTexture'
+import { opacityPressureCurve } from '../model/curve'
 import { meanPressure } from './strokeOutline'
 
 /** page point = (local - offset) / scale. Only 2.12 (zoom/pan) changes it. */
@@ -156,7 +157,8 @@ const brushDraw = (s: { tool?: unknown; brush?: unknown; usePressure?: boolean; 
 /** Outlines of finished strokes by stroke id, so a repaint rebuilds none. */
 export class StrokePathCache {
   private byId = new Map<string, { key: string; path: Path2D }>()
-  /** The pencil grain tile; set `textures.onReady` to repaint when it is loaded. */
+  private stampsById = new Map<string, { key: string; stamps: PencilStamp[] }>()
+  /** The pencil stamp image; set `textures.onReady` to repaint when it is loaded. */
   readonly textures = new PencilTextures()
 
   pathOf(s: Stroke): Path2D {
@@ -168,12 +170,23 @@ export class StrokePathCache {
     return path
   }
 
+  /** Stamps of a finished pencil stroke; rebuilt only when the stroke changes. */
+  stampsOf(s: Stroke): PencilStamp[] {
+    const key = cacheKey(s)
+    const hit = this.stampsById.get(s.id)
+    if (hit && hit.key === key) return hit.stamps
+    const stamps = stampsOf(s)
+    this.stampsById.set(s.id, { key, stamps })
+    return stamps
+  }
+
   /** Forgets strokes that are no longer on the page. */
   keepOnly(ids: ReadonlySet<string>): void {
     for (const id of this.byId.keys()) if (!ids.has(id)) this.byId.delete(id)
+    for (const id of this.stampsById.keys()) if (!ids.has(id)) this.stampsById.delete(id)
   }
 
-  /** Kept for callers; the shared tile needs no freeing. */
+  /** Kept for callers; the shared stamp needs no freeing. */
   dispose(): void {
     this.textures.onReady = null
   }
@@ -210,52 +223,26 @@ const fill = (ctx: CanvasRenderingContext2D, path: Path2D, color: unknown, tool?
   ctx.restore()
 }
 
-// Scratch canvas for one pencil stroke: the polygon in the stroke colour, cut by the grain tile.
-let scratch: HTMLCanvasElement | OffscreenCanvas | null = null
-const MAX_SIDE = 4096
+const stampsOf = (s: Stroke): PencilStamp[] => {
+  const b = brushResolve(s.tool, s.brush)
+  return pencilStamps({ id: s.id, width: s.width, usePressure: s.usePressure, points: s.points, opacity: b.opacity, curve: b.pressureCurve ?? getPressureCurve(), opacityCurve: s.brush === undefined ? null : opacityPressureCurve(s.brush) })
+}
 
-/** Fills a pencil stroke through the grain tile, anchored at its first point so the grain moves with the stroke. Falls back to the plain alpha polygon (no tile, or a huge area). */
-function fillPencil(ctx: CanvasRenderingContext2D, path: Path2D, s: Pick<Stroke, 'color' | 'width' | 'usePressure' | 'points'>, tile: CanvasImageSource | null, view: { x0: number; y0: number; x1: number; y1: number }, alpha: number, dark: boolean) {
-  const density = pencilDensity(meanPressure(s.usePressure, s.points)).density
-  const plain = () => fill(ctx, path, s.color, 'pencil', alpha * density, dark)
-  if (!tile || s.points.length === 0) return plain()
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-  for (const p of s.points) {
-    x0 = Math.min(x0, p[0]!); x1 = Math.max(x1, p[0]!)
-    y0 = Math.min(y0, p[1]!); y1 = Math.max(y1, p[1]!)
-  }
-  const r = s.width * 1.5 + 1
-  x0 = Math.max(x0 - r, view.x0); y0 = Math.max(y0 - r, view.y0); x1 = Math.min(x1 + r, view.x1); y1 = Math.min(y1 + r, view.y1)
-  if (x1 <= x0 || y1 <= y0) return
+/** Draws a pencil stroke: stamps along its path (they are the stroke), or the plain alpha polygon without the stamp image. */
+function paintPencil(ctx: CanvasRenderingContext2D, s: Stroke, path: () => Path2D, stamps: () => PencilStamp[], textures: PencilTextures, fade: number, dark: boolean) {
+  const bd = brushDraw(s)
+  const col = typeof s.color === 'string' && COLOR.test(s.color) ? s.color.slice(0, 7) : '#000000'
+  const img = bd.grain ? textures.tint(dark ? inkHex(col) : col) : null
+  if (!img) return fill(ctx, path(), s.color, 'pencil', fade * bd.alpha * pencilDensity(meanPressure(s.usePressure, s.points)).density, dark)
   const m = ctx.getTransform()
-  const dx0 = Math.floor(m.a * x0 + m.e), dy0 = Math.floor(m.d * y0 + m.f)
-  const w = Math.ceil(m.a * x1 + m.e) - dx0, h = Math.ceil(m.d * y1 + m.f) - dy0
-  if (w <= 0 || h <= 0) return
-  if (w > MAX_SIDE || h > MAX_SIDE) return plain()
-  if (!scratch) scratch = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : document.createElement('canvas')
-  if (scratch.width < w) scratch.width = w
-  if (scratch.height < h) scratch.height = h
-  const c = scratch.getContext('2d') as CanvasRenderingContext2D
-  const col = typeof s.color === 'string' && COLOR.test(s.color) ? s.color : '#000000'
-  c.setTransform(1, 0, 0, 1, 0, 0)
-  c.globalCompositeOperation = 'source-over'
-  c.clearRect(0, 0, scratch.width, scratch.height)
-  c.setTransform(m.a, 0, 0, m.d, m.e - dx0, m.f - dy0)
-  c.fillStyle = dark ? inkHex(col.slice(0, 7)) : col
-  c.fill(path, 'nonzero')
-  c.setTransform(1, 0, 0, 1, 0, 0)
-  c.globalCompositeOperation = 'destination-in'
-  const pat = c.createPattern(tile, 'repeat')
-  if (!pat) return plain()
-  const k = PENCIL_GRAIN_SCALE
-  const f = s.points[0]!
-  pat.setTransform(new DOMMatrix([m.a * k, 0, 0, m.d * k, m.a * f[0]! + m.e - dx0, m.d * f[1]! + m.f - dy0]))
-  c.fillStyle = pat
-  c.fillRect(0, 0, w, h)
+  const f = fade * brushAlphaFactor(s.tool, s.brush, s.points, s.usePressure, true) // brush opacity is inside the stamp alpha
   ctx.save()
-  ctx.setTransform(1, 0, 0, 1, 0, 0)
-  ctx.globalAlpha = alpha * density
-  ctx.drawImage(scratch, 0, 0, w, h, dx0, dy0, w, h)
+  for (const t of stamps()) {
+    const c = Math.cos((t.angle * Math.PI) / 180), n = Math.sin((t.angle * Math.PI) / 180)
+    ctx.setTransform(m.a * c + m.c * n, m.b * c + m.d * n, -m.a * n + m.c * c, -m.b * n + m.d * c, m.a * t.x + m.c * t.y + m.e, m.b * t.x + m.d * t.y + m.f)
+    ctx.globalAlpha = Math.min(1, t.alpha * f)
+    ctx.drawImage(img, -t.size / 2, -t.size / 2, t.size, t.size)
+  }
   ctx.restore()
 }
 
@@ -376,7 +363,7 @@ export function paintPage(
           ctx.restore()
         } else {
           const bd = brushDraw(e)
-          if (e.tool === 'pencil' || bd.grain) fillPencil(ctx, cache.pathOf(e), e, bd.grain ? cache.textures.tile : null, view, fa * bd.alpha, dark)
+          if (e.tool === 'pencil' || bd.grain) paintPencil(ctx, e, () => cache.pathOf(e), () => cache.stampsOf(e), cache.textures, fa, dark)
           else fill(ctx, cache.pathOf(e), e.color, e.tool, fa * bd.alpha, dark)
         }
         if (pcs) ctx.restore()
@@ -395,7 +382,7 @@ export function paintPage(
     if (live && isValidStroke(live)) {
       try {
         const bd = brushDraw(live)
-        if (live.tool === 'pencil' || bd.grain) fillPencil(ctx, strokePath(live), live, bd.grain ? cache.textures.tile : null, view, bd.alpha, dark)
+        if (live.tool === 'pencil' || bd.grain) paintPencil(ctx, live, () => strokePath(live), () => stampsOf(live), cache.textures, 1, dark)
         else fill(ctx, strokePath(live), live.color, live.tool, bd.alpha, dark)
       } catch {
         // the stroke in progress is skipped for this frame
