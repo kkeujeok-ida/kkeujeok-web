@@ -1,6 +1,7 @@
 // spec rules select.lasso, select.tap, select.rect (spec/select.md) and the bounding box of
 // spec/transform.md. Pure functions over raw elements (port of the Android lib/model/select.dart).
 
+import { isKnownShape, shapePoints } from './shape'
 import { textHeight } from './textLayout'
 
 export type El = Record<string, unknown>
@@ -110,7 +111,8 @@ export function selectLasso(elements: readonly El[], polygon: readonly P[]): str
   const ids: string[] = []
   for (const e of withHeights(elements).filter(usable)) {
     if (isStroke(e)) {
-      const pts = points(e)
+      // A shape stroke stores only its corners (first repeated at the end): judge its dense ring, so the share follows the perimeter.
+      const pts = isKnownShape(e.shape) ? shapePoints(e.shape)!.map((p) => [p[0]!, p[1]!] as const) : points(e)
       if (pts.length === 0) continue
       if (pts.filter((p) => inPolygon(p, polygon)).length >= Math.ceil(pts.length / 2)) ids.push(e.id as string)
     } else {

@@ -11,6 +11,8 @@ const tailAt = (p: Placement & { w: number; h: number }) => {
   return { left: p.left + p.w, top: p.top + along }
 }
 
+const ASIDE_MIN = 160 // the narrowest the aside may get before it scrolls sideways
+
 /**
  * The modal shell of the toolbar popovers: a scrim that takes the pointer, a speech bubble on the tool button `tool` inside the toolbar `anchor` (placement: bubblePlace.ts; its tail is a sibling span), Tab cycling the `[tabindex="0"]` stops inside, Esc and a press outside close it.
  * The owner puts focus back in onClose. `relayout` changes when the content's height may have changed.
@@ -29,6 +31,12 @@ export function PopoverShell({ anchor, tool, onClose, labelledBy, className, rel
   const box = useRef<HTMLDivElement>(null)
   const lefty = useSyncExternalStore(subscribeLeftHanded, getLeftHanded)
   const [pos, setPos] = useState<Placement & { w: number; h: number }>()
+  const asideBox = useRef<HTMLDivElement>(null)
+  const [asideH, setAsideH] = useState(0)
+  useLayoutEffect(() => {
+    const h = asideBox.current?.offsetHeight ?? 0
+    if (h !== asideH) setAsideH(h)
+  }) // the aside's height depends on its content; settles after one pass
   // Measured after render (the height depends on the content) and again on resize or when `relayout` changes.
   const place = () => {
     const bar = anchor?.closest('[role="toolbar"]')?.getBoundingClientRect()
@@ -76,11 +84,23 @@ export function PopoverShell({ anchor, tool, onClose, labelledBy, className, rel
       >
         {children}
       </div>
-      {pos && aside && (
-        <div className="pen-popover-aside" style={{ left: pos.left + pos.w + 8, top: pos.top, maxWidth: window.innerWidth - (pos.left + pos.w + 8) - 12 }}>
-          {aside}
-        </div>
-      )}
+      {pos && aside && (() => {
+        // Beside the bubble, away from the toolbar: a bubble left of the bar (right-edge or left-handed bar) puts the aside further left, not on the bar.
+        const roomR = window.innerWidth - (pos.left + pos.w + 8) - 12, roomL = pos.left - 8 - 12
+        const toLeft = pos.side === 'left' || (roomR < ASIDE_MIN && roomL > roomR)
+        const room = Math.max(ASIDE_MIN, toLeft ? roomL : roomR)
+        return (
+          <div
+            ref={asideBox}
+            className="pen-popover-aside"
+            role="group"
+            aria-labelledby={labelledBy}
+            style={{ ...(toLeft ? { right: window.innerWidth - pos.left + 8 } : { left: pos.left + pos.w + 8 }), top: Math.max(12, Math.min(pos.top, window.innerHeight - asideH - 12)), maxWidth: room }}
+          >
+            {aside}
+          </div>
+        )
+      })()}
       {pos && pos.tail !== null && <span className="pen-popover-tail" data-side={pos.side} style={tailAt(pos)} />}
     </div>
   )

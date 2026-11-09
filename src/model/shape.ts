@@ -281,12 +281,12 @@ export function handlePoint(s: Shape, i: number): [number, number] {
 }
 
 /** `shape.outline`: the two rings of a closed polyline at `width`; fill both together with the non-zero rule. `join` miter (limit 4) for rect/triangle, round for a circle. */
-export function shapeOutline(points: readonly (readonly number[])[], width: number, join: 'miter' | 'round'): number[][][] {
+export function shapeOutline(points: readonly (readonly number[])[], width: number, join: 'miter' | 'round'): number[][][] | null {
   const V: number[][] = []
   for (const p of points) if (!V.length || dist(p[0]!, p[1]!, V[V.length - 1]![0]!, V[V.length - 1]![1]!) >= 0.01) V.push([p[0]!, p[1]!])
   if (V.length > 1 && dist(V[V.length - 1]![0]!, V[V.length - 1]![1]!, V[0]![0]!, V[0]![1]!) < 0.01) V.pop()
   const n = V.length
-  if (n < 2) return [[], []]
+  if (n < 2) return null // collapsed to a dot: the caller draws a plain stroke
   const d = V.map((v, i) => {
     const w = V[(i + 1) % n]!
     const l = dist(v[0]!, v[1]!, w[0]!, w[1]!)

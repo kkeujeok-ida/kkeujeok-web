@@ -2,7 +2,7 @@ import { penGlyphD } from '../../model/penGlyph'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
 import { colorNameKey, type Pen } from '../../model/pen'
 import { fmt, useI18n } from '../../i18n'
-import { SHAPES_GLYPH_D, SHAPE_KIND_D } from './ShapePopover'
+import { SHAPES_GLYPH_D } from './ShapePopover'
 import type { EraserMode } from '../../storage/eraserSettings'
 import { sharedVisibleTools } from '../../storage/toolbarVisibleTools'
 import type { Dock } from '../../storage/toolbarPosition'
@@ -393,22 +393,6 @@ export function PenToolbar({ onShapeEdit, pens, selected, onSelect, onEdit, onAd
           </g>
         </svg>
       </button>
-      <button
-            key={k}
-            type="button"
-            aria-pressed={shapeKind === k}
-            aria-label={t(`editor.shape.${k}`)}
-            title={t(`editor.shape.${k}`)}
-            className="toolbar-action"
-            data-shape-kind={k}
-            {...rv(k)}
-            onClick={() => onShapeKind?.(k)}
-          >
-            <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d={SHAPE_KIND_D[k]} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
-            </svg>
-          </button>
-        ))}
       <button
         type="button"
         aria-label={t('editor.image')}

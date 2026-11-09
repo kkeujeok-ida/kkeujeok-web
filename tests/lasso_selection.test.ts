@@ -186,3 +186,14 @@ describe('lasso toolbar button', () => {
     act(() => root.unmount())
   })
 })
+
+describe('selectLasso on a shape stroke', () => {
+  test('a lasso around one triangle corner does not select it', async () => {
+    const { selectLasso } = await import('../src/model/select')
+    const { shapeCorners } = await import('../src/model/shape')
+    const shape = { kind: 'triangle', vertices: [[0, 0], [100, 0], [0, 100]] }
+    const tri = { id: 't', type: 'stroke', tool: 'pen', width: 2, shape, points: shapeCorners(shape)!.map((p) => [p[0]!, p[1]!, 0.5, 0]) }
+    expect(selectLasso([tri], [[-10, -10], [20, -10], [20, 20], [-10, 20]])).toEqual([])
+    expect(selectLasso([tri], [[-10, -10], [110, -10], [110, 110], [-10, 110]])).toEqual(['t'])
+  })
+})

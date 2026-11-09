@@ -425,11 +425,13 @@ export function erasePieces(page: Page, path: readonly Pt[], width: number): { i
     if (el.type !== 'stroke') return
     const tape = el.tool === 'tape'
     const r = tapeReach(el, r0)
-    const pts = erasePoints(el)
-    if (pts.length > 0) {
-      const bb = boxOf(pts)
+    // Reject by the stored points' box first (corners bound the dense ring), before any shapePoints rebuild.
+    const raw = (el.points as number[][] | undefined) ?? []
+    if (raw.length > 0) {
+      const bb = boxOf(raw)
       if (!(bb[0] <= x1 + (r - r0) && bb[1] >= x0 - (r - r0) && bb[2] <= y1 + (r - r0) && bb[3] >= y0 - (r - r0))) return
     }
+    const pts = erasePoints(el)
     const erased = pts.map((p) => pathDist(p) <= r)
     const cut = pts.slice(1).map((p, i) => pathSeg(pts[i]!, p) <= r)
     if (!erased.some(Boolean) && !cut.some(Boolean)) return
@@ -481,6 +483,7 @@ function boxOf(pts: number[][]): [number, number, number, number] {
 export class EraseScan {
   private readonly r: number
   private boxes: ([number, number, number, number] | null)[] = []
+  private dense: (number[][] | undefined)[] = []
   private hit = new Map<number, { erased: boolean[]; cut: boolean[]; els: Page['elements'] }>()
   private last: Pt | null = null
   private cache: { elements: Page['elements']; fadeIds: Set<string> } | null = null
@@ -497,7 +500,7 @@ export class EraseScan {
     for (let index = 0; index < els.length; index++) {
       const el = els[index] as El
       if (el.type !== 'stroke') continue
-      const pts = erasePoints(el)
+      const pts = (this.dense[index] ??= erasePoints(el))
       if (pts.length === 0) continue
       const bb = (this.boxes[index] ??= boxOf(pts))
       const r = tapeReach(el, r0)
