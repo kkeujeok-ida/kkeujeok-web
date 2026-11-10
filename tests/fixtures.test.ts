@@ -539,6 +539,11 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
+  // Epic 28 (Story 28.1): runners arrive with Stories 28.2-28.7.
+  'stroke.texture.stamps',
+  'brush.alpha',
+  'brush.legacyTilt',
+  'stroke.liveFreeze',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
 
