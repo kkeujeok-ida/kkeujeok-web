@@ -3227,3 +3227,36 @@ h1 {
     height: auto;
   }
 }
+
+/* Settings search: hidden items stay mounted. */
+.settings [hidden] {
+  display: none;
+}
+
+.settings-search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  align-self: stretch;
+}
+
+.settings-search-row {
+  display: flex;
+  gap: var(--spacing-2);
+}
+
+.settings-search-row .field-input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--spacing-hit-min-web);
+}
+
+.settings-search-status {
+  margin: 0;
+  color: var(--color-ink-secondary);
+}
+
+.settings-nav-count {
+  margin-inline-start: var(--spacing-2);
+  color: var(--color-ink-secondary);
+}

@@ -17,6 +17,24 @@ export function settingsSections({ signedIn, platform }: { signedIn: boolean; pl
   }))
 }
 
+export type SearchItem = { id: string; section: string; text: string }
+
+// spec/settings.md settings.search: every whitespace-separated term must be a substring of the item text.
+export function settingsSearch({ query, items }: { query: string; items: SearchItem[] }): { visible: string[]; counts: Record<string, number> } {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
+  const counts: Record<string, number> = {}
+  const visible: string[] = []
+  for (const it of items) {
+    counts[it.section] ??= 0
+    const text = it.text.toLowerCase()
+    if (terms.every((t) => text.includes(t))) {
+      visible.push(it.id)
+      counts[it.section]!++
+    }
+  }
+  return { visible, counts }
+}
+
 export type ActiveInput = { headings: { id: string; top: number }[]; viewportTop: number; offset: number; atEnd: boolean }
 
 export function settingsActiveSection({ headings, viewportTop, offset, atEnd }: ActiveInput): string {

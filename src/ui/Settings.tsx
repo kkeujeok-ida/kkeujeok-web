@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { syncLog } from '../sync/syncLog'
 import { countUnsent, defaultUnsentStore } from '../sync/unsent'
 import { fmt, useI18n, type Choice, type Key } from '../i18n'
@@ -16,7 +16,7 @@ import { getSmooth, setSmooth, subscribeSmooth } from '../storage/smooth'
 import { PressureCurveSetting } from './PressureCurveSetting'
 import { ConfirmDialog } from './ConfirmDialog'
 import { downloadBlob } from './download'
-import { settingsActiveSection, settingsSections } from '../model/settingsLayout'
+import { settingsActiveSection, settingsSearch, settingsSections } from '../model/settingsLayout'
 
 const CHOICES: { value: Choice; label: Key }[] = [
   { value: 'system', label: 'settings.language.system' },
@@ -128,13 +128,26 @@ export function Settings({
   // Web has no penOnly/penDiag items; the account section sits behind the sign-in gate.
   const sections = settingsSections({ signedIn: true, platform: 'web' })
   const [active, setActive] = useState<string>(sections[0]!.id)
+  const [query, setQuery] = useState('')
+  const searching = query.trim() !== ''
+  const savedScroll = useRef<number | null>(null)
+  const shown = useRef<string[]>([]) // sections with a match; hidden headings must not drive the highlight
+  const search = (q: string) => {
+    if (q.trim() !== '' && savedScroll.current === null) savedScroll.current = window.scrollY
+    setQuery(q)
+  }
+  useEffect(() => {
+    if (searching || savedScroll.current === null) return
+    window.scrollTo?.(0, savedScroll.current) // search cleared: back to where it began
+    savedScroll.current = null
+  }, [searching])
   const lockUntil = useRef(0) // ignore scroll-spy while a smooth scroll runs
   const heading = (id: string) => document.getElementById(`settings-sec-${id}`)
   useEffect(() => {
     if (help) return
     const spy = () => {
       if (Date.now() < lockUntil.current) return
-      const hs = sections.flatMap((x) => {
+      const hs = sections.filter((x) => shown.current.includes(x.id)).flatMap((x) => {
         const h = heading(x.id)
         return h ? [{ id: x.id, top: h.getBoundingClientRect().top, h }] : []
       })
@@ -152,7 +165,7 @@ export function Settings({
       window.removeEventListener('resize', spy)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sections is constant here
-  }, [help])
+  }, [help, query])
   function go(id: string) {
     const h = heading(id)
     if (!h) return
@@ -163,6 +176,29 @@ export function Settings({
     h.focus({ preventScroll: true })
   }
   if (help) return <Help onClose={() => setHelp(false)} />
+  // Searchable text = the item title (web items carry their hint inside the title string).
+  const texts: Record<string, string> = {
+    language: t('settings.language'),
+    theme: t('settings.theme'),
+    leftHanded: t('settings.leftHanded'),
+    straighten: t('settings.straighten'),
+    smooth: t('settings.smooth'),
+    pressureCurve: t('settings.pressureCurve'),
+    visibleTools: t('settings.visibleTools'),
+    penPalette: t('settings.palette'),
+    help: t('settings.help'),
+    privacy: t('settings.privacy'),
+    exportLog: t('settings.syncLogExport'),
+    logOut: t('settings.logout'),
+    disconnect: t('settings.disconnect'),
+  }
+  const found = settingsSearch({
+    query,
+    items: sections.flatMap((sec) => sec.items.filter((id) => id in texts).map((id) => ({ id, section: sec.id, text: texts[id]! }))),
+  })
+  const vis = new Set(found.visible)
+  shown.current = sections.filter((sec) => found.counts[sec.id]).map((sec) => sec.id)
+  const total = found.visible.length
   const items: Record<string, ReactNode> = {
     language: (
       <fieldset className="settings-group">
@@ -262,10 +298,10 @@ export function Settings({
     // Logout and disconnect stay in one group, as before.
     logOut: (
       <div className="settings-group">
-        <button ref={buttons.logout} type="button" className="btn" onClick={() => void open('logout')}>
+        <button ref={buttons.logout} type="button" className="btn" hidden={!vis.has('logOut')} onClick={() => void open('logout')}>
           {t('settings.logout')}
         </button>
-        <button ref={buttons.disconnect} type="button" className="btn" onClick={() => void open('disconnect')}>
+        <button ref={buttons.disconnect} type="button" className="btn" hidden={!vis.has('disconnect')} onClick={() => void open('disconnect')}>
           {t('settings.disconnect')}
         </button>
       </div>
@@ -281,6 +317,34 @@ export function Settings({
           {t('settings.close')}
         </button>
       </header>
+      <div className="settings-search" role="search">
+        <label htmlFor="settings-search-input">{t('settings.search.label')}</label>
+        <div className="settings-search-row">
+          <input
+            id="settings-search-input"
+            type="text"
+            className="field-input"
+            autoComplete="off"
+            value={query}
+            onChange={(e) => search(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && query !== '') {
+                e.preventDefault()
+                e.stopPropagation()
+                search('')
+              }
+            }}
+          />
+          {query !== '' && (
+            <button type="button" className="btn" onClick={() => search('')}>
+              {t('settings.search.clear')}
+            </button>
+          )}
+        </div>
+        <p className="settings-search-status" aria-live="polite">
+          {searching ? (total === 0 ? t('settings.search.none') : fmt(t('settings.search.count'), { n: total })) : ''}
+        </p>
+      </div>
       <div className="settings-body">
         <nav className="settings-nav" aria-label={t('settings.cat.nav')}>
           {sections.map((sec) => (
@@ -288,20 +352,29 @@ export function Settings({
               key={sec.id}
               type="button"
               className="btn settings-nav-item"
+              hidden={!shown.current.includes(sec.id)}
               aria-current={active === sec.id ? 'true' : undefined}
               onClick={() => go(sec.id)}
             >
               {t(`settings.cat.${sec.id}`)}
+              {searching && <span className="settings-nav-count">{found.counts[sec.id]}</span>}
             </button>
           ))}
         </nav>
         <div className="settings-main">
           {sections.map((sec) => (
-            <section key={sec.id} className="settings-section" aria-labelledby={`settings-sec-${sec.id}`}>
+            <section key={sec.id} className="settings-section" hidden={!shown.current.includes(sec.id)} aria-labelledby={`settings-sec-${sec.id}`}>
               <h2 id={`settings-sec-${sec.id}`} className="settings-section-title" tabIndex={-1}>
                 {t(`settings.cat.${sec.id}`)}
               </h2>
-              {sec.items.map((id) => items[id] && <Fragment key={id}>{items[id]}</Fragment>)}
+              {sec.items.map(
+                (id) =>
+                  items[id] && (
+                    <div key={id} className="settings-item" hidden={id === 'logOut' ? !vis.has('logOut') && !vis.has('disconnect') : !vis.has(id)}>
+                      {items[id]}
+                    </div>
+                  ),
+              )}
             </section>
           ))}
         </div>
