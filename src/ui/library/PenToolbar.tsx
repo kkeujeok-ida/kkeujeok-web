@@ -1,14 +1,14 @@
 import { penGlyphD } from '../../model/penGlyph'
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
 import { colorNameKey, type Pen } from '../../model/pen'
 import { fmt, useI18n } from '../../i18n'
+import { DockPopover } from './DockPopover'
 import { SHAPES_GLYPH_PATHS } from './ShapePopover'
 import type { EraserMode } from '../../storage/eraserSettings'
 import { sharedVisibleTools } from '../../storage/toolbarVisibleTools'
 import type { Dock } from '../../storage/toolbarPosition'
 import type { ToolbarDock } from './useToolbarDock'
 
-const DOCK_KEYS = { top: 'editor.dockTop', left: 'editor.dockLeft', right: 'editor.dockRight', bottom: 'editor.dockBottom' } as const
 /** Without an owner the toolbar stays on top and the handle's menu does nothing. */
 const STATIC_DOCK = { pos: { dock: 'top', x: 0.5, y: 0, vertical: false }, vertical: false, style: undefined, dragging: false, floating: false, outlines: [], handleProps: {}, menuSide: 'below', clickWasDrag: () => false, dockTo: () => {} } as unknown as ToolbarDock
 const DOCK_ORDER: Dock[] = ['top', 'left', 'right', 'bottom']
@@ -62,40 +62,15 @@ export function PenToolbar({ onShapeEdit, pens, selected, onSelect, onEdit, onAd
   const vertical = dock.vertical
   const [menu, setMenu] = useState(false)
   const handle = useRef<HTMLButtonElement>(null)
-  const menuEl = useRef<HTMLDivElement>(null)
   const current = DOCK_ORDER.includes(dock.pos.dock as Dock) ? (dock.pos.dock as Dock) : null
-  // The menu opens on the current item (the top one when floating).
-  useLayoutEffect(() => {
-    if (menu) menuEl.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]')[Math.max(0, DOCK_ORDER.indexOf(current ?? 'top'))]?.focus()
-    // only when it opens
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menu])
-  useEffect(() => {
-    if (!menu) return
-    const down = (e: globalThis.PointerEvent) => {
-      if (!menuEl.current?.contains(e.target as Node) && !handle.current?.contains(e.target as Node)) setMenu(false)
-    }
-    document.addEventListener('pointerdown', down, true)
-    return () => document.removeEventListener('pointerdown', down, true)
-  }, [menu])
-  // Starting a drag closes the menu.
-  useEffect(() => {
-    if (dock.dragging) setMenu(false)
-  }, [dock.dragging])
   const closeMenu = () => {
     setMenu(false)
     handle.current?.focus()
   }
-  const onMenuKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const items = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
-    const at = items.indexOf(document.activeElement as HTMLElement)
-    const to = e.key === 'ArrowDown' ? Math.min(items.length - 1, at + 1) : e.key === 'ArrowUp' ? Math.max(0, at - 1) : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : -1
-    if (to >= 0) items[to]?.focus()
-    else if (e.key === 'Escape' || e.key === 'Tab') closeMenu()
-    else return
-    e.preventDefault()
-    e.stopPropagation()
-  }
+  // Starting a drag closes the menu.
+  useEffect(() => {
+    if (dock.dragging) setMenu(false)
+  }, [dock.dragging])
   const refocus = useRef<number | null>(null)
   const drag = useRef<{ id: number; from: number; x: number; y: number; on: boolean } | null>(null)
   const justDragged = useRef(false)
@@ -195,7 +170,7 @@ export function PenToolbar({ onShapeEdit, pens, selected, onSelect, onEdit, onAd
         className="toolbar-grip"
         aria-label={t('editor.toolbarMove')}
         title={t('editor.toolbarMove')}
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
         aria-expanded={menu}
         {...rv('handle')}
         {...dock.handleProps}
@@ -212,25 +187,16 @@ export function PenToolbar({ onShapeEdit, pens, selected, onSelect, onEdit, onAd
         </svg>
       </button>
       {menu && (
-        <div ref={menuEl} role="menu" aria-label={t('editor.toolbarPosition')} className={`toolbar-position-menu menu-${dock.menuSide}`} onKeyDown={onMenuKey}>
-          {DOCK_ORDER.map((d) => (
-            <button
-              key={d}
-              type="button"
-              role="menuitemradio"
-              aria-checked={current === d}
-              tabIndex={-1}
-              className="editor-menu-item"
-              onClick={() => {
-                dock.dockTo(d)
-                onDocked?.(d)
-                closeMenu()
-              }}
-            >
-              {t(DOCK_KEYS[d])}
-            </button>
-          ))}
-        </div>
+        <DockPopover
+          current={current}
+          anchor={handle.current}
+          onClose={closeMenu}
+          onPick={(d) => {
+            dock.dockTo(d)
+            onDocked?.(d)
+            closeMenu()
+          }}
+        />
       )}
       <div ref={slotsEl} role="radiogroup" className="pen-slots" style={{ '--visible-tools': sharedVisibleTools().read() } as CSSProperties}>
         {pens.map((pen, i) => {

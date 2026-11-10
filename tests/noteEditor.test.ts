@@ -1236,23 +1236,23 @@ describe('zoom and pan', () => {
     expect(items[0]!.getAttribute('aria-disabled')).toBe('false')
 
     key(document, 'Escape')
-    expect(q('[role="menu"]')).toBeNull()
+    expect(q('.dock-popover')).toBeNull()
     expect(document.activeElement).toBe(more)
 
     await openMenu()
     click(qa('[role="menu"] .editor-menu-item')[0]!) // fit width
-    expect(q('[role="menu"]')).toBeNull()
+    expect(q('.dock-popover')).toBeNull()
     expect(document.activeElement).toBe(more)
     await openMenu()
     expect(level()).toBe(`${Math.round(fit() * 100)}%`)
     // Tab out of the menu closes it.
     const outside = q('.editor-back')!
     act(() => void q('[role="menu"] .editor-menu-item')!.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: outside })))
-    expect(q('[role="menu"]')).toBeNull()
+    expect(q('.dock-popover')).toBeNull()
     await openMenu()
     // A press outside closes it too.
     act(() => void canvas().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', button: 0 })))
-    expect(q('[role="menu"]')).toBeNull()
+    expect(q('.dock-popover')).toBeNull()
   })
 
   test('the zoom level reads "배율 N%"; fit page shows the whole page', async () => {
@@ -2742,7 +2742,7 @@ describe('toolbar move and snap (story 5.10)', () => {
   test('the handle is a menu button first in the roving order; dragging shows 4 outlines and a drop near the left docks vertically', async () => {
     const s = mem()
     await mountEditor({ toolbar: createToolbarPosition(s.storage) })
-    expect(grip().getAttribute('aria-haspopup')).toBe('menu')
+    expect(grip().getAttribute('aria-haspopup')).toBe('dialog')
     expect(grip().dataset.roving).toBe('handle')
     ptr('pointerdown', 330, 32) // 170 left of the centre
     ptr('pointermove', 200, 100)
@@ -2755,7 +2755,7 @@ describe('toolbar move and snap (story 5.10)', () => {
     expect(bar().classList.contains('is-vertical')).toBe(true)
     expect(stored(s.m)).toMatchObject({ dock: 'left', vertical: true })
     click(grip()) // the click that ends a drag opens no menu
-    expect(q('[role="menu"]')).toBeNull()
+    expect(q('.dock-popover')).toBeNull()
   })
 
   test('a drop away from every outline floats at that place and keeps the orientation', async () => {
@@ -2780,31 +2780,35 @@ describe('toolbar move and snap (story 5.10)', () => {
     expect(s.m.has(TOOLBAR_KEY)).toBe(false)
     ptr('pointerup', 330, 400) // the release after Esc is not a click on the handle
     click(grip())
-    expect(q('[role="menu"]')).toBeNull()
+    expect(q('.dock-popover')).toBeNull()
   })
 
-  test('a press that stays within 6px is a click: the position menu; keys pick; announced; focus returns to the handle', async () => {
+  test('a press that stays within 6px is a click: the position bubble with 4 icon buttons; keys pick; announced; focus returns to the handle', async () => {
     const s = mem()
     await mountEditor({ toolbar: createToolbarPosition(s.storage) })
     ptr('pointerdown', 330, 32)
     ptr('pointerup', 333, 32)
     click(grip())
-    expect(q('[role="menu"]')!.getAttribute('aria-label')).toBe('툴바 위치')
+    expect(q('.dock-popover [role="radiogroup"]')!.getAttribute('aria-label')).toBe('툴바 위치')
     expect(grip().getAttribute('aria-expanded')).toBe('true')
-    const items = qa('[role="menuitemradio"]')
-    expect(items.map((i) => i.textContent)).toEqual(['상단', '왼쪽', '오른쪽', '하단'])
+    const items = qa('.dock-popover [role="radio"]')
+    expect(items.map((i) => i.getAttribute('aria-label'))).toEqual(['상단', '오른쪽', '하단', '왼쪽'])
     expect(items.map((i) => i.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false', 'false'])
     expect(document.activeElement).toBe(items[0])
-    key(document.activeElement!, 'ArrowDown')
+    key(document.activeElement!, 'ArrowRight')
     expect(document.activeElement).toBe(items[1])
-    click(items[1]!)
-    expect(q('[role="menu"]')).toBeNull()
+    key(document.activeElement!, 'ArrowRight')
+    key(document.activeElement!, 'ArrowRight')
+    key(document.activeElement!, 'ArrowRight') // stops at the end
+    expect(document.activeElement).toBe(items[3])
+    click(items[3]!)
+    expect(q('.dock-popover')).toBeNull()
     expect(document.activeElement).toBe(grip())
     expect(qa('[aria-live="polite"]').some((e) => e.textContent === '툴바를 왼쪽에 붙였어요')).toBe(true)
     expect(stored(s.m)).toMatchObject({ dock: 'left', vertical: true })
     click(grip())
     key(document.activeElement!, 'Escape')
-    expect(q('[role="menu"]')).toBeNull()
+    expect(q('.dock-popover')).toBeNull()
     expect(document.activeElement).toBe(grip())
     expect(stored(s.m).dock).toBe('left')
   })

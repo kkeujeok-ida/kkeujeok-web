@@ -1045,40 +1045,12 @@ h1 {
   background: var(--color-accent-soft);
 }
 
-.toolbar-position-menu {
-  position: absolute;
-  z-index: 6;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-1);
-  padding: var(--components-popover-padding);
-  border-radius: var(--components-popover-rounded);
-  background: var(--components-popover-background);
-  box-shadow: var(--components-popover-shadow);
-}
-
-.toolbar-position-menu .editor-menu-item {
-  text-transform: capitalize;
-}
-
-.toolbar-position-menu.menu-below {
-  top: calc(100% + var(--spacing-2));
-  left: 0;
-}
-
-.toolbar-position-menu.menu-above {
-  bottom: calc(100% + var(--spacing-2));
-  left: 0;
-}
-
-.toolbar-position-menu.menu-right {
-  top: 0;
-  left: calc(100% + var(--spacing-2));
-}
-
-.toolbar-position-menu.menu-left {
-  top: 0;
-  right: calc(100% + var(--spacing-2));
+.dock-popover .pen-tool-switch [role='radio'] {
+  flex: none;
+  min-width: var(--spacing-hit-min-web);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 @media (prefers-reduced-motion: reduce) {
