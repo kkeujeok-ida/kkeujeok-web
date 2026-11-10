@@ -44,4 +44,25 @@ describe('placeBubble', () => {
     const wide = { w: 1000, h: 800 }
     expect(placeBubble(box(500, 100, 48, 400), box(500, 300, 48, 48), size, wide, true).side).toBe('right')
   })
+  test('left-handed table of spec/toolbar-orientation.md, right-handed unchanged', () => {
+    const tall = { w: 400, h: 1400 }
+    const wide = { w: 1000, h: 800 }
+    const h = (top: number, flip: boolean) => placeBubble(box(20, top, 360, 48), box(100, top, 48, 48), size, tall, flip).side
+    expect([h(500, false), h(500, true)]).toEqual(['down', 'up']) // horizontal, upper half
+    expect([h(800, false), h(800, true)]).toEqual(['up', 'down']) // horizontal, lower half
+    const v = (left: number, flip: boolean) => placeBubble(box(left, 100, 48, 500), box(left, 300, 48, 48), size, wide, flip).side
+    expect([v(400, false), v(400, true)]).toEqual(['right', 'left']) // vertical, left half
+    expect([v(550, false), v(550, true)]).toEqual(['left', 'right']) // vertical, right half
+  })
+  test('left-handed: the bubble never covers a bar docked at the flipped edge (all four docks)', () => {
+    const wide = { w: 1000, h: 800 }
+    const docks = [box(20, 12, 360, 48), box(20, 740, 360, 48), box(12, 100, 48, 500), box(940, 100, 48, 500)]
+    for (const bar of docks) {
+      const win = bar.right > 500 || bar.left < 100 ? wide : { w: 400, h: 800 }
+      const p = placeBubble(bar, bar, size, win, true)
+      const w = Math.min(size.w, win.w - 24)
+      const covers = p.left < bar.right && p.left + w > bar.left && p.top < bar.bottom && p.top + size.h > bar.top
+      expect(covers).toBe(false)
+    }
+  })
 })
