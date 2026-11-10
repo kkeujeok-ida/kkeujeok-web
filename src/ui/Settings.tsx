@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { syncLog } from '../sync/syncLog'
 import { countUnsent, defaultUnsentStore } from '../sync/unsent'
 import { fmt, useI18n, type Choice, type Key } from '../i18n'
@@ -16,6 +16,7 @@ import { getSmooth, setSmooth, subscribeSmooth } from '../storage/smooth'
 import { PressureCurveSetting } from './PressureCurveSetting'
 import { ConfirmDialog } from './ConfirmDialog'
 import { downloadBlob } from './download'
+import { settingsActiveSection, settingsSections } from '../model/settingsLayout'
 
 const CHOICES: { value: Choice; label: Key }[] = [
   { value: 'system', label: 'settings.language.system' },
@@ -123,17 +124,46 @@ export function Settings({
   // The view replaced the library: move focus to its heading so the change is announced.
   const title = useRef<HTMLHeadingElement>(null)
   useEffect(() => title.current?.focus(), [])
+
+  // Web has no penOnly/penDiag items; the account section sits behind the sign-in gate.
+  const sections = settingsSections({ signedIn: true, platform: 'web' })
+  const [active, setActive] = useState<string>(sections[0]!.id)
+  const lockUntil = useRef(0) // ignore scroll-spy while a smooth scroll runs
+  const heading = (id: string) => document.getElementById(`settings-sec-${id}`)
+  useEffect(() => {
+    if (help) return
+    const spy = () => {
+      if (Date.now() < lockUntil.current) return
+      const hs = sections.flatMap((x) => {
+        const h = heading(x.id)
+        return h ? [{ id: x.id, top: h.getBoundingClientRect().top, h }] : []
+      })
+      if (!hs.length) return
+      // The sticky chip row covers the top: headings count from below it (scroll-margin-top).
+      const viewportTop = parseFloat(getComputedStyle(hs[0]!.h).scrollMarginTop) || 0
+      const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 1
+      setActive(settingsActiveSection({ headings: hs, viewportTop, offset: 8, atEnd }))
+    }
+    window.addEventListener('scroll', spy, { passive: true })
+    window.addEventListener('resize', spy)
+    return () => {
+      window.removeEventListener('scroll', spy)
+      window.removeEventListener('resize', spy)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sections is constant here
+  }, [help])
+  function go(id: string) {
+    const h = heading(id)
+    if (!h) return
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    lockUntil.current = reduce ? 0 : Date.now() + 700
+    setActive(id)
+    h.scrollIntoView?.({ block: 'start', behavior: reduce ? 'auto' : 'smooth' })
+    h.focus({ preventScroll: true })
+  }
   if (help) return <Help onClose={() => setHelp(false)} />
-  return (
-    <section className="settings" aria-labelledby="settings-title">
-      <header className="settings-header">
-        <h1 id="settings-title" ref={title} tabIndex={-1}>
-          {t('settings.title')}
-        </h1>
-        <button type="button" className="btn" onClick={onClose}>
-          {t('settings.close')}
-        </button>
-      </header>
+  const items: Record<string, ReactNode> = {
+    language: (
       <fieldset className="settings-group">
         <legend>{t('settings.language')}</legend>
         {CHOICES.map((c) => (
@@ -150,6 +180,8 @@ export function Settings({
           </label>
         ))}
       </fieldset>
+    ),
+    theme: (
       <fieldset className="settings-group">
         <legend>{t('settings.theme')}</legend>
         <div className="segmented">
@@ -161,14 +193,20 @@ export function Settings({
           ))}
         </div>
       </fieldset>
+    ),
+    leftHanded: (
       <label className="settings-group option">
         <input type="checkbox" checked={leftHanded} onChange={(e) => setLeftHanded(e.target.checked)} />
         <span>{t('settings.leftHanded')}</span>
       </label>
+    ),
+    straighten: (
       <label className="settings-group option">
         <input type="checkbox" checked={straighten} onChange={(e) => setStraighten(e.target.checked)} />
         <span>{t('settings.straighten')}</span>
       </label>
+    ),
+    smooth: (
       <fieldset className="settings-group">
         <legend>{t('settings.smooth')}</legend>
         <label className="option">
@@ -185,6 +223,9 @@ export function Settings({
           <output>{smooth}</output>
         </label>
       </fieldset>
+    ),
+    pressureCurve: <PressureCurveSetting />,
+    visibleTools: (
       <div className="settings-group" role="group" aria-labelledby="visible-tools-label">
         <span id="visible-tools-label">{t('settings.visibleTools')}</span>
         <div className="settings-stepper">
@@ -197,20 +238,28 @@ export function Settings({
           </button>
         </div>
       </div>
-      <PenPaletteEditor />
-      <PressureCurveSetting />
+    ),
+    penPalette: <PenPaletteEditor />,
+    help: (
       <button ref={helpBtn} type="button" className="btn" onClick={() => setHelp(true)}>
         {t('settings.help')}
       </button>
+    ),
+    privacy: (
       <a className="btn" href="/privacy" target="_blank" rel="noopener noreferrer">
         {t('settings.privacy')}
       </a>
+    ),
+    exportLog: (
       <div className="settings-group">
         <button type="button" className="btn" onClick={() => void exportSyncLog()}>
           {t('settings.syncLogExport')}
         </button>
         {exportFailed && <p role="alert">{t('settings.syncLogExportFailed')}</p>}
       </div>
+    ),
+    // Logout and disconnect stay in one group, as before.
+    logOut: (
       <div className="settings-group">
         <button ref={buttons.logout} type="button" className="btn" onClick={() => void open('logout')}>
           {t('settings.logout')}
@@ -218,6 +267,43 @@ export function Settings({
         <button ref={buttons.disconnect} type="button" className="btn" onClick={() => void open('disconnect')}>
           {t('settings.disconnect')}
         </button>
+      </div>
+    ),
+  }
+  return (
+    <section className="settings" aria-labelledby="settings-title">
+      <header className="settings-header">
+        <h1 id="settings-title" ref={title} tabIndex={-1}>
+          {t('settings.title')}
+        </h1>
+        <button type="button" className="btn" onClick={onClose}>
+          {t('settings.close')}
+        </button>
+      </header>
+      <div className="settings-body">
+        <nav className="settings-nav" aria-label={t('settings.cat.nav')}>
+          {sections.map((sec) => (
+            <button
+              key={sec.id}
+              type="button"
+              className="btn settings-nav-item"
+              aria-current={active === sec.id ? 'true' : undefined}
+              onClick={() => go(sec.id)}
+            >
+              {t(`settings.cat.${sec.id}`)}
+            </button>
+          ))}
+        </nav>
+        <div className="settings-main">
+          {sections.map((sec) => (
+            <section key={sec.id} className="settings-section" aria-labelledby={`settings-sec-${sec.id}`}>
+              <h2 id={`settings-sec-${sec.id}`} className="settings-section-title" tabIndex={-1}>
+                {t(`settings.cat.${sec.id}`)}
+              </h2>
+              {sec.items.map((id) => items[id] && <Fragment key={id}>{items[id]}</Fragment>)}
+            </section>
+          ))}
+        </div>
       </div>
       {action && (
         <ConfirmDialog

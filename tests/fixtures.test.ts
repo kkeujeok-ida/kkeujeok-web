@@ -16,6 +16,7 @@ import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
 import { brushResolve } from '../src/model/brush'
 import { curveEval, curveToPoints, opacityPressureCurve } from '../src/model/curve'
 import { smoothPoints } from '../src/model/smooth'
+import { settingsActiveSection, settingsSections, type ActiveInput } from '../src/model/settingsLayout'
 import { holdResize, recognizeShape, recognizeTilted, shapeCorners, shapeFromDrag, shapeOutline, shapePoints, shapeResize, shapeRotate, type Shape } from '../src/model/shape'
 import { lineSnapEnd, straightenActive, type StraightenInput } from '../src/model/straighten'
 import { highlighterOutline } from '../src/render/highlighterOutline'
@@ -302,6 +303,8 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     expect(got).toHaveLength(want.length)
     for (const [k, p] of got.entries()) for (const [j, v] of want[k]!.entries()) expect(Math.abs(p[j]! - v)).toBeLessThanOrEqual(tolerance! + 1e-12)
   },
+  'settings.sections': ({ input, expected }) => void expect(settingsSections(input as { signedIn: boolean; platform: 'android' | 'web' })).toEqual(expected),
+  'settings.activeSection': ({ input, expected }) => void expect(settingsActiveSection(input as ActiveInput)).toEqual(expected),
   'pen.straighten': ({ input, expected }) => void expect({ active: straightenActive(input as StraightenInput) }).toEqual(expected),
   'shape.lineSnap': ({ input, expected, tolerance }) => {
     const i = input as { start: number[]; end: number[] }
@@ -535,6 +538,7 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
+  'settings.search', // runner arrives with Story 27.4
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
 
