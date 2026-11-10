@@ -100,3 +100,37 @@ describe('eraseTargets (story 15.7 translucent preview)', () => {
     expect(eraseTargets(page, [[150, 100]], 12, true).fadeIds.size).toBe(0)
   })
 })
+
+describe('partial preview == saved result (story 28.9)', () => {
+  const pts = Array.from({ length: 11 }, (_, i) => [i * 10, 40, 0.5, i * 10])
+  const pen = { id: 'a', type: 'stroke', tool: 'pen', color: '#112233', width: 2, usePressure: false, points: pts }
+  const shaped = { ...pen, id: 's', points: [[0, 100, 0.5, 0], [100, 100, 0.5, 1], [100, 120, 0.5, 2], [0, 120, 0.5, 3]], shape: { kind: 'rect', x: 0, y: 100, width: 100, height: 20, rotation: 0 } }
+  const page = { id: 'p', width: 200, height: 200, elements: [pen, shaped] } as unknown as Note['pages'][number]
+  const path = [[50, 30], [50, 50]]
+
+  test('pieces keep style, alpha and points; only the touched part is left out of them', () => {
+    const t = eraseTargets(page, path, 12, true)
+    const pieces = t.elements.filter((e) => (e as { id: string }).id.startsWith('a~')) as unknown as (typeof pen)[]
+    expect(pieces.length).toBe(2)
+    for (const p of pieces) expect({ ...p, id: 'a', points: pts }).toEqual(pen)
+    expect(pieces.flatMap((p) => p.points.map((q) => q[0]))).toEqual([0, 10, 20, 30, 40, 60, 70, 80, 90, 100])
+  })
+  test('same piece points as the saved erase; an untouched stroke is not faded', () => {
+    const t = eraseTargets(page, path, 12, true)
+    expect(t.fadeIds.has('s')).toBe(false)
+    const saved = erasedElements(page, erasePieces(page, path, 12), true, (o, j) => `${(o as { id: string }).id}~${j}`)
+    expect(t.elements.filter((e) => (e as { id: string }).id.startsWith('a~'))).toEqual(saved.filter((e) => (e as { id: string }).id.startsWith('a~')))
+  })
+  test('shape stroke: pieces are plain strokes, same as saved', () => {
+    const t = eraseTargets(page, [[50, 95], [50, 125]], 12, true)
+    expect(t.fadeIds.has('s')).toBe(true)
+    const ps = t.elements.filter((e) => (e as { id: string }).id.startsWith('s~'))
+    expect(ps.length).toBeGreaterThan(0)
+    for (const p of ps) expect('shape' in (p as object)).toBe(false)
+  })
+  test('stroke mode: no pieces, whole stroke faded', () => {
+    const t = eraseTargets(page, path, 12, false)
+    expect(t.elements).toEqual(page.elements)
+    expect(t.fadeIds.has('a')).toBe(true)
+  })
+})
