@@ -204,6 +204,17 @@ describe('sign-in edge cases', () => {
     expect(button.disabled).toBe(true)
   })
 
+  test('the Google button is the first focusable element, decor is hidden, busy sets aria-busy', async () => {
+    popup = () => {}
+    mount()
+    expect(host!.querySelector('main')!.querySelector('button, a')).toBe(host!.querySelector('button'))
+    expect(host!.querySelector('img')!.getAttribute('aria-hidden')).toBe('true')
+    await click('Google로 로그인')
+    const b = host!.querySelector('button')!
+    expect(b.getAttribute('aria-busy')).toBe('true')
+    expect(b.querySelector('.signin-spinner')).not.toBeNull()
+  })
+
   test('the script is requested before the click, so the popup stays in the gesture', () => {
     const loadScript = vi.fn(async () => {})
     mount({ loadScript })

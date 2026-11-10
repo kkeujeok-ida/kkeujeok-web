@@ -257,12 +257,26 @@ h1 {
 .signin {
   box-sizing: border-box;
   display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--spacing-5) var(--spacing-4);
+}
+
+.signin-card {
+  box-sizing: border-box;
+  display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--spacing-3);
-  max-width: calc(var(--spacing-cover-column-min) * 4);
-  margin: 0 auto;
-  padding: var(--spacing-6) var(--spacing-4);
+  width: 100%;
+  max-width: calc(var(--spacing-cover-column-min) * 2.5);
+  padding: var(--spacing-6) var(--spacing-5);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: var(--rounded-lg);
+  background: var(--color-surface-raised);
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .signin p {
@@ -273,7 +287,58 @@ h1 {
   color: var(--color-accent-text);
 }
 
+.signin-logo {
+  width: var(--spacing-7);
+  height: var(--spacing-7);
+  border-radius: var(--rounded-md);
+}
+
+.signin-hint {
+  color: var(--color-ink-secondary);
+}
+
+.signin-google {
+  justify-content: center;
+  width: 100%;
+  min-height: var(--spacing-7);
+  margin-top: var(--spacing-2);
+}
+
+.signin-g,
+.signin-spinner {
+  flex: none;
+  width: var(--spacing-4);
+  height: var(--spacing-4);
+}
+
+.signin-spinner {
+  box-sizing: border-box;
+  border: 2px solid var(--color-border-control);
+  border-top-color: var(--color-ink-primary);
+  border-radius: var(--rounded-full);
+  animation: sync-spin 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signin-spinner {
+    animation: none;
+  }
+}
+
+.signin-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-2);
+  width: 100%;
+}
+
+.signin-notice:empty {
+  display: none;
+}
+
 .signin-error {
+  color: var(--color-status-error);
   font-weight: var(--typography-title-font-weight);
 }
 
