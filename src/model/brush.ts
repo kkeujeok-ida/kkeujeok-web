@@ -99,11 +99,12 @@ export function brushAlphaFactor(tool: unknown, brush: unknown, points: readonly
   if (brush === undefined) return 1
   const b = brushResolve(tool, brush)
   let a = perStamp ? 1 : b.opacity / toolOpacity(tool) // perStamp: opacity and its pressure curve are inside each pencil stamp
-  if (b.tiltTarget === 'opacity' && tool !== 'tape') {
+  const off = curvesOffOf(brush) // a curve that is off counts as its default, constant 1
+  if (b.tiltTarget === 'opacity' && tool !== 'tape' && !off.includes('opacityTilt')) {
     const qs = points.map((p) => tiltQ(p, b.tiltCurve)).filter((q): q is number => q !== null)
     if (qs.length) a *= qs.reduce((x, y) => x + y, 0) / qs.length
   }
-  const oc = tool === 'tape' || perStamp ? null : opacityPressureCurve(brush)
+  const oc = tool === 'tape' || perStamp || off.includes('opacityPressure') ? null : opacityPressureCurve(brush)
   if (oc && points.length) {
     // pressure alone drives it; usePressure off counts as 0.5 (spec/brush.md)
     const q = (p: readonly number[]) => pressureCurve(oc, usePressure && Number.isFinite(p[2]) ? p[2]! : 0.5)
