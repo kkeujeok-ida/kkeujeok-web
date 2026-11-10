@@ -10,6 +10,7 @@ import { createNote } from '../src/ops/ops'
 import { shapeCorners } from '../src/model/shape'
 import { SelectionMenu } from '../src/ui/library/SelectionMenu'
 import { Writer, hitSelection } from '../src/ui/library/writer'
+import { selectionMatrix } from '../src/render/pagePainter'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -282,5 +283,16 @@ describe('SelectionMenu', () => {
     const off = mount({ ...box, top: 900, bottom: 950 })
     expect(off.host.querySelector('[data-selection-menu]')).toBeNull()
     off.done()
+  })
+})
+
+describe('selectionMatrix (live preview)', () => {
+  const at = (m: number[], x: number, y: number) => [m[0]! * x + m[2]! * y + m[4]!, m[1]! * x + m[3]! * y + m[5]!]
+  test('move, scale about an anchor, turn about a pivot', () => {
+    expect(at(selectionMatrix({ dx: 5, dy: -3 }), 1, 1)).toEqual([6, -2])
+    expect(at(selectionMatrix({ sx: 2, sy: 3, anchor: [10, 10] }), 20, 20)).toEqual([30, 40])
+    const r = at(selectionMatrix({ turn: 90, pivot: [10, 10] }), 20, 10)
+    expect(r[0]).toBeCloseTo(10)
+    expect(r[1]).toBeCloseTo(20)
   })
 })

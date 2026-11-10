@@ -34,6 +34,8 @@ import {
   fitPageViewport,
   fitWidthViewport,
   paintPage,
+  selectionMatrix,
+  type Affine,
   eraserPreviewOpacity,
   scrollMetrics,
   StrokePathCache,
@@ -722,7 +724,9 @@ export class Writer {
       }
       const pv = er && er.pageId === s.page.id ? er.preview : null
       const shown = pv ? { ...s.page, elements: pv.elements } : s.page
-      paintPage(ctx, shown, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null, draft && draft.pageId === s.page.id ? draft : null, this.images ?? undefined, pv ? { ids: pv.fadeIds, alpha: eraserPreviewOpacity(c) } : null, undefined, this.openTapes)
+      const xf = this.xform
+      const sp = xf && xf.slot.page.id === s.page.id ? this.selMatrix(xf) : null
+      paintPage(ctx, shown, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null, draft && draft.pageId === s.page.id ? draft : null, this.images ?? undefined, pv ? { ids: pv.fadeIds, alpha: eraserPreviewOpacity(c) } : null, undefined, this.openTapes, sp)
     }
     this.emitTapes()
     if (this.ring && this.pointer && (this.tool === 'eraser' || this.erase)) {
@@ -1050,6 +1054,23 @@ export class Writer {
     const ox = ax - cx, oy = ay - cy
     const anchor: [number, number] = [cx + ox * Math.cos(a) - oy * Math.sin(a), cy + ox * Math.sin(a) + oy * Math.cos(a)]
     return { op: 'scale', ...base, sx: k, sy: k, anchor }
+  }
+
+  /** The drag in progress as a canvas matrix for the selected elements (page coordinates); null when nothing moves or it is no move/scale/turn. */
+  private selMatrix(x: Xform): { ids: Set<string>; m: Affine } | null {
+    if (x.kind === 'width' || x.kind === 'reshape') return null
+    const op = this.xformOp(x)
+    if (!op) return null
+    const ids = new Set(x.ids)
+    if (op.op === 'move') return { ids, m: selectionMatrix({ dx: op.dx as number, dy: op.dy as number }) }
+    if (op.op === 'scale') return { ids, m: selectionMatrix({ sx: op.sx as number, sy: op.sy as number, anchor: op.anchor as [number, number] }) }
+    if (op.op === 'rotate') {
+      // The op turns the elements about the center of their plain bounds.
+      const pb = selectionBounds(x.slot.page.elements.filter((e) => ids.has((e as El).id as string)) as El[])
+      if (!pb) return null
+      return { ids, m: selectionMatrix({ turn: op.angle as number, pivot: [(pb.left + pb.right) / 2, (pb.top + pb.bottom) / 2] }) }
+    }
+    return null
   }
 
   /** The selection box as the drag stands: bounds in page coordinates and its turn in degrees. */

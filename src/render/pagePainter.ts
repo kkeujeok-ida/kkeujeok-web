@@ -520,6 +520,27 @@ function paintPencil(ctx: CanvasRenderingContext2D, s: Stroke, path: () => Path2
   ctx.restore()
 }
 
+/** A 2D affine as canvas `transform(a, b, c, d, e, f)` takes it. */
+export type Affine = [number, number, number, number, number, number]
+
+const mul = (p: Affine, q: Affine): Affine => [
+  p[0] * q[0] + p[2] * q[1], p[1] * q[0] + p[3] * q[1],
+  p[0] * q[2] + p[2] * q[3], p[1] * q[2] + p[3] * q[3],
+  p[0] * q[4] + p[2] * q[5] + p[4], p[1] * q[4] + p[3] * q[5] + p[5],
+]
+
+/**
+ * The canvas matrix of a selection drag, in page coordinates: move by (dx, dy), scale (sx, sy) about `anchor`,
+ * then turn by `turn` degrees about `pivot` (the maths of the ops; one or two of them occur at a time).
+ * A stroke's width scales with it (the preview is a canvas transform; the committed op keeps the width).
+ */
+export function selectionMatrix(o: { dx?: number; dy?: number; sx?: number; sy?: number; anchor?: readonly [number, number]; turn?: number; pivot?: readonly [number, number] }): Affine {
+  const { dx = 0, dy = 0, sx = 1, sy = 1, anchor = [0, 0], turn = 0, pivot = [0, 0] } = o
+  const t = (turn * Math.PI) / 180, c = Math.cos(t), n = Math.sin(t)
+  const T = (x: number, y: number): Affine => [1, 0, 0, 1, x, y]
+  return mul(mul(mul(mul(mul(T(pivot[0], pivot[1]), [c, n, -n, c, 0, 0]), T(-pivot[0], -pivot[1])), T(anchor[0], anchor[1])), [sx, 0, 0, sy, 0, 0]), mul(T(-anchor[0], -anchor[1]), T(dx, dy)))
+}
+
 /**
  * Draws `page` (clipped to its bounds) and the optional in-progress stroke
  * `live`. Never throws on bad data: an element that cannot be drawn is skipped.
@@ -540,6 +561,8 @@ export function paintPage(
   allDark: boolean = isAllDark(),
   /** Ids of answer tapes that are open (screen state, pen-kinds.md): drawn as an outline only. */
   openTapes?: ReadonlySet<string>,
+  /** A selection being dragged: these elements are drawn through `m` (page coordinates) instead of in place. Display only. */
+  selPreview?: { ids: ReadonlySet<string>; m: Affine } | null,
 ): void {
   const { width: w, height: h } = page
   const { scale, offsetX, offsetY } = viewport
@@ -610,6 +633,11 @@ export function paintPage(
     const view = cw && ch ? { x0: -offsetX / scale, y0: -offsetY / scale, x1: (cw / dpr - offsetX) / scale, y1: (ch / dpr - offsetY) / scale } : { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity }
     let drafted = false
     for (const e of Array.isArray(elements) ? elements : []) {
+      const moved = !!selPreview && selPreview.ids.has((e as { id?: string } | null)?.id as string)
+      if (moved) {
+        ctx.save()
+        ctx.transform(...selPreview!.m)
+      }
       try {
         if (draft && (e as { id?: unknown } | null)?.id === draft.id) {
           drafted = true
@@ -645,6 +673,7 @@ export function paintPage(
       } catch {
         // one bad element must not hide the rest
       }
+      if (moved) ctx.restore()
     }
     if (draft && !drafted) {
       try {
