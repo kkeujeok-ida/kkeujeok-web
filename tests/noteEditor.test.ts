@@ -1811,13 +1811,14 @@ describe('pen pressure toggle', () => {
     const seen: string[] = []
     let ev = tab(first)
     expect(ev.defaultPrevented).toBe(true)
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < 12; i++) {
       const el = document.activeElement as HTMLElement
       seen.push(el.closest('.pen-palette') ? 'palette' : el.closest('.pen-recent') ? 'recent' : el.className || el.getAttribute('role')!)
       ev = tab(el)
     }
-    // tools and kinds (one row), palette, (recent is empty), slider, down, up, switch, delete, back to the tool
-    expect(seen).toEqual(['palette', 'pen-width-slider', 'pen-step pen-step-down', 'pen-step', 'pen-popover-switch', 'pen-popover-switch', 'pen-advanced-toggle', 'pen-popover-delete', 'pen-chip pen-chip-save'])
+    // tools and kinds (one row), advanced button, width row, opacity row, palette, (recent is empty), switches, delete, presets, back to the tool
+    const row = ['pen-width-slider', 'pen-step pen-step-down', 'pen-step']
+    expect(seen).toEqual(['pen-advanced-toggle', ...row, ...row, 'palette', 'pen-popover-switch', 'pen-popover-switch', 'pen-popover-delete', 'pen-chip pen-chip-save'])
     expect(document.activeElement).toBe(first)
     tab(first, true)
     expect(document.activeElement).toBe(q('.pen-chip-save'))
@@ -2288,7 +2289,7 @@ describe('pen popover (story 5.5)', () => {
   const cell = (i: number) => qa('.pen-palette [role="radio"]')[i]!
   const hexField = () => q<HTMLInputElement>('.color-hex')!
   const typeHex = (v: string) => act(() => void Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(hexField(), v) || hexField().dispatchEvent(new Event('input', { bubbles: true })))
-  const caption = () => qa('.pen-caption')[1]!.textContent
+  const caption = () => `${q('.pen-slider-label')!.textContent} ${q('.pen-slider-value')!.textContent}`
   const slider = () => q<HTMLInputElement>('.pen-width-slider')!
   const up = () => q('.pen-step:not(.pen-step-down)')!
 
@@ -2300,7 +2301,8 @@ describe('pen popover (story 5.5)', () => {
     key(cell(0), 'ArrowRight')
     expect(document.activeElement).toBe(cell(1))
     expect(slots.get(PEN_SLOTS_KEY)).toBeUndefined()
-    key(cell(1), 'ArrowDown')
+    act(() => cell(0).focus())
+    key(cell(0), 'ArrowDown') // 7 cells per row
     expect(document.activeElement).toBe(cell(7))
     key(cell(7), 'Enter')
     expect(slotList(slots)[0]!.color).toBe('#0c8599')
@@ -2459,7 +2461,7 @@ describe('pen popover (story 5.5)', () => {
   })
 
   test('strings exist in both languages and English names show', async () => {
-    for (const k of ['editor.tool.pen', 'editor.tool.highlighter', 'editor.recent', 'editor.widthCaption', 'editor.widthDown', 'editor.widthUp', 'editor.toolKind', 'editor.palette'] as const) {
+    for (const k of ['editor.tool.pen', 'editor.tool.highlighter', 'editor.recent', 'editor.strokeWidth', 'editor.widthDown', 'editor.widthUp', 'editor.toolKind', 'editor.palette'] as const) {
       expect(resources.ko[k]).toBeTruthy()
       expect(resources.en[k]).toBeTruthy()
     }

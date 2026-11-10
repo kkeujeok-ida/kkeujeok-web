@@ -1517,12 +1517,13 @@ h1 {
 }
 
 .pen-popover-switch {
+  --switch-scale: 0.75; /* spec/brush.md Sizes: the track is 0.75 x the full size, the row stays 44 px high */
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-3);
   box-sizing: border-box;
-  min-height: var(--spacing-hit-min-web);
+  min-height: 44px;
   padding: 0;
   border: 0;
   background: none;
@@ -1531,27 +1532,34 @@ h1 {
   cursor: pointer;
 }
 
+/* Same look as the Android Switch: on = accent track with an on-accent thumb; off = sunken track with control-coloured outline and thumb. */
 .switch-track {
   display: flex;
   align-items: center;
-  width: var(--spacing-7);
-  height: var(--spacing-5);
+  width: calc(var(--spacing-7) * var(--switch-scale, 1));
+  height: calc(var(--spacing-5) * var(--switch-scale, 1));
   padding: 2px;
   box-sizing: border-box;
+  border: 2px solid var(--color-border-control);
   border-radius: var(--rounded-full);
-  background: var(--color-ink-disabled);
+  background: var(--color-surface-sunken);
 }
 
 .switch-thumb {
-  width: calc(var(--spacing-5) - 4px);
-  height: calc(var(--spacing-5) - 4px);
+  width: calc((var(--spacing-5) - 8px) * var(--switch-scale, 1));
+  height: calc((var(--spacing-5) - 8px) * var(--switch-scale, 1));
   border-radius: var(--rounded-full);
-  background: var(--color-surface-raised);
+  background: var(--color-border-control);
 }
 
 .pen-popover-switch[aria-checked='true'] .switch-track {
   justify-content: flex-end;
-  background: var(--components-pen-slot-selected-indicator);
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+.pen-popover-switch[aria-checked='true'] .switch-thumb {
+  background: var(--color-on-accent);
 }
 
 .pen-preview {
@@ -2143,28 +2151,44 @@ h1 {
   background: var(--color-accent-soft);
 }
 
+/* Cell = swatch + 4 wide, 48 tall (spec/brush.md Sizes; the swatch is 0.7 x the old 48). */
+.pen-popover {
+  --pen-swatch: 34px;
+  --pen-cell-width: calc(var(--pen-swatch) + 4px);
+  --pen-cell-height: 48px;
+}
+
 .pen-palette {
   position: relative;
   display: grid;
   gap: 0;
-  border-radius: var(--rounded-sm);
-  overflow: hidden;
 }
 
 .pen-color-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   box-sizing: border-box;
-  height: var(--spacing-hit-min-web);
+  width: var(--pen-cell-width);
+  height: var(--pen-cell-height);
   padding: 0;
   border: 0;
-  border-radius: 0;
+  background: none;
   cursor: pointer;
 }
 
-.pen-color-cell[aria-checked='true'] {
-  box-shadow: inset 0 0 0 2px var(--color-surface-raised), inset 0 0 0 4px var(--color-accent);
+.pen-swatch {
+  width: var(--pen-swatch);
+  height: var(--pen-swatch);
+  box-sizing: border-box;
+  border-radius: var(--rounded-sm);
 }
 
-.pen-custom-cell {
+.pen-color-cell[aria-checked='true'] .pen-swatch {
+  box-shadow: inset 0 0 0 2px var(--color-surface-raised), 0 0 0 2px var(--color-accent);
+}
+
+.pen-custom-cell .pen-swatch {
   background: conic-gradient(#e03131, #f59f00, #2f9e44, #1971c2, #9c36b5, #e03131);
 }
 
@@ -2265,25 +2289,38 @@ h1 {
   min-height: var(--spacing-hit-min-web);
 }
 
-.pen-recent .pen-color-cell {
-  flex: 0 0 calc(100% / 6);
-}
-
-.pen-width-row {
+/* One-line slider row: label | value | slider | < > (spec/brush.md Basic settings rows); the values line up in one column. */
+.pen-slider-row {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2);
+  gap: var(--spacing-1);
+  min-height: 44px;
+}
+
+.pen-slider-label {
+  flex: 0 0 4.5em;
+}
+
+.pen-slider-value {
+  flex: 0 0 3em;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-secondary);
 }
 
 .pen-width-slider {
   flex: 1;
   min-width: 0;
+}
+
+/* Sliders look like the Android ones: the brand colour. */
+input[type='range'] {
   accent-color: var(--color-accent);
 }
 
 .pen-step {
-  min-width: var(--spacing-hit-min-web);
-  min-height: var(--spacing-hit-min-web);
+  min-width: 40px;
+  min-height: 44px;
   border: 0;
   border-radius: var(--rounded-sm);
   background: none;
@@ -2297,9 +2334,6 @@ h1 {
   cursor: default;
 }
 
-.pen-step-down {
-  order: -1;
-}
 
 .editor-canvas.is-eraser {
   cursor: crosshair;
@@ -3011,14 +3045,6 @@ h1 {
   gap: var(--spacing-3);
 }
 
-.pressure-sliders {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-height: 220px;
-  gap: var(--spacing-2);
-}
-
 .pressure-pad {
   display: block;
   width: 220px;
@@ -3033,6 +3059,7 @@ h1 {
 
 .pressure-graph {
   display: block;
+  overflow: visible; /* a point can be dragged out of the box to delete it */
   margin: var(--spacing-2) 0;
   border: 1px solid var(--color-border-hairline);
   background: var(--color-surface-raised);
@@ -3071,22 +3098,29 @@ h1 {
   max-width: 100%;
 }
 
+/* Tool name on the left, the advanced button right-aligned and only as wide as its text. */
+.pen-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
 .pen-advanced-toggle {
-  display: block;
+  flex: none;
   box-sizing: border-box;
-  width: 100%;
-  min-height: var(--spacing-hit-min-web);
-  padding: 0;
+  min-height: 44px;
+  padding: 0 var(--spacing-3);
   border: 0;
-  background: none;
-  color: inherit;
+  border-radius: var(--rounded-full);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
   font: inherit;
-  text-align: start;
   cursor: pointer;
 }
 
 
-/* Story 25.12: advanced columns and preset labels sit outside the pen bubble, to its right; a narrow screen scrolls them sideways. */
+/* Preset labels sit outside the pen bubble, to its right (the advanced settings are inside it, in one column). */
 .pen-popover-aside {
   position: fixed;
   display: flex;
@@ -3094,19 +3128,33 @@ h1 {
   gap: var(--spacing-3);
   box-sizing: border-box;
   max-height: calc(100vh - var(--spacing-3) * 2);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
+/* One vertical column of curve blocks (switch, title, graph), always open, inside the popover width: no sideways growth. */
 .pen-adv-col {
-  display: grid;
-  flex: none;
-  gap: var(--spacing-2);
-  box-sizing: border-box;
-  width: 17rem;
-  padding: var(--components-popover-padding);
-  border-radius: var(--components-popover-rounded);
-  background: var(--components-popover-background);
-  box-shadow: var(--components-popover-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  min-width: 0;
+}
+
+.pen-adv-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.pen-adv-graph {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 100%;
+}
+
+.pen-adv-graph.is-off {
+  opacity: 0.45;
 }
 
 .pen-presets {
@@ -3130,16 +3178,25 @@ h1 {
   gap: var(--spacing-1);
 }
 
+/* Capsule chips: "save" is a light tint of the brand colour, a saved preset has the brand colour (tokens only). */
 .pen-chip {
-  min-height: var(--spacing-hit-min-web);
+  min-height: 44px;
   padding: 0 var(--spacing-3);
   border: 0;
-  border-radius: 999px;
-  background: var(--components-popover-background);
-  box-shadow: var(--components-popover-shadow);
-  color: inherit;
+  border-radius: var(--rounded-full);
+  background: var(--color-accent-soft);
+  color: var(--color-ink-primary);
   font: inherit;
   cursor: pointer;
+}
+
+.pen-chip-save {
+  background: color-mix(in srgb, var(--color-accent) 25%, transparent);
+}
+
+.pen-chip-preset {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 
 .pen-chip-more {

@@ -63,3 +63,38 @@ export function opacityPressureCurve(brush: unknown): Curve | null {
 
 /** The point list the editor edits: a point list as it is, a legacy curve converted. */
 export const editPoints = (c: unknown): Pt[] | null => (isPointList(c) ? (validCurve(c) as Pt[] | null) : curveToPoints(c))
+
+const r4 = (v: number) => Math.sign(v) * Math.floor(Math.abs(v) * 1e4 + 0.5) / 1e4
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
+
+export type CurveEditOp =
+  | { kind: 'add'; x: number; y: number }
+  | { kind: 'move'; index: number; x: number; y: number }
+  | { kind: 'release'; index: number; outside: number }
+
+/** Spec rule `brush.curveEdit`: `op` applied to a point list (2 to 8 points); the output is rounded to 4 decimals. */
+export function curveEdit(points: readonly (readonly number[])[], op: CurveEditOp): Pt[] {
+  const p = points.map((q) => [q[0]!, q[1]!] as Pt)
+  if (op.kind === 'add') {
+    const x = clamp01(op.x)
+    const y = clamp01(op.y)
+    const onLine = Math.abs(y - (curveEval(p, x) ?? y)) <= 0.04
+    const near = p.some((q) => Math.abs(q[0] - x) < 0.02)
+    if (!onLine && !near && p.length < MAX_POINTS) {
+      const at = p.findIndex((q) => q[0] > x)
+      p.splice(at < 0 ? p.length : at, 0, [x, y])
+    }
+  } else if (op.kind === 'move') {
+    const i = op.index
+    if (i >= 0 && i < p.length) {
+      const y = clamp01(op.y)
+      if (i === 0 || i === p.length - 1) p[i] = [p[i]![0], y]
+      else {
+        const lo = p[i - 1]![0] + 0.02
+        const hi = p[i + 1]![0] - 0.02
+        p[i] = [lo > hi ? p[i]![0] : Math.min(hi, Math.max(lo, op.x)), y]
+      }
+    }
+  } else if (op.outside > 0.08 && op.index > 0 && op.index < p.length - 1 && p.length > 2) p.splice(op.index, 1)
+  return p.map((q) => [r4(q[0]), r4(q[1])])
+}

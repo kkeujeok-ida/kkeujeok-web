@@ -169,7 +169,8 @@ function piecePolygons(s: Pick<Stroke, 'tool' | 'width' | 'usePressure'> & { bru
   if (s.tool === 'highlighter') return highlighterOutline(s.width, pts.slice(from ?? 0, to === undefined ? undefined : to + 1))
   if (s.brush === undefined) return [strokeOutlineFor(s.tool, s.width, s.usePressure, pts, undefined, undefined, head, tail, from, to)]
   const b = brushResolve(s.tool, s.brush)
-  const size = b.tiltTarget === 'size' ? (p: readonly number[]) => tiltSizeFactor(p, b.tiltCurve) : undefined
+  const tc = brushCurves(s.brush).sizeTiltCurve // the new field, or the old tiltTarget/tiltCurve (brush.legacyTilt)
+  const size = tc ? (p: readonly number[]) => tiltSizeFactor(p, tc as number[]) : undefined
   return [strokeOutlineFor(s.tool, s.width, s.usePressure, pts, b.pressureCurve ?? undefined, size, head, tail, from, to)]
 }
 

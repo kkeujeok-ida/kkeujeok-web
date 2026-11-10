@@ -30,7 +30,7 @@ export function brushResolve(tool: unknown, brush: unknown): BrushParams {
   const opacity = tool === 'tape' ? 1 : typeof o === 'number' && o >= 0.05 && o <= 1 ? o : toolOpacity(tool)
   const tx = b.texture
   return {
-    pressureCurve: validCurve(b.pressureCurve),
+    pressureCurve: curvesOffOf(brush).includes('pressure') ? null : validCurve(b.pressureCurve), // a switched-off curve draws as its default
     tiltCurve: validCurve(b.tiltCurve) ?? LINEAR,
     tiltTarget: b.tiltTarget === 'size' || b.tiltTarget === 'opacity' ? b.tiltTarget : 'none',
     opacity,
@@ -114,7 +114,7 @@ export function brushAlphaFactor(tool: unknown, brush: unknown, points: readonly
 }
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
-export type BrushPatch = Partial<Record<'pressureCurve' | 'tiltCurve' | 'opacityPressureCurve' | 'tiltTarget' | 'opacity' | 'texture' | 'density', unknown>>
+export type BrushPatch = Partial<Record<'pressureCurve' | 'tiltCurve' | 'sizeTiltCurve' | 'opacityPressureCurve' | 'opacityTiltCurve' | 'densityPressureCurve' | 'curvesOff' | 'tiltTarget' | 'opacity' | 'texture' | 'density', unknown>>
 
 /**
  * `brush` with `patch` applied, keeping only what differs from the tool default (spec/brush.md).

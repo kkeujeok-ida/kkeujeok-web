@@ -14,7 +14,7 @@ import { PEN_DEFAULTS, PEN_PALETTE, PEN_WIDTH, colorNameKey, defaultPenSlots, pa
 import { resources } from '../src/i18n'
 import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
 import { brushAlpha, brushLegacyTilt, brushResolve } from '../src/model/brush'
-import { curveEval, curveToPoints, opacityPressureCurve } from '../src/model/curve'
+import { type CurveEditOp, curveEdit, curveEval, curveToPoints, opacityPressureCurve } from '../src/model/curve'
 import { smoothPoints } from '../src/model/smooth'
 import { settingsActiveSection, settingsSearch, settingsSections, type ActiveInput } from '../src/model/settingsLayout'
 import { holdResize, recognizeShape, recognizeTilted, shapeCorners, shapeFromDrag, shapeOutline, shapePoints, shapeResize, shapeRotate, type Shape } from '../src/model/shape'
@@ -138,6 +138,13 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     const deep = (g: unknown, e: unknown): void =>
       typeof e === 'number' ? expect(Math.abs((g as number) - e)).toBeLessThanOrEqual((tolerance ?? 0) + 1e-9) : Array.isArray(e) ? (expect((g as unknown[]).length).toBe(e.length), e.forEach((v, k) => deep((g as unknown[])[k], v))) : e && typeof e === 'object' ? Object.keys(e).forEach((k) => deep((g as Record<string, unknown>)[k], (e as Record<string, unknown>)[k])) : expect(g).toEqual(e)
     deep(got, expected)
+  },
+  'brush.curveEdit': ({ input, expected, tolerance }) => {
+    const i = input as { points: number[][]; op: CurveEditOp }
+    const got = curveEdit(i.points, i.op)
+    const want = (expected as { points: number[][] }).points
+    expect(got.length).toBe(want.length)
+    got.forEach((q, k) => q.forEach((v, j) => expect(Math.abs(v - want[k]![j]!)).toBeLessThanOrEqual((tolerance ?? 0) + 1e-9)))
   },
   'brush.resolve': ({ input, expected }) => {
     const i = input as { tool: string; brush?: unknown }
@@ -570,8 +577,6 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
-  // Story 29.1: runners arrive with 29.2 (client) and 29.3 (web).
-  'brush.curveEdit',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
 

@@ -1,20 +1,102 @@
 import { useId, useRef, useState } from 'react'
 import { useI18n } from '../../i18n'
-import { type BrushPatch, brushCurves, brushResolve, patchBrush } from '../../model/brush'
-import { curveToPoints, editPoints, opacityPressureCurve } from '../../model/curve'
+import { type BrushPatch, brushCurves, brushLegacyTilt, brushResolve, curvesOffOf, patchBrush } from '../../model/brush'
+import { editPoints, opacityPressureCurve, validCurve } from '../../model/curve'
 import type { Pen } from '../../model/pen'
 import { type BrushPreset, sharedBrushPresets } from '../../storage/brushPresets'
 import { CurveEditor } from '../CurveEditor'
 
-const LINEAR = [1 / 3, 1 / 3, 2 / 3, 2 / 3]
-/** Basic-settings texture choice (spec/brush.md, Story 28.5): none / pencil stamp, plus density when textured. Pen, fountain and pencil only. */
+type Props = { pen: Pen; onChange: (patch: Partial<Pen>) => void }
+
+/** A one-line slider row: `label | value | slider | < >` (spec/brush.md "Basic settings rows"). DOM and Tab order: slider, down, up. */
+export function SliderRow({ label, text, min, max, step, value, onChange, downLabel, upLabel }: {
+  label: string
+  text: string
+  min: number
+  max: number
+  step: number
+  value: number
+  onChange: (v: number) => void
+  downLabel: string
+  upLabel: string
+}) {
+  const id = useId()
+  const move = (d: number) => onChange(Math.min(max, Math.max(min, value + d)))
+  return (
+    <div className="pen-slider-row">
+      <span id={id} className="pen-slider-label">{label}</span>
+      <output className="pen-slider-value" aria-hidden="true">{text}</output>
+      <input
+        type="range"
+        tabIndex={0}
+        className="pen-width-slider"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        aria-labelledby={id}
+        aria-valuetext={text}
+        onChange={(e) => onChange(Number(e.target.value))}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault()
+            move(e.key === 'ArrowLeft' ? -step : step)
+          }
+        }}
+      />
+      <button type="button" tabIndex={0} aria-disabled={value <= min} aria-label={downLabel} className="pen-step pen-step-down" onClick={() => move(-step)}>
+        ‹
+      </button>
+      <button type="button" tabIndex={0} aria-disabled={value >= max} aria-label={upLabel} className="pen-step" onClick={() => move(step)}>
+        ›
+      </button>
+    </div>
+  )
+}
+
+/**
+ * Applies a brush patch on the latest `brush`, not the one of the last render: a touch on a switched-off graph turns it on and edits it in the
+ * same gesture (two writes before React renders again).
+ */
+function useBrushSetter({ pen, onChange }: Props) {
+  const latest = useRef(pen.brush)
+  latest.current = pen.brush
+  const set = (patch: BrushPatch) => {
+    latest.current = patchBrush(pen.tool, latest.current, patch)
+    onChange({ brush: latest.current })
+  }
+  return { set, latest }
+}
+
+/** Basic-settings 불투명도 row (spec/brush.md): `brush.opacity` 0.05..1 in steps of 0.05; not for the fixed highlighter (0.4) and tape. */
+export function PenOpacity({ pen, onChange }: Props) {
+  const { t } = useI18n()
+  const { set } = useBrushSetter({ pen, onChange })
+  if (pen.tool === 'highlighter' || pen.tool === 'tape') return null
+  const v = brushResolve(pen.tool, pen.brush).opacity
+  return (
+    <SliderRow
+      label={t('editor.brush.opacity')}
+      text={`${Math.round(v * 100)}%`}
+      min={0.05}
+      max={1}
+      step={0.05}
+      value={v}
+      onChange={(x) => set({ opacity: Math.round(x * 100) / 100 })}
+      downLabel={t('editor.brush.opacityDown')}
+      upLabel={t('editor.brush.opacityUp')}
+    />
+  )
+}
+
+/** Basic-settings texture choice (spec/brush.md, Story 28.5): none / pencil stamp, plus the 농도 row when textured. Pen, fountain and pencil only. */
 export function PenTexture({ pen, onChange }: Props) {
   const { t } = useI18n()
   const id = useId()
+  const { set } = useBrushSetter({ pen, onChange })
   if (!['pen', 'fountain', 'pencil'].includes(pen.tool)) return null
   const tex = brushResolve(pen.tool, pen.brush).texture
   const density = brushCurves(pen.brush).density
-  const set = (patch: BrushPatch) => onChange({ brush: patchBrush(pen.tool, pen.brush, patch) })
   return (
     <>
       <div className="segmented" role="radiogroup" aria-label={t('editor.brush.texture')}>
@@ -26,76 +108,84 @@ export function PenTexture({ pen, onChange }: Props) {
         ))}
       </div>
       {tex === 'pencil' && (
-        <label className="option">
-          <span>{t('editor.brush.density')}</span>
-          <input type="range" className="setting-range" min={0.05} max={1} step={0.05} value={density} onChange={(e) => set({ density: Math.round(Number(e.target.value) * 100) / 100 })} />
-          <output>{Math.round(density * 100)}%</output>
-        </label>
+        <SliderRow
+          label={t('editor.brush.density')}
+          text={`${Math.round(density * 100)}%`}
+          min={0.05}
+          max={1}
+          step={0.05}
+          value={density}
+          onChange={(x) => set({ density: Math.round(x * 100) / 100 })}
+          downLabel={t('editor.brush.densityDown')}
+          upLabel={t('editor.brush.densityUp')}
+        />
       )}
     </>
   )
 }
 
-const TARGETS = ['none', 'size', 'opacity'] as const
+// Start shapes of a curve that was never stored: pressure curves rise, tilt curves are the constant 1 (spec/brush.md "Curve switches").
+const PRESS = [[0, 0], [1, 1]]
+const FLAT = [[0, 1], [1, 1]]
 
-type Props = { pen: Pen; onChange: (patch: Partial<Pen>) => void }
+const CURVES = [
+  { name: 'pressure', field: 'pressureCurve', i18n: 'settings.pressureCurve', tilt: false },
+  { name: 'sizeTilt', field: 'sizeTiltCurve', i18n: 'brush.tiltCurve', tilt: true },
+  { name: 'opacityPressure', field: 'opacityPressureCurve', i18n: 'brush.opacityCurve', tilt: false },
+  { name: 'opacityTilt', field: 'opacityTiltCurve', i18n: 'brush.opacityTiltCurve', tilt: true },
+  { name: 'densityPressure', field: 'densityPressureCurve', i18n: 'brush.densityCurve', tilt: false },
+] as const
 
 /**
- * The advanced column to the right of the pen popover (spec/brush.md "Advanced settings layout"): the curve graphs, always open and without a test pad,
- * then tilt target and opacity. The result is stored on the pen as a sparse `brush`; strokes already drawn keep theirs.
- * Smoothing and pencil grain have no control here (the parameters stay in the format).
+ * Advanced brush settings (spec/brush.md "Advanced settings layout"): one block per curve (switch, title, graph), always open, in one column
+ * below the basic settings. The result is stored on the pen as a sparse `brush`; strokes already drawn keep theirs.
+ * A switch only adds its name to `brush.curvesOff`; the points stay. Touching a switched-off graph turns it on.
  */
-export function PenAdvancedColumn({ pen, onChange }: Props) {
+export function PenAdvancedPanel({ pen, onChange }: Props) {
   const { t } = useI18n()
-  const id = useId()
+  const { set, latest } = useBrushSetter({ pen, onChange })
+  const off = curvesOffOf(pen.brush)
   const b = brushResolve(pen.tool, pen.brush)
-  const set = (patch: BrushPatch) => onChange({ brush: patchBrush(pen.tool, pen.brush, patch) })
-  const flat = pen.tool === 'highlighter' || pen.tool === 'tape'
-  const ownPressure = b.pressureCurve !== null
-  const opacityCurve = opacityPressureCurve(pen.brush)
-  const linear = curveToPoints(LINEAR)!
-  const sw = (on: boolean, label: string, toggle: () => void) => (
-    <button type="button" role="switch" tabIndex={0} aria-checked={on} className="pen-popover-switch" onClick={toggle}>
-      <span>{label}</span>
-      <span className="switch-track" aria-hidden="true">
-        <span className="switch-thumb" />
-      </span>
-    </button>
-  )
+  // The stored curves; the old tiltTarget/tiltCurve read as the two tilt curves whatever the switch says.
+  const legacy = brushLegacyTilt({ ...(pen.brush ?? {}), curvesOff: [] })
+  const brush = pen.brush as Record<string, unknown> | undefined
+  const stored: Record<string, unknown> = {
+    pressure: validCurve(brush?.pressureCurve),
+    sizeTilt: legacy.sizeTiltCurve,
+    opacityPressure: opacityPressureCurve(pen.brush),
+    opacityTilt: legacy.opacityTiltCurve,
+    densityPressure: validCurve(brush?.densityPressureCurve),
+  }
+  const highlighter = pen.tool === 'highlighter'
+  // highlighter: the width curve only; tape: none; the density curve only for a textured tool
+  const shown = pen.tool === 'tape' ? [] : CURVES.filter((c) => c.name === 'pressure' || (!highlighter && (c.name !== 'densityPressure' || b.texture === 'pencil')))
   return (
     <div className="pen-adv-col" role="group" aria-label={t('editor.brush.advanced')}>
-      {!flat && pen.usePressure && (
-        <>
-          {sw(ownPressure, t('editor.brush.pressureOwn'), () => set({ pressureCurve: ownPressure ? null : LINEAR }))}
-          <CurveEditor value={editPoints(b.pressureCurve) ?? linear} fixedCount={2} pad={false} onChange={(v) => set({ pressureCurve: v })} />
-        </>
-      )}
-      {pen.tool !== 'tape' && pen.usePressure && (
-        <>
-          {sw(opacityCurve !== null, t('editor.brush.opacityPressure'), () => set({ opacityPressureCurve: opacityCurve ? null : linear }))}
-          <CurveEditor value={editPoints(opacityCurve) ?? linear} fixedCount={2} pad={false} i18n="brush.opacityCurve" onChange={(v) => set({ opacityPressureCurve: v })} />
-        </>
-      )}
-      {!flat && (
-        <>
-          <div className="segmented" role="radiogroup" aria-label={t('editor.brush.tiltTarget')}>
-            {TARGETS.map((k) => (
-              <label key={k} className="segmented-option">
-                <input type="radio" name={`${id}-tilt`} checked={b.tiltTarget === k} onChange={() => set({ tiltTarget: k })} />
-                <span>{t(`editor.brush.tilt.${k}`)}</span>
-              </label>
-            ))}
+      {shown.map((c) => {
+        const curve = stored[c.name]
+        const on = curve != null && !off.includes(c.name)
+        const start = c.tilt ? FLAT : PRESS
+        const title = t(`editor.brush.curve.${c.name}`)
+        const turnOn = () => {
+          const cur = curvesOffOf(latest.current)
+          if (curve != null && !cur.includes(c.name)) return
+          const rest = cur.filter((s) => s !== c.name)
+          set({ curvesOff: rest.length ? rest : null, ...(curve == null ? { [c.field]: start } : {}) })
+        }
+        return (
+          <div key={c.name} className="pen-adv-block">
+            <button type="button" role="switch" tabIndex={0} aria-checked={on} className="pen-popover-switch" onClick={() => (on ? set({ curvesOff: [...off, c.name] }) : turnOn())}>
+              <span>{title}</span>
+              <span className="switch-track" aria-hidden="true">
+                <span className="switch-thumb" />
+              </span>
+            </button>
+            <div className={on ? 'pen-adv-graph' : 'pen-adv-graph is-off'}>
+              <CurveEditor value={editPoints(curve) ?? start} pad={false} i18n={c.i18n} label={title} onTouch={turnOn} onChange={(v) => set({ [c.field]: v })} />
+            </div>
           </div>
-          <CurveEditor value={editPoints(b.tiltCurve)!} mode="tilt" fixedCount={2} pad={false} i18n="brush.tiltCurve" onChange={(v) => set({ tiltCurve: v })} />
-        </>
-      )}
-      {pen.tool !== 'tape' && (
-        <label className="option">
-          <span>{t('editor.brush.opacity')}</span>
-          <input type="range" className="setting-range" min={0.05} max={1} step={0.05} value={b.opacity} onChange={(e) => set({ opacity: Math.round(Number(e.target.value) * 100) / 100 })} />
-          <output>{Math.round(b.opacity * 100)}%</output>
-        </label>
-      )}
+        )
+      })}
     </div>
   )
 }
@@ -115,7 +205,7 @@ function PresetChip({ p, onUse, onList }: { p: BrushPreset; onUse: () => void; o
       <button
         type="button"
         tabIndex={0}
-        className="pen-chip"
+        className="pen-chip pen-chip-preset"
         aria-label={`${t('editor.brush.presetUse')} ${p.name}`}
         onClick={onUse}
         onContextMenu={(e) => {
@@ -194,6 +284,7 @@ export function PenPresets({ pen, onChange }: Props) {
         />
       )}
       <button type="button" tabIndex={0} className="pen-chip pen-chip-save" disabled={naming && !name.trim()} onClick={() => (naming ? save() : setNaming(true))}>
+        <span aria-hidden="true">+ </span>
         {t('editor.brush.presetSave')}
       </button>
     </div>

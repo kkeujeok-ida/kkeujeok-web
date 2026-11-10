@@ -1,7 +1,7 @@
-import { PenAdvancedColumn, PenPresets, PenTexture } from './PenAdvanced'
+import { PenAdvancedPanel, PenOpacity, PenPresets, PenTexture, SliderRow } from './PenAdvanced'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
-import { fmt, useI18n } from '../../i18n'
-import { PEN_PALETTE, PEN_WIDTH, colorNameKey, paletteFamily, snapWidth, type Pen, type PenTool } from '../../model/pen'
+import { useI18n } from '../../i18n'
+import { PEN_WIDTH, colorNameKey, paletteFamily, snapWidth, type Pen, type PenTool } from '../../model/pen'
 import { penGlyphD } from '../../model/penGlyph'
 import { sharedPenPalette } from '../../storage/penPalette'
 import { highlighterOutline, windAlike } from '../../render/highlighterOutline'
@@ -14,6 +14,7 @@ const H = 72
 const AMP = 8
 const MARGIN = 32 // room for the round caps
 const SCALE = 3 // the preview is drawn this much thicker than the page
+const PALETTE_COLUMNS = 7 // 38 px cells (spec/brush.md "Sizes"): more fit in a row than the 6 of the model
 const TOOLS: PenTool[] = ['pen', 'highlighter', 'fountain', 'pencil', 'tape']
 
 // A wave whose pressure rises and falls: flat when "use pressure" is off. The highlighter is the chisel rectangles in one path.
@@ -65,14 +66,13 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
   const titleId = useId()
   const [advOpen, setAdvOpen] = useState(false)
   const labelId = useId()
-  const widthId = useId()
   const live = useRef({ onChange, onRecent })
   live.current = { onChange, onRecent }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => toolBtns.current[TOOLS.indexOf(pen.tool)]?.focus(), [])
 
   const colors = sharedPenPalette().read(paletteFamily(pen.tool))
-  const { columns } = PEN_PALETTE[paletteFamily(pen.tool)]
+  const columns = PALETTE_COLUMNS
   const customIdx = colors.length
   const color = pen.color.toLowerCase()
   const checkedIdx = colors.includes(color) ? colors.indexOf(color) : customIdx
@@ -141,7 +141,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
   }
 
   return (
-    <PopoverShell anchor={anchor} tool={tool} onClose={onClose} labelledBy={titleId} className="pen-popover" aside={picking ? undefined : <>{advOpen && <PenAdvancedColumn pen={pen} onChange={onChange} />}<PenPresets pen={pen} onChange={onChange} /></>} relayout={`${pen.tool}${recent.length}${picking}${advOpen}${pen.brush ? JSON.stringify(pen.brush).length : 0}`}>
+    <PopoverShell anchor={anchor} tool={tool} onClose={onClose} labelledBy={titleId} className="pen-popover" aside={picking ? undefined : <PenPresets pen={pen} onChange={onChange} />} relayout={`${pen.tool}${recent.length}${picking}${advOpen}${pen.brush ? JSON.stringify(pen.brush).length : 0}`}>
         {picking ? (
           <ColorWheelPicker
             color={color}
@@ -196,26 +196,47 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
             })}
           </div>
         ))}
-        <h2 id={titleId} className="pen-popover-title">
-          {t(`editor.tool.${pen.tool}`)}
-        </h2>
-        <div className="pen-palette" role="radiogroup" aria-label={t('editor.palette')} style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
+        <div className="pen-name-row">
+          <h2 id={titleId} className="pen-popover-title">
+            {t(`editor.tool.${pen.tool}`)}
+          </h2>
+          <button type="button" tabIndex={0} className="pen-advanced-toggle" aria-expanded={advOpen} onClick={() => setAdvOpen(!advOpen)}>
+            {t('editor.brush.advanced')}
+          </button>
+        </div>
+        <SliderRow
+          label={t('editor.strokeWidth')}
+          text={pen.width.toFixed(1)}
+          min={range.min}
+          max={range.max}
+          step={0.1}
+          value={pen.width}
+          onChange={setWidth}
+          downLabel={t('editor.widthDown')}
+          upLabel={t('editor.widthUp')}
+        />
+        <PenOpacity pen={pen} onChange={onChange} />
+        <PenTexture pen={pen} onChange={onChange} />
+        <div className="pen-palette" role="radiogroup" aria-label={t('editor.palette')} style={{ gridTemplateColumns: `repeat(${columns}, var(--pen-cell-width))` }}>
           {colors.map((hex, i) => (
             <button
               key={hex}
               {...cellProps(i, palStop, hex, i === checkedIdx, cells.current)}
               className="pen-color-cell"
-              style={{ background: hex }}
               onClick={() => apply(hex)}
               onKeyDown={(e) => gridKeys(e, i, customIdx + 1, columns, cells.current, setPalFocus, () => apply(hex))}
-            />
+            >
+              <span className="pen-swatch" style={{ background: hex }} />
+            </button>
           ))}
           <button
             {...cellProps(customIdx, palStop, null, checkedIdx === customIdx, cells.current)}
             className="pen-color-cell pen-custom-cell"
             onClick={openPicker}
             onKeyDown={(e) => gridKeys(e, customIdx, customIdx + 1, columns, cells.current, setPalFocus, openPicker)}
-          />
+          >
+            <span className="pen-swatch" />
+          </button>
         </div>
         <div className="pen-caption">{t('editor.recent')}</div>
         <div className="pen-recent" role="radiogroup" aria-label={t('editor.recent')}>
@@ -224,56 +245,13 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
               key={hex}
               {...cellProps(i, recStop, hex, hex === color, recents.current)}
               className="pen-color-cell"
-              style={{ background: hex }}
               onClick={() => apply(hex)}
               onKeyDown={(e) => gridKeys(e, i, recent.length, recent.length, recents.current, setRecFocus, () => apply(hex))}
-            />
+            >
+              <span className="pen-swatch" style={{ background: hex }} />
+            </button>
           ))}
         </div>
-        <div id={widthId} className="pen-caption">
-          {fmt(t('editor.widthCaption'), { width: pen.width.toFixed(1) })}
-        </div>
-        {/* DOM (Tab) order: slider, down, up; CSS shows down, slider, up. */}
-        <div className="pen-width-row">
-          <input
-            type="range"
-            tabIndex={0}
-            className="pen-width-slider"
-            min={range.min}
-            max={range.max}
-            step={0.1}
-            value={pen.width}
-            aria-labelledby={widthId}
-            onChange={(e) => setWidth(Number(e.target.value))}
-            onKeyDown={(e) => {
-              if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-                e.preventDefault()
-                setWidth(pen.width + (e.key === 'ArrowLeft' ? -0.1 : 0.1))
-              }
-            }}
-          />
-          <button
-            type="button"
-            tabIndex={0}
-            aria-disabled={pen.width <= range.min}
-            aria-label={t('editor.widthDown')}
-            className="pen-step pen-step-down"
-            onClick={() => setWidth(pen.width - 0.1)}
-          >
-            ‹
-          </button>
-          <button
-            type="button"
-            tabIndex={0}
-            aria-disabled={pen.width >= range.max}
-            aria-label={t('editor.widthUp')}
-            className="pen-step"
-            onClick={() => setWidth(pen.width + 0.1)}
-          >
-            ›
-          </button>
-        </div>
-        <PenTexture pen={pen} onChange={onChange} />
         {pen.tool !== 'highlighter' && pen.tool !== 'tape' && (
           <button
             type="button"
@@ -296,9 +274,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
             <span className="switch-thumb" />
           </span>
         </button>
-        <button type="button" tabIndex={0} className="pen-advanced-toggle" aria-expanded={advOpen} onClick={() => setAdvOpen(!advOpen)}>
-          {t('editor.brush.advanced')}
-        </button>
+        {advOpen && <PenAdvancedPanel pen={pen} onChange={onChange} />}
         <svg className="pen-preview" viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
           <path d={previewPath(pen)} fill={pen.color} fillOpacity={pen.tool === 'highlighter' ? 0.4 : undefined} />
         </svg>
