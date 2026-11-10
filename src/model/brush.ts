@@ -1,5 +1,5 @@
 // spec rule `brush.resolve` (spec/brush.md): the drawing parameters of a stroke from its `tool` and optional `brush`.
-import { type Curve, opacityPressureCurve, validCurve } from './curve'
+import { type Curve, curveEval, opacityPressureCurve, validCurve } from './curve'
 import { pressureCurve } from './pressureCurve'
 
 export type BrushParams = {
@@ -8,6 +8,15 @@ export type BrushParams = {
   tiltTarget: 'none' | 'size' | 'opacity'
   opacity: number
   texture: 'none' | 'pencil'
+}
+
+/** The Epic 28 parameters; not in `brush.resolve` (its fixture lists the five above), read with `brushCurves`. */
+export type BrushCurves = {
+  density: number
+  curvesOff: string[]
+  sizeTiltCurve: Curve | null
+  opacityTiltCurve: Curve | null
+  densityPressureCurve: Curve | null
 }
 
 const LINEAR = [1 / 3, 1 / 3, 2 / 3, 2 / 3]
@@ -27,6 +36,47 @@ export function brushResolve(tool: unknown, brush: unknown): BrushParams {
     opacity,
     texture: tx === 'none' || tx === 'pencil' ? tx : tool === 'pencil' ? 'pencil' : 'none',
   }
+}
+
+/** `density`, `curvesOff` and the three new curves of a stroke's `brush` (tilt curves include the legacy `tiltTarget` reading). */
+export function brushCurves(brush: unknown): BrushCurves {
+  const b = brush && typeof brush === 'object' && !Array.isArray(brush) ? (brush as Record<string, unknown>) : {}
+  const lt = brushLegacyTilt(brush)
+  return {
+    density: typeof b.density === 'number' && b.density >= 0.05 && b.density <= 1 ? b.density : 1,
+    curvesOff: lt.curvesOff,
+    sizeTiltCurve: lt.sizeTiltCurve,
+    opacityTiltCurve: lt.opacityTiltCurve,
+    densityPressureCurve: lt.curvesOff.includes('densityPressure') ? null : validCurve(b.densityPressureCurve),
+  }
+}
+
+/** The strings of `brush.curvesOff` (unknown ones kept); `[]` when absent. */
+export function curvesOffOf(brush: unknown): string[] {
+  const o = brush && typeof brush === 'object' ? (brush as Record<string, unknown>).curvesOff : null
+  return Array.isArray(o) ? o.filter((s): s is string => typeof s === 'string') : []
+}
+
+/** Spec rule `brush.legacyTilt`: the old `tiltTarget`/`tiltCurve` read as the two tilt curves; the new field wins, a switch in `curvesOff` gives null. */
+export function brushLegacyTilt(brush: unknown): { sizeTiltCurve: Curve | null; opacityTiltCurve: Curve | null; curvesOff: string[] } {
+  const b = brush && typeof brush === 'object' && !Array.isArray(brush) ? (brush as Record<string, unknown>) : {}
+  const off = curvesOffOf(brush)
+  const read = (field: string, name: string, target: string): Curve | null =>
+    off.includes(name) ? null : validCurve(b[field]) ?? (b.tiltTarget === target ? validCurve(b.tiltCurve) ?? LINEAR : null)
+  return { sizeTiltCurve: read('sizeTiltCurve', 'sizeTilt', 'size'), opacityTiltCurve: read('opacityTiltCurve', 'opacityTilt', 'opacity'), curvesOff: off }
+}
+
+/** Spec rule `brush.alpha`: the final alpha of one point. A missing curve is constant 1; a missing pressure (or `usePressure` false) counts as 0.5, a missing tilt gives qt 1. */
+export function brushAlpha(o: { opacity: number; opacityPressureCurve?: unknown; opacityTiltCurve?: unknown; pressure?: number | null; tilt?: number | null; usePressure?: boolean }): number {
+  let a = o.opacity
+  const pc = validCurve(o.opacityPressureCurve)
+  if (pc) {
+    const p = (o.usePressure ?? true) && typeof o.pressure === 'number' && Number.isFinite(o.pressure) ? Math.min(1, Math.max(0, o.pressure)) : 0.5
+    a *= curveEval(pc, p) ?? 1
+  }
+  const tc = validCurve(o.opacityTiltCurve)
+  if (tc && typeof o.tilt === 'number' && Number.isFinite(o.tilt)) a *= curveEval(tc, Math.min(90, Math.max(0, o.tilt)) / 90) ?? 1
+  return Math.min(1, Math.max(0, a))
 }
 
 /** Curve output q (0..1) of a point's tilt, or null when the point has no tilt (4 numbers). */
@@ -63,7 +113,7 @@ export function brushAlphaFactor(tool: unknown, brush: unknown, points: readonly
 }
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
-export type BrushPatch = Partial<Record<'pressureCurve' | 'tiltCurve' | 'opacityPressureCurve' | 'tiltTarget' | 'opacity' | 'texture', unknown>>
+export type BrushPatch = Partial<Record<'pressureCurve' | 'tiltCurve' | 'opacityPressureCurve' | 'tiltTarget' | 'opacity' | 'texture' | 'density', unknown>>
 
 /**
  * `brush` with `patch` applied, keeping only what differs from the tool default (spec/brush.md).

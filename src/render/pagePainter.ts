@@ -6,7 +6,7 @@ import { isValidStroke, type Page, type Stroke } from '../model/note'
 import { shapeRings } from '../model/shape'
 import { pageBackground } from './pageBackground'
 import { outlinePath, strokeOutlineFor } from './strokeOutline'
-import { brushAlphaFactor, brushResolve, tiltSizeFactor } from '../model/brush'
+import { brushAlpha, brushAlphaFactor, brushCurves, brushResolve, tiltSizeFactor } from '../model/brush'
 import { getPressureCurve } from '../storage/pressureCurve'
 import { smoothPoints } from '../model/smooth'
 import { getSmooth } from '../storage/smooth'
@@ -15,7 +15,7 @@ import { drawableImage, paintImage, type ImageSource } from './imagePainter'
 import { dotHex, inkHex, invertLayers, lineHex, paperHex } from '../model/invert'
 import { isAllDark } from '../storage/theme'
 import { drawableText, paintTextBox } from './textPainter'
-import { type PencilStamp, PencilTextures, pencilDensity, pencilStamps } from './pencilTexture'
+import { type PencilStampV2, PencilTextures, PencilWalk, pencilDensity, pencilStampsV2 } from './pencilTexture'
 import { opacityPressureCurve } from '../model/curve'
 import { meanPressure } from './strokeOutline'
 
@@ -150,12 +150,133 @@ const strokePath = (s: Pick<Stroke, 'tool' | 'width' | 'usePressure' | 'points'>
     }
     return path
   }
-  const pts = smoothPoints(s.points, getSmooth()) // screen only: export and print call the outlines directly
-  if (s.tool === 'highlighter') return highlighterPath(highlighterOutline(s.width, pts))
-  if (s.brush === undefined) return outlinePath(strokeOutlineFor(s.tool, s.width, s.usePressure, pts))
+  return polygonsPath(s.tool, piecePolygons(s, s.points))
+}
+
+type Polys = number[][][]
+const polygonsPath = (tool: unknown, polys: Polys): Path2D => (tool === 'highlighter' ? highlighterPath(polys) : outlinePath(polys[0] ?? []))
+
+/**
+ * The polygons of `points` of stroke `s` (all its points, or a piece of a live stroke). `head`/`tail`: the piece starts/ends at the stroke's own
+ * start/end (only the fountain taper cares). `cutFrom`/`cutTo` are indices in `points`. Smoothing is screen only: export and print call the outlines directly.
+ */
+function piecePolygons(s: Pick<Stroke, 'tool' | 'width' | 'usePressure'> & { brush?: unknown }, points: readonly (readonly number[])[], head = true, tail = true, cutFrom?: number, cutTo?: number): Polys {
+  const level = getSmooth()
+  const pts = smoothPoints(points, level)
+  const dense = level > 0 && points.length >= 3 ? 2 : 1 // smoothing doubles the indices
+  const from = cutFrom === undefined ? undefined : cutFrom * dense
+  const to = cutTo === undefined ? undefined : cutTo * dense
+  if (s.tool === 'highlighter') return highlighterOutline(s.width, pts.slice(from ?? 0, to === undefined ? undefined : to + 1))
+  if (s.brush === undefined) return [strokeOutlineFor(s.tool, s.width, s.usePressure, pts, undefined, undefined, head, tail, from, to)]
   const b = brushResolve(s.tool, s.brush)
   const size = b.tiltTarget === 'size' ? (p: readonly number[]) => tiltSizeFactor(p, b.tiltCurve) : undefined
-  return outlinePath(strokeOutlineFor(s.tool, s.width, s.usePressure, pts, b.pressureCurve ?? undefined, size))
+  return [strokeOutlineFor(s.tool, s.width, s.usePressure, pts, b.pressureCurve ?? undefined, size, head, tail, from, to)]
+}
+
+type Pts = readonly (readonly number[])[]
+/** The points after the Prepare step (stroke-geometry.md): one closer than 0.01 pt to the last kept one is dropped. */
+export function keptPoints(points: Pts): (readonly number[])[] {
+  const out: (readonly number[])[] = []
+  for (const p of points) {
+    const l = out[out.length - 1]
+    if (l && Math.hypot(p[0]! - l[0]!, p[1]! - l[1]!) < 0.01) continue
+    out.push(p)
+  }
+  return out
+}
+
+/**
+ * What is kept of the stroke being drawn (spec rule `stroke.liveFreeze`). Pens: the kept points are cut into pieces of `CHUNK` points sharing
+ * their joint; a piece that ends inside the frozen part (all but the last three) is built once and kept. Smoothing and resampling look at the
+ * neighbours, so a piece is built from a window around it and cut back to its own points. Stamps: the live list is append-only.
+ */
+export class LiveCache {
+  static readonly CHUNK = 8
+  static readonly MARGIN = 6
+  /** The polygons of the closed pieces, in order, and of the open piece built by the last `pathOf`. */
+  polygons: Polys = []
+  openPolygons: Polys = []
+  stamps: PencilStampV2[] = []
+  private key: string | null = null
+  private frozen: Path2D | null = null // made on first use: a cache can exist where Path2D does not
+  private start = 0
+  private kept = 0
+  private first: readonly number[] | null = null
+  private joint: readonly number[] | null = null
+  private walk = new PencilWalk()
+  private stampKept = 0
+  private stampLast: readonly number[] | null = null
+
+  private reset() {
+    this.frozen = null
+    this.polygons = []
+    this.openPolygons = []
+    this.stamps = []
+    this.start = this.kept = this.stampKept = 0
+    this.first = this.joint = this.stampLast = null
+    this.walk = new PencilWalk()
+  }
+
+  private sync(s: Stroke, extra: string) {
+    const key = JSON.stringify([s.id, s.tool, s.width, s.usePressure, s.brush ?? null, s.color, extra, getSmooth(), getPressureCurve()])
+    if (key !== this.key) {
+      this.reset()
+      this.key = key
+    }
+  }
+
+  /** Forgets the stroke (pen up or cancel; the next pen down starts clean). */
+  clear() {
+    if (this.key === null) return
+    this.reset()
+    this.key = null
+  }
+
+  /** The live pen stroke as its kept `frozen` part and the `open` piece. */
+  pathOf(s: Stroke): { frozen: Path2D; open: Path2D } {
+    this.sync(s, 'path')
+    const kept = keptPoints(s.points)
+    const same = (a: readonly number[] | null, p: readonly number[] | undefined) => !!a && !!p && a[0] === p[0] && a[1] === p[1]
+    if (kept.length < this.kept || (kept.length && this.first && !same(this.first, kept[0])) || (this.joint && !same(this.joint, kept[this.start]))) {
+      this.reset()
+      this.key = null
+      return this.pathOf(s)
+    }
+    this.kept = kept.length
+    if (kept.length) this.first ??= kept[0]!
+    const frozen = Math.max(0, kept.length - 3)
+    const { CHUNK, MARGIN } = LiveCache
+    // Built from a window around the piece and cut back to its own points: its ends then match what the whole stroke gives at pen up.
+    for (;;) {
+      const e = this.start + CHUNK - 1
+      if (e > frozen - 1 || e + MARGIN > kept.length - 1) break
+      const ws = Math.max(0, this.start - MARGIN)
+      const polys = piecePolygons(s, kept.slice(ws, e + MARGIN + 1), this.start === 0, false, this.start - ws, e - ws)
+      this.polygons.push(...polys)
+      ;(this.frozen ??= new Path2D()).addPath(polygonsPath(s.tool, polys))
+      this.start = e
+      this.joint = kept[this.start]!
+    }
+    const ws = Math.max(0, this.start - MARGIN)
+    this.openPolygons = piecePolygons(s, kept.slice(ws), this.start === 0, true, this.start - ws)
+    return { frozen: this.frozen ?? new Path2D(), open: polygonsPath(s.tool, this.openPolygons) }
+  }
+
+  /** The stamps of the live pencil stroke, with the new ones added. */
+  stampsOf(s: Stroke): PencilStampV2[] {
+    this.sync(s, 'stamps')
+    const kept = keptPoints(s.points)
+    const last = this.stampLast
+    if (kept.length < this.stampKept || (this.stampKept > 0 && !(last && last[0] === kept[this.stampKept - 1]![0] && last[1] === kept[this.stampKept - 1]![1]))) {
+      this.reset()
+      this.key = null
+      return this.stampsOf(s)
+    }
+    this.stamps.push(...stampsOf(s, true, this.walk))
+    this.stampKept = kept.length
+    this.stampLast = kept.length ? kept[kept.length - 1]! : null
+    return this.stamps
+  }
 }
 
 /** Layer alpha of a stroke from its brush, and whether it is drawn through the pencil grain. */
@@ -167,7 +288,9 @@ const brushDraw = (s: { tool?: unknown; brush?: unknown; usePressure?: boolean; 
 /** Outlines of finished strokes by stroke id, so a repaint rebuilds none. */
 export class StrokePathCache {
   private byId = new Map<string, { key: string; path: Path2D }>()
-  private stampsById = new Map<string, { key: string; stamps: PencilStamp[] }>()
+  private stampsById = new Map<string, { key: string; stamps: PencilStampV2[] }>()
+  /** The stroke being drawn: its frozen part is kept between frames. */
+  readonly live = new LiveCache()
   /** The pencil stamp image; set `textures.onReady` to repaint when it is loaded. */
   readonly textures = new PencilTextures()
 
@@ -181,7 +304,7 @@ export class StrokePathCache {
   }
 
   /** Stamps of a finished pencil stroke; rebuilt only when the stroke changes. */
-  stampsOf(s: Stroke): PencilStamp[] {
+  stampsOf(s: Stroke): PencilStampV2[] {
     const key = cacheKey(s)
     const hit = this.stampsById.get(s.id)
     if (hit && hit.key === key) return hit.stamps
@@ -233,25 +356,42 @@ const fill = (ctx: CanvasRenderingContext2D, path: Path2D, color: unknown, tool?
   ctx.restore()
 }
 
-const stampsOf = (s: Stroke): PencilStamp[] => {
-  const b = brushResolve(s.tool, s.brush)
-  return pencilStamps({ id: s.id, width: s.width, usePressure: s.usePressure, points: s.points, opacity: b.opacity, curve: b.pressureCurve ?? getPressureCurve(), opacityCurve: s.brush === undefined ? null : opacityPressureCurve(s.brush) })
+/** Stamps of a stroke (spec stroke.texture.stamps). `live` with a `walk`: only the stamps new since the walk's last call. */
+function stampsOf(s: Stroke, live = false, walk?: PencilWalk): PencilStampV2[] {
+  const b = { ...brushResolve(s.tool, s.brush), ...brushCurves(s.brush) }
+  const up = s.usePressure
+  const oc = b.curvesOff.includes('opacityPressure') ? null : opacityPressureCurve(s.brush)
+  const num = (p: readonly number[], i: number) => (p.length > i && typeof p[i] === 'number' ? p[i]! : null)
+  return pencilStampsV2({
+    id: s.id,
+    width: s.width,
+    usePressure: up,
+    points: s.points,
+    density: b.density,
+    opacityFactor: b.opacity,
+    live,
+    walk,
+    curve: !up ? null : b.pressureCurve && !b.curvesOff.includes('pressure') ? b.pressureCurve : getPressureCurve(),
+    densityCurve: !up ? null : b.densityPressureCurve,
+    // shortcut: with no opacity curve the alpha is the constant brush opacity; upgrade with a per-point cache if curves make live frames slow.
+    alphaOf: oc || b.opacityTiltCurve ? (p) => brushAlpha({ opacity: b.opacity, opacityPressureCurve: oc, opacityTiltCurve: b.opacityTiltCurve, pressure: num(p, 2), tilt: num(p, 4), usePressure: up }) : undefined,
+  })
 }
 
 /** Draws a pencil stroke: stamps along its path (they are the stroke), or the plain alpha polygon without the stamp image. */
-function paintPencil(ctx: CanvasRenderingContext2D, s: Stroke, path: () => Path2D, stamps: () => PencilStamp[], textures: PencilTextures, fade: number, dark: boolean) {
+function paintPencil(ctx: CanvasRenderingContext2D, s: Stroke, path: () => Path2D, stamps: () => PencilStampV2[], textures: PencilTextures, fade: number, dark: boolean) {
   const bd = brushDraw(s)
   const col = typeof s.color === 'string' && COLOR.test(s.color) ? s.color.slice(0, 7) : '#000000'
   const img = bd.grain ? textures.tint(dark ? inkHex(col) : col) : null
   if (!img) return fill(ctx, path(), s.color, 'pencil', fade * bd.alpha * pencilDensity(meanPressure(s.usePressure, s.points)).density, dark)
   const m = ctx.getTransform()
-  const f = fade * brushAlphaFactor(s.tool, s.brush, s.points, s.usePressure, true) // brush opacity is inside the stamp alpha
+  const f = fade // opacity, pressure and tilt alpha are inside each stamp
   ctx.save()
   for (const t of stamps()) {
     const c = Math.cos((t.angle * Math.PI) / 180), n = Math.sin((t.angle * Math.PI) / 180)
     ctx.setTransform(m.a * c + m.c * n, m.b * c + m.d * n, -m.a * n + m.c * c, -m.b * n + m.d * c, m.a * t.x + m.c * t.y + m.e, m.b * t.x + m.d * t.y + m.f)
     ctx.globalAlpha = Math.min(1, t.alpha * f)
-    ctx.drawImage(img, -t.size / 2, -t.size / 2, t.size, t.size)
+    ctx.drawImage(img[t.variant]!, -t.size / 2, -t.size / 2, t.size, t.size)
   }
   ctx.restore()
 }
@@ -392,12 +532,25 @@ export function paintPage(
     if (live && isValidStroke(live)) {
       try {
         const bd = brushDraw(live)
-        if (live.tool === 'pencil' || bd.grain) paintPencil(ctx, live, () => strokePath(live), () => stampsOf(live), cache.textures, 1, dark)
-        else fill(ctx, strokePath(live), live.color, live.tool, bd.alpha, dark)
+        const cached = !(live as { shape?: unknown }).shape // a shape has no pen points to freeze: built each frame
+        if (live.tool === 'pencil' || bd.grain) paintPencil(ctx, live, () => strokePath(live), () => (cached ? cache.live.stampsOf(live) : stampsOf(live)), cache.textures, 1, dark)
+        else if (!cached) fill(ctx, strokePath(live), live.color, live.tool, bd.alpha, dark)
+        else {
+          const lp = cache.live.pathOf(live)
+          if (live.tool !== 'highlighter' && bd.alpha === 1) {
+            fill(ctx, lp.frozen, live.color, live.tool, 1, dark)
+            fill(ctx, lp.open, live.color, live.tool, 1, dark)
+          } else {
+            // one layer, so the overlap of the pieces is not drawn twice
+            const all = new Path2D(lp.frozen)
+            all.addPath(lp.open)
+            fill(ctx, all, live.color, live.tool, bd.alpha, dark)
+          }
+        }
       } catch {
         // the stroke in progress is skipped for this frame
       }
-    }
+    } else cache.live.clear()
   } finally {
     ctx.restore()
   }
@@ -409,4 +562,19 @@ export function fitHeightViewport(w: number, h: number, pageW: number, pageH: nu
   if (!a) return IDENTITY
   const scale = clampScale(a.ah / pageH)
   return clampViewport({ scale, offsetX: 0, offsetY: a.gap }, w, h, pageW, pageH, ins)
+}
+
+/** Spec rule `stroke.liveFreeze`: how many kept points are frozen while the pen is down (all but the last three), and for a pencil `stamps` how many `live` stamps lie at or before the length of the frozen polyline. */
+export function liveFreeze(points: Pts, stamps?: { id: string; width: number; usePressure: boolean; density?: number }) {
+  const kept = keptPoints(points)
+  const frozen = Math.max(0, kept.length - 3)
+  let frozenStamps: number | undefined
+  if (stamps) {
+    let lk = 0
+    for (let i = 1; i < frozen; i++) lk += Math.hypot(kept[i]![0]! - kept[i - 1]![0]!, kept[i]![1]! - kept[i - 1]![1]!)
+    const nominal: number[] = []
+    pencilStampsV2({ ...stamps, points, live: true, nominal })
+    frozenStamps = frozen === 0 ? 0 : nominal.filter((s) => s <= lk + 1e-9).length
+  }
+  return { keptCount: kept.length, frozenCount: frozen, ...(frozenStamps === undefined ? {} : { frozenStamps }) }
 }

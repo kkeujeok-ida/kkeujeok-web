@@ -26,6 +26,8 @@ export function strokeSamples(
   points: readonly (readonly number[])[],
   curve: PressureCurve = getPressureCurve(),
   sizeOf?: (p: readonly number[]) => number,
+  from?: number,
+  to?: number,
 ): { x: number[]; y: number[]; q: number[]; m: number[]; length: number } {
   const useCurve = usePressure && points.some((p) => p[2] !== 0.5) ? curve : null
   // 1. Prepare: dedupe against the last kept point.
@@ -33,12 +35,16 @@ export function strokeSamples(
   const ys: number[] = []
   const qs: number[] = []
   const ms: number[] = []
+  const src: number[] = [] // index in `points` of each kept point
+  let at = -1
   for (const p of points) {
+    at++
     const x = p[0]!
     const y = p[1]!
     if (xs.length > 0 && Math.hypot(x - xs[xs.length - 1]!, y - ys[ys.length - 1]!) < DEDUPE_DISTANCE) continue
     xs.push(x)
     ys.push(y)
+    src.push(at)
     qs.push(pressure(usePressure, p, useCurve))
     ms.push(sizeOf ? sizeOf(p) : 1)
   }
@@ -52,6 +58,16 @@ export function strokeSamples(
         a[i] = old[i]! + SMOOTHING_FACTOR * ((old[i - 1]! + old[i + 1]!) / 2 - old[i]!)
       }
     }
+  }
+
+  // A piece of a live stroke: smoothed with its neighbours, then cut to `from`..`to` (indices in `points`) so its ends match the whole stroke.
+  if (from !== undefined || to !== undefined) {
+    const a = from === undefined ? 0 : src.findIndex((i) => i >= from)
+    let b = to === undefined ? xs.length - 1 : -1
+    if (to !== undefined) for (let i = src.length - 1; i >= 0; i--) if (src[i]! <= to) { b = i; break }
+    if (a < 0 || b < a) return { x: [], y: [], q: [], m: [], length: 0 }
+    for (const l of [xs, ys, qs, ms]) l.splice(b + 1), l.splice(0, a)
+    if (xs.length < 2) return { x: xs, y: ys, q: qs, m: ms, length: 0 }
   }
 
   // 4. Resample at equal arc length.
@@ -108,8 +124,12 @@ export function strokeOutline(
   taper = false,
   flat = false,
   sizeOf?: (p: readonly number[]) => number,
+  taperHead = true,
+  taperTail = true,
+  from?: number,
+  to?: number,
 ): number[][] {
-  const smp = strokeSamples(usePressure, points, curve, sizeOf)
+  const smp = strokeSamples(usePressure, points, curve, sizeOf, from, to)
   const { x: sx, y: sy, q: sq, m: sm, length: total } = smp
   if (sx.length === 0) return []
 
@@ -128,11 +148,14 @@ export function strokeOutline(
 
   // Fountain taper: the radius narrows toward both ends (pen-kinds.md).
   const g: number[] = new Array(n + 1).fill(1)
-  const taperLength = Math.min(3 * width, total / 2)
-  if (taper && taperLength >= 1e-9) {
+  // taperHead/taperTail false: a piece of a live stroke tapers only the end that is the stroke's own end.
+  const both = taperHead && taperTail
+  const taperLength = both ? Math.min(3 * width, total / 2) : 3 * width
+  if (taper && (taperHead || taperTail) && taperLength >= 1e-9) {
     for (let i = 0; i <= n; i++) {
       const s = (total * i) / n
-      g[i] = TAPER_MIN + (1 - TAPER_MIN) * Math.min(1, Math.min(s, total - s) / taperLength)
+      const d = both ? Math.min(s, total - s) : taperHead ? s : total - s
+      g[i] = TAPER_MIN + (1 - TAPER_MIN) * Math.min(1, d / taperLength)
     }
   }
 
@@ -191,14 +214,18 @@ export const strokeOutlineFor = (
   points: readonly (readonly number[])[],
   curve?: PressureCurve,
   sizeOf?: (p: readonly number[]) => number,
+  taperHead = true,
+  taperTail = true,
+  from?: number,
+  to?: number,
 ): number[][] =>
   tool === 'fountain'
-    ? strokeOutline(width, usePressure, points, curve, 0.2, 1.6, true, false, sizeOf)
+    ? strokeOutline(width, usePressure, points, curve, 0.2, 1.6, true, false, sizeOf, taperHead, taperTail, from, to)
     : tool === 'pencil'
-      ? strokeOutline(width, usePressure, points, curve, 0.6, 1.3, false, false, sizeOf)
+      ? strokeOutline(width, usePressure, points, curve, 0.6, 1.3, false, false, sizeOf, true, true, from, to)
       : tool === 'tape'
-        ? strokeOutline(width, usePressure, points, curve, 0.5, 1, false, true)
-        : strokeOutline(width, usePressure, points, curve, MIN_RATIO, MAX_RATIO, false, false, sizeOf)
+        ? strokeOutline(width, usePressure, points, curve, 0.5, 1, false, true, undefined, true, true, from, to)
+        : strokeOutline(width, usePressure, points, curve, MIN_RATIO, MAX_RATIO, false, false, sizeOf, true, true, from, to)
 
 /** The polygon as a path (fill non-zero). Long outlines go through the edge midpoints as quadratic curves, so no corner shows; a 4-point tape square stays square. */
 export function outlinePath(polygon: readonly (readonly number[])[]): Path2D {

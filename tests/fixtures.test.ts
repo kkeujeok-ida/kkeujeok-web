@@ -13,7 +13,7 @@ import { round2 } from '../src/model/number'
 import { PEN_DEFAULTS, PEN_PALETTE, PEN_WIDTH, colorNameKey, defaultPenSlots, paletteFamily, switchKind, type Pen, type PenTool } from '../src/model/pen'
 import { resources } from '../src/i18n'
 import { drawPressure, radiusFactor } from '../src/model/pressureCurve'
-import { brushResolve } from '../src/model/brush'
+import { brushAlpha, brushLegacyTilt, brushResolve } from '../src/model/brush'
 import { curveEval, curveToPoints, opacityPressureCurve } from '../src/model/curve'
 import { smoothPoints } from '../src/model/smooth'
 import { settingsActiveSection, settingsSearch, settingsSections, type ActiveInput } from '../src/model/settingsLayout'
@@ -31,10 +31,10 @@ import { assetState, imageAccept, imageInitialSize, imageUploadPlan, referencedA
 import { pdfImport, pdfPageBox, pdfPageDisplay, pdfPageMatrix, pdfPagePoint, type PdfImportIn } from '../src/model/pdfRules'
 import { invertBackground, invertColor, invertHighlighter, invertInk, invertLayers, invertPaper } from '../src/model/invert'
 import { layoutText, type LineBox } from '../src/model/textLayout'
-import { snapScale } from '../src/render/pagePainter'
+import { liveFreeze, snapScale } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
 import { strokeOutline, strokeOutlineFor } from '../src/render/strokeOutline'
-import { pencilDensity, pencilStamps } from '../src/render/pencilTexture'
+import { pencilDensity, pencilStamps, pencilStampsV2, type PencilStampV2 } from '../src/render/pencilTexture'
 import { hasUnsentRule } from '../src/sync/hasUnsent'
 import { checkLogEntry } from '../src/sync/syncLogEntry'
 import { driveDuplicatesRule } from '../src/drive/duplicates'
@@ -275,6 +275,37 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
       for (const f of ['x', 'y', 'size', 'angle'] as const) expect(Math.abs(got[k]![f] - w[f]!), `${k} ${f}`).toBeLessThanOrEqual(tolerance! + 1e-9)
       expect(Math.abs(got[k]!.alpha - w.alpha!), `${k} alpha`).toBeLessThanOrEqual(0.01 + 1e-9)
     }
+  },
+  'stroke.texture.stamps': ({ input, expected, tolerance }) => {
+    type In = { id: string; width: number; usePressure: boolean; points: number[][]; density?: number; opacityFactor?: number; live?: boolean }
+    const tol = tolerance! + 1e-9
+    const make = (m: In) => pencilStampsV2(m)
+    const same = (g: PencilStampV2, w: PencilStampV2) =>
+      g.variant === w.variant && (['x', 'y', 'size', 'angle'] as const).every((f) => Math.abs(g[f] - w[f]) <= tol) && Math.abs(g.alpha - w.alpha) <= 1e-3 + 1e-9
+    const i = input as { fn?: string; short: In; long: In } & In
+    if (i.fn === 'prefixOf') {
+      const want = expected as { prefix: boolean; shortCount: number; longCount: number }
+      const a = make(i.short), b = make(i.long)
+      expect(a).toHaveLength(want.shortCount)
+      expect(b).toHaveLength(want.longCount)
+      expect(a.length <= b.length && a.every((g, k) => same(g, b[k]!))).toBe(want.prefix)
+      return
+    }
+    const want = (expected as { stamps: PencilStampV2[] }).stamps
+    const got = make(i)
+    expect(got).toHaveLength(want.length)
+    for (const [k, w] of want.entries()) expect(same(got[k]!, w), `stamp ${k}: ${JSON.stringify(got[k])} vs ${JSON.stringify(w)}`).toBe(true)
+  },
+  'brush.alpha': ({ input, expected, tolerance }) => {
+    const a = brushAlpha(input as Parameters<typeof brushAlpha>[0])
+    expect(Math.abs(a - (expected as { alpha: number }).alpha)).toBeLessThanOrEqual((tolerance ?? 1e-9) + 1e-12)
+  },
+  'brush.legacyTilt': ({ input, expected }) => {
+    expect(brushLegacyTilt((input as { brush?: unknown }).brush)).toEqual(expected)
+  },
+  'stroke.liveFreeze': ({ input, expected }) => {
+    const i = input as { points: number[][]; stamps?: { id: string; width: number; usePressure: boolean; density?: number } }
+    expect(liveFreeze(i.points, i.stamps)).toEqual(expected)
   },
   'stroke.outline.highlighter': ({ input, expected, tolerance }) => {
     const i = input as { width: number; points: number[][] }
@@ -539,11 +570,6 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
-  // Epic 28 (Story 28.1): runners arrive with Stories 28.2-28.7.
-  'stroke.texture.stamps',
-  'brush.alpha',
-  'brush.legacyTilt',
-  'stroke.liveFreeze',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
 
