@@ -144,6 +144,7 @@ export function Settings({
       const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 1
       setActive(settingsActiveSection({ headings: hs, viewportTop, offset: 8, atEnd }))
     }
+    spy() // initial highlight, also after returning from Help
     window.addEventListener('scroll', spy, { passive: true })
     window.addEventListener('resize', spy)
     return () => {
