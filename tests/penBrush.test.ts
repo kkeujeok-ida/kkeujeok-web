@@ -45,3 +45,13 @@ describe('pen slots keep brush', () => {
     expect(switchKind(p, 'pen').brush).toEqual({ opacity: 0.5 })
   })
 })
+
+describe('texture picker (28.5)', () => {
+  test('stamp on pen is stored, density 1 and pencil+none follow the default rule', () => {
+    expect(patchBrush('fountain', undefined, { texture: 'pencil' })).toEqual({ texture: 'pencil' })
+    expect(patchBrush('pen', { texture: 'pencil' }, { texture: 'none' })).toBeUndefined()
+    expect(patchBrush('pencil', undefined, { texture: 'none' })).toEqual({ texture: 'none' })
+    expect(patchBrush('pen', { texture: 'pencil' }, { density: 0.5 })).toEqual({ texture: 'pencil', density: 0.5 })
+    expect(patchBrush('pen', { texture: 'pencil', density: 0.5 }, { density: 1 })).toEqual({ texture: 'pencil' })
+  })
+})

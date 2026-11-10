@@ -121,7 +121,7 @@ export type BrushPatch = Partial<Record<'pressureCurve' | 'tiltCurve' | 'opacity
  */
 export function patchBrush(tool: unknown, brush: unknown, patch: BrushPatch): Record<string, unknown> | undefined {
   const out: Record<string, unknown> = brush && typeof brush === 'object' && !Array.isArray(brush) ? { ...(brush as Record<string, unknown>) } : {}
-  const d = brushResolve(tool, undefined) as Record<string, unknown>
+  const d = { ...brushResolve(tool, undefined), density: 1 } as Record<string, unknown>
   for (const [k, v] of Object.entries(patch)) {
     if (v === null || v === undefined || (k !== 'pressureCurve' && sameJson(v, d[k]))) delete out[k]
     else out[k] = v

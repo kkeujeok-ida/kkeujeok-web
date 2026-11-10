@@ -1,12 +1,41 @@
 import { useId, useRef, useState } from 'react'
 import { useI18n } from '../../i18n'
-import { type BrushPatch, brushResolve, patchBrush } from '../../model/brush'
+import { type BrushPatch, brushCurves, brushResolve, patchBrush } from '../../model/brush'
 import { curveToPoints, editPoints, opacityPressureCurve } from '../../model/curve'
 import type { Pen } from '../../model/pen'
 import { type BrushPreset, sharedBrushPresets } from '../../storage/brushPresets'
 import { CurveEditor } from '../CurveEditor'
 
 const LINEAR = [1 / 3, 1 / 3, 2 / 3, 2 / 3]
+/** Basic-settings texture choice (spec/brush.md, Story 28.5): none / pencil stamp, plus density when textured. Pen, fountain and pencil only. */
+export function PenTexture({ pen, onChange }: Props) {
+  const { t } = useI18n()
+  const id = useId()
+  if (!['pen', 'fountain', 'pencil'].includes(pen.tool)) return null
+  const tex = brushResolve(pen.tool, pen.brush).texture
+  const density = brushCurves(pen.brush).density
+  const set = (patch: BrushPatch) => onChange({ brush: patchBrush(pen.tool, pen.brush, patch) })
+  return (
+    <>
+      <div className="segmented" role="radiogroup" aria-label={t('editor.brush.texture')}>
+        {(['none', 'pencil'] as const).map((k) => (
+          <label key={k} className="segmented-option">
+            <input type="radio" name={`${id}-tex`} checked={tex === k} onChange={() => set({ texture: k })} />
+            <span>{t(k === 'none' ? 'editor.brush.textureNone' : 'editor.brush.textureStamp')}</span>
+          </label>
+        ))}
+      </div>
+      {tex === 'pencil' && (
+        <label className="option">
+          <span>{t('editor.brush.density')}</span>
+          <input type="range" className="setting-range" min={0.05} max={1} step={0.05} value={density} onChange={(e) => set({ density: Math.round(Number(e.target.value) * 100) / 100 })} />
+          <output>{Math.round(density * 100)}%</output>
+        </label>
+      )}
+    </>
+  )
+}
+
 const TARGETS = ['none', 'size', 'opacity'] as const
 
 type Props = { pen: Pen; onChange: (patch: Partial<Pen>) => void }

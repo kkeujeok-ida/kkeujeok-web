@@ -1,4 +1,4 @@
-import { PenAdvancedColumn, PenPresets } from './PenAdvanced'
+import { PenAdvancedColumn, PenPresets, PenTexture } from './PenAdvanced'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { fmt, useI18n } from '../../i18n'
 import { PEN_PALETTE, PEN_WIDTH, colorNameKey, paletteFamily, snapWidth, type Pen, type PenTool } from '../../model/pen'
@@ -273,6 +273,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
             ›
           </button>
         </div>
+        <PenTexture pen={pen} onChange={onChange} />
         {pen.tool !== 'highlighter' && pen.tool !== 'tape' && (
           <button
             type="button"

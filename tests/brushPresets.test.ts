@@ -30,3 +30,10 @@ describe('brush presets (device setting)', () => {
     expect(parsePresets('not json')).toEqual([])
   })
 })
+
+test('preset keeps texture and density', () => {
+  const brush = { texture: 'pencil', density: 0.4 }
+  const s = createBrushPresets(mem().storage)
+  s.save('grain', { ...pen, brush }, 'g')
+  expect(s.read()[0]!.brush).toEqual(brush)
+})
