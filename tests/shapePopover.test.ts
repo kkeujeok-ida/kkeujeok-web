@@ -3,6 +3,7 @@
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, test, vi } from 'vitest'
+import { defaultShapePen } from '../src/model/pen'
 import { ShapePopover } from '../src/ui/library/ShapePopover'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -11,8 +12,8 @@ test('three named radios; arrow + Enter choose; Esc closes', () => {
   const onChange = vi.fn()
   const onClose = vi.fn()
   const host = document.body.appendChild(document.createElement('div'))
-  act(() => createRoot(host).render(createElement(ShapePopover, { kind: 'rect', anchor: null, tool: 'x', onChange, onClose })))
-  const radios = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+  act(() => createRoot(host).render(createElement(ShapePopover, { kind: 'rect', pen: defaultShapePen, recent: [], onPenChange: vi.fn(), onRecent: vi.fn(), anchor: null, tool: 'x', onChange, onClose })))
+  const radios = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"][data-shape-kind]')]
   expect(radios.map((r) => r.dataset.shapeKind)).toEqual(['triangle', 'rect', 'circle'])
   expect(radios.every((r) => r.getAttribute('aria-label'))).toBe(true)
   expect(radios.map((r) => r.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false'])

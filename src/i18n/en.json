@@ -145,6 +145,7 @@
   "editor.undoDelete": "Undo",
   "editor.penEditTitle": "Pen",
   "editor.usePressure": "Use pressure",
+  "editor.lineDrawOn": "Straight lines on",
   "editor.lineDraw": "Draw straight lines",
   "editor.tool.pen": "Pen",
   "editor.tool.highlighter": "Highlighter",

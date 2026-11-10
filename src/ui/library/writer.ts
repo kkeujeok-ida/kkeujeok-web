@@ -20,7 +20,7 @@ import { EraseScan, erasePieces } from '../../ops/ops'
 import { ROTATE_GAP, paintSelection, selectionColors } from '../../render/selectionPainter'
 import type { Op } from '../../ops/ops'
 import type { Page, Stroke } from '../../model/note'
-import type { Pen } from '../../model/pen'
+import { defaultShapePen, type Pen } from '../../model/pen'
 import { type History, touched } from '../../ops/history'
 import type { Note } from '../../model/note'
 import { type ResolveResult, resolveConflict } from '../../ops/resolveConflict'
@@ -206,6 +206,8 @@ export class Writer {
   private tool: Tool = 'pen'
   /** The kind the shape tool draws (spec shape.md `shape.fromDrag`). */
   shapeKind: ShapeKind = 'rect'
+  /** The shape tool's own pen (spec/shape.md): used by a dragged shape; a held, recognized shape keeps the slot pen. */
+  shapePen: Pen = defaultShapePen
   private edit: Edit | null = null
   private lastEdit = ''
   private lastTap: { t: number; x: number; y: number } | null = null
@@ -1643,8 +1645,7 @@ export class Writer {
     this.setSelection(slot.page.id, ids)
   }
 
-  private build(points: number[][], id: string, straight = false, shape?: Shape): Stroke {
-    const pen = this.pen()
+  private build(points: number[][], id: string, straight = false, shape?: Shape, pen: Pen = this.pen()): Stroke {
     return { id, type: 'stroke', tool: pen.tool, color: pen.color, width: pen.width, usePressure: pen.usePressure && !straight, ...(pen.brush && { brush: structuredClone(pen.brush) }), ...(shape && { shape }), points }
   }
 
@@ -1658,7 +1659,7 @@ export class Writer {
     if (!d.shape) return this.build(this.shown(d), d.strokeId, !!(d.hold?.active || d.line))
     const shape = shapeFromDrag(d.shape, d.points[0]!, d.points[d.points.length - 1]!, !!d.lock)
     const points = shape && shapeCorners(shape)
-    return shape && points ? this.build(points, d.strokeId, true, shape) : null
+    return shape && points ? this.build(points, d.strokeId, true, shape, this.shapePen) : null
   }
 
   private local(x: number, y: number): [number, number] {

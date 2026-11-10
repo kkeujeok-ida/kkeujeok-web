@@ -15,6 +15,7 @@ import { getLeftHanded, subscribeLeftHanded } from '../../storage/leftHanded'
 import { openNoteStore, type NoteStore } from '../../storage/noteStore'
 import { acquireNoteLock } from '../../storage/noteLock'
 import { sharedPenSlots, type PenSlotsStore } from '../../storage/penSlots'
+import { sharedShapePen } from '../../storage/shapePen'
 import { sharedRecentColors, type RecentColorsStore } from '../../storage/recentColors'
 import { savesSettled } from '../../storage/saveQueue'
 import { registerOpenNote } from '../../sync/openNotes'
@@ -172,6 +173,7 @@ export function NoteEditor({
   const [selected, setSelected] = useState(0)
   const [tool, setTool] = useState<Tool>('pen')
   const [shapeKind, setShapeKind] = useState<ShapeKind>('rect')
+  const [shapePen, setShapePen] = useState<Pen>(() => sharedShapePen().read())
   const shapeRef = useRef({ tool, shapeKind })
   shapeRef.current = { tool, shapeKind }
   const [eraser, setEraser] = useState(() => eraserStore.read())
@@ -588,6 +590,9 @@ export function NoteEditor({
   useEffect(() => {
     if (loaded) loaded.writer.shapeKind = shapeKind
   }, [loaded, shapeKind])
+  useEffect(() => {
+    if (loaded) loaded.writer.shapePen = shapePen
+  }, [loaded, shapePen])
   useEffect(() => {
     if (loaded) loaded.writer.eraserMode = eraser.mode
   }, [loaded, eraser.mode])
@@ -1817,6 +1822,14 @@ export function NoteEditor({
           {shapePop && !readOnly && (
             <ShapePopover
               kind={shapeKind}
+              pen={shapePen}
+              recent={recent}
+              onRecent={(hex) => setRecent(recentStore.push(hex))}
+              onPenChange={(patch) => {
+                const next = { ...shapePen, ...patch, tool: 'pen' as const }
+                sharedShapePen().write(next)
+                setShapePen(next)
+              }}
               anchor={toolbar.current}
               tool='[data-tool="shape"]'
               onChange={(k) => {

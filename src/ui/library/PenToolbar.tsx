@@ -2,7 +2,7 @@ import { penGlyphD } from '../../model/penGlyph'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
 import { colorNameKey, type Pen } from '../../model/pen'
 import { fmt, useI18n } from '../../i18n'
-import { SHAPES_GLYPH_D } from './ShapePopover'
+import { SHAPES_GLYPH_PATHS } from './ShapePopover'
 import type { EraserMode } from '../../storage/eraserSettings'
 import { sharedVisibleTools } from '../../storage/toolbarVisibleTools'
 import type { Dock } from '../../storage/toolbarPosition'
@@ -234,8 +234,9 @@ export function PenToolbar({ onShapeEdit, pens, selected, onSelect, onEdit, onAd
       )}
       <div ref={slotsEl} role="radiogroup" className="pen-slots" style={{ '--visible-tools': sharedVisibleTools().read() } as CSSProperties}>
         {pens.map((pen, i) => {
-          const label = fmt(t(pen.tool === 'highlighter' ? 'editor.highlighterSlot' : pen.tool === 'pen' ? 'editor.penSlot' : 'editor.kindSlot'), { kind: t(`editor.tool.${pen.tool}`), color: t(colorNameKey(pen.color)), width: pen.width.toFixed(1), n: i + 1 })
-          const on = i === selected
+          const label = fmt(t(pen.tool === 'highlighter' ? 'editor.highlighterSlot' : pen.tool === 'pen' ? 'editor.penSlot' : 'editor.kindSlot'), { kind: t(`editor.tool.${pen.tool}`), color: t(colorNameKey(pen.color)), width: pen.width.toFixed(1), n: i + 1 }) + (pen.lineMode ? `, ${t('editor.lineDrawOn')}` : '')
+          // No slot shows as selected while the shape tool is (it is its own pen).
+          const on = i === selected && tool !== 'shape'
           return (
             <button
               key={i}
@@ -246,7 +247,7 @@ export function PenToolbar({ onShapeEdit, pens, selected, onSelect, onEdit, onAd
               aria-disabled={readOnly || undefined}
               title={readOnly ? t('editor.readOnlyTip') : label}
               data-slot={i}
-              className={(on ? 'pen-slot pen-slot-selected' : 'pen-slot') + (dx?.from === i ? ' pen-slot-dragging' : '')}
+              className={(on ? 'pen-slot pen-slot-selected' : 'pen-slot') + (pen.lineMode ? ' pen-slot-line' : '') + (dx?.from === i ? ' pen-slot-dragging' : '')}
               style={dx?.from === i ? { transform: vertical ? `translateY(${dx.dx}px)` : `translateX(${dx.dx}px)` } : undefined}
               {...rv(`slot-${i}`)}
               onFocus={(e) => e.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })}
@@ -282,6 +283,11 @@ export function PenToolbar({ onShapeEdit, pens, selected, onSelect, onEdit, onAd
                   strokeLinecap="round"
                 />
               </svg>
+              {pen.lineMode && (
+                <svg className="pen-ruler" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H3V8h2v4h2V8h2v4h2V8h2v4h2V8h2v4h2V8h2v8z" fill="currentColor" />
+                </svg>
+              )}
               <span className="pen-width" aria-hidden="true">{pen.width.toFixed(1)}</span>
               {on && (
                 <svg className="pen-caret" viewBox="0 0 8 4" aria-hidden="true">
@@ -388,8 +394,10 @@ export function PenToolbar({ onShapeEdit, pens, selected, onSelect, onEdit, onAd
         onClick={() => !readOnly && (tool === 'shape' ? onShapeEdit() : onToolChange('shape'))}
       >
         <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <g fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round">
-            <path d={SHAPES_GLYPH_D} />
+          <g fill="var(--shapes-face)" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round">
+            {SHAPES_GLYPH_PATHS.map((d) => (
+              <path key={d} d={d} />
+            ))}
           </g>
         </svg>
       </button>

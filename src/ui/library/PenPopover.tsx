@@ -1,5 +1,5 @@
 import { PenAdvancedPanel, PenOpacity, PenPresets, PenTexture, SliderRow } from './PenAdvanced'
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useI18n } from '../../i18n'
 import { PEN_WIDTH, colorNameKey, paletteFamily, snapWidth, type Pen, type PenTool } from '../../model/pen'
 import { penGlyphD } from '../../model/penGlyph'
@@ -44,7 +44,9 @@ function previewPath(pen: Pen): string {
  * Modal: the scrim takes the pointer, Tab cycles the stops inside, Esc and a press outside close it.
  * The owner puts focus back on the slot in onClose. Every change is passed on at once.
  */
-export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onRecent, onDelete, onClose }: {
+export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onRecent, onDelete, onClose, shapeRow }: {
+  /** The shape tool's popover (spec/shape.md): this row replaces the kind row, and the kind switch, texture, pressure, line drawing, advanced, presets and delete are left out. */
+  shapeRow?: ReactNode
   pen: Pen
   anchor: HTMLElement | null
   tool: string
@@ -141,7 +143,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
   }
 
   return (
-    <PopoverShell anchor={anchor} tool={tool} onClose={onClose} labelledBy={titleId} className="pen-popover" aside={picking ? undefined : <PenPresets pen={pen} onChange={onChange} />} relayout={`${pen.tool}${recent.length}${picking}${advOpen}${pen.brush ? JSON.stringify(pen.brush).length : 0}`}>
+    <PopoverShell anchor={anchor} tool={tool} onClose={onClose} labelledBy={titleId} className="pen-popover" aside={picking || shapeRow ? undefined : <PenPresets pen={pen} onChange={onChange} />} relayout={`${pen.tool}${recent.length}${picking}${advOpen}${pen.brush ? JSON.stringify(pen.brush).length : 0}`}>
         {picking ? (
           <ColorWheelPicker
             color={color}
@@ -162,7 +164,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
           />
         ) : (
           <>
-        {[TOOLS].map((row, r) => (
+        {shapeRow ?? [TOOLS].map((row, r) => (
           <div key={r} className="pen-tool-switch" role="radiogroup" aria-label={t('editor.toolKind')}>
             {row.map((k, i) => {
               const pick = () => onChange({ tool: k }) // the same kind again resets the width (pen.switchKind)
@@ -197,12 +199,14 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
           </div>
         ))}
         <div className="pen-name-row">
-          <h2 id={titleId} className="pen-popover-title">
-            {t(`editor.tool.${pen.tool}`)}
+          <h2 id={titleId} className={shapeRow ? 'sr-only' : 'pen-popover-title'}>
+            {shapeRow ? t('editor.shape') : t(`editor.tool.${pen.tool}`)}
           </h2>
-          <button type="button" tabIndex={0} className="pen-advanced-toggle" aria-expanded={advOpen} onClick={() => setAdvOpen(!advOpen)}>
-            {t('editor.brush.advanced')}
-          </button>
+          {!shapeRow && (
+            <button type="button" tabIndex={0} className="pen-advanced-toggle" aria-expanded={advOpen} onClick={() => setAdvOpen(!advOpen)}>
+              {t('editor.brush.advanced')}
+            </button>
+          )}
         </div>
         <SliderRow
           label={t('editor.strokeWidth')}
@@ -216,7 +220,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
           upLabel={t('editor.widthUp')}
         />
         <PenOpacity pen={pen} onChange={onChange} />
-        <PenTexture pen={pen} onChange={onChange} />
+        {!shapeRow && <PenTexture pen={pen} onChange={onChange} />}
         <div className="pen-palette" role="radiogroup" aria-label={t('editor.palette')} style={{ gridTemplateColumns: `repeat(${columns}, var(--pen-cell-width))` }}>
           {colors.map((hex, i) => (
             <button
@@ -252,7 +256,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
             </button>
           ))}
         </div>
-        {pen.tool !== 'highlighter' && pen.tool !== 'tape' && (
+        {!shapeRow && pen.tool !== 'highlighter' && pen.tool !== 'tape' && (
           <button
             type="button"
             role="switch"
@@ -268,17 +272,17 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
             </span>
           </button>
         )}
-        <button type="button" role="switch" tabIndex={0} aria-checked={!!pen.lineMode} aria-labelledby={`${labelId}-line`} className="pen-popover-switch" onClick={() => onChange({ lineMode: !pen.lineMode })}>
+        {!shapeRow && <button type="button" role="switch" tabIndex={0} aria-checked={!!pen.lineMode} aria-labelledby={`${labelId}-line`} className="pen-popover-switch" onClick={() => onChange({ lineMode: !pen.lineMode })}>
           <span id={`${labelId}-line`}>{t('editor.lineDraw')}</span>
           <span className="switch-track" aria-hidden="true">
             <span className="switch-thumb" />
           </span>
-        </button>
-        {advOpen && <PenAdvancedPanel pen={pen} onChange={onChange} />}
+        </button>}
+        {advOpen && !shapeRow && <PenAdvancedPanel pen={pen} onChange={onChange} />}
         <svg className="pen-preview" viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
           <path d={previewPath(pen)} fill={pen.color} fillOpacity={pen.tool === 'highlighter' ? 0.4 : undefined} />
         </svg>
-        <button
+        {!shapeRow && <button
           type="button"
           tabIndex={0}
           aria-disabled={!canDelete}
@@ -286,7 +290,7 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
           onClick={() => canDelete && onDelete()}
         >
           {t('editor.deleteSlot')}
-        </button>
+        </button>}
           </>
         )}
     </PopoverShell>

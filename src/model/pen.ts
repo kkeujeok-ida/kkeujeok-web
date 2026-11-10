@@ -17,6 +17,9 @@ export type Pen = {
 
 export const defaultPen: Pen = { tool: 'pen', color: '#000000', width: 2.0, usePressure: true }
 
+/** The shape tool's own pen (spec/shape.md): black, 2.0, no pressure (a shape is one thickness). */
+export const defaultShapePen: Pen = { tool: 'pen', color: '#000000', width: 2.0, usePressure: false }
+
 // The slots a device starts with (spec pen.md): black pen, blue pen, yellow highlighter.
 export const defaultPenSlots: readonly Pen[] = [
   defaultPen,

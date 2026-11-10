@@ -1120,6 +1120,15 @@ h1 {
   background: var(--color-accent-soft);
 }
 
+/* The shapes icon fills each shape with the face behind it (opaque tokens) so the front one hides the overlap. */
+.toolbar-action[data-tool='shape'] {
+  --shapes-face: var(--components-toolbar-background);
+}
+
+.toolbar-action[data-tool='shape'][aria-pressed='true'] {
+  --shapes-face: var(--color-accent-soft);
+}
+
 .toolbar-action-disabled {
   color: var(--color-ink-disabled);
   cursor: default;
@@ -1226,6 +1235,34 @@ h1 {
 }
 
 /* Width number at the nib's lower right (spec/tool-icons.md). */
+/* Line drawing on: the ruler sits right of the nib (about 60% of its height); the slot grows to hold it. */
+.pen-slot-line {
+  width: 52px;
+}
+
+.pen-ruler {
+  position: absolute;
+  top: 0;
+  left: calc(50% + 9px);
+  width: 17px;
+  height: 17px;
+  color: var(--color-ink-primary);
+  pointer-events: none;
+}
+
+.pen-toolbar.is-vertical .pen-slot-line {
+  width: 44px;
+}
+
+.pen-toolbar.is-vertical .pen-ruler {
+  top: calc(50% - 11.5px);
+  left: 27px;
+}
+
+.pen-toolbar.is-vertical.from-right .pen-ruler {
+  left: 0;
+}
+
 .pen-width {
   position: absolute;
   bottom: 3px;
