@@ -645,8 +645,11 @@ h1 {
   min-width: 0;
 }
 
+/* The ⋯ button sits in the thumbnail's top end corner, not beside the title. */
 .cover-grid[data-layout='list'] .cover-menu {
   top: 0;
+  right: auto;
+  left: calc(var(--row-thumb) - 44px);
 }
 
 .cover-item {
@@ -654,21 +657,14 @@ h1 {
   container-type: inline-size;
 }
 
-/* Android parity: the 44px button sits at the end of the title row, under the thumbnail. */
 .cover-text {
   display: flex;
   flex-direction: column;
-  min-height: 44px;
 }
 
-.cover-item .cover-text {
-  padding-inline-end: 44px;
-}
-
-/* The thumbnail is 3 / 4 (--components-cover-card-aspect-ratio): its height is 4/3 of the width. */
 .cover-menu {
   position: absolute;
-  top: calc(100cqw * 4 / 3 + var(--spacing-2));
+  top: 0;
   right: 0;
 }
 
@@ -2990,17 +2986,9 @@ input[type='range'] {
   outline-offset: -2px;
 }
 
-/* Small grid columns are about 64px: a folder card keeps its name readable, hides the count, and its menu button moves into the thumbnail corner and shrinks. */
-.cover-grid[data-layout='grid'][data-size='small'] .cover-item:has(.folder-card) .cover-text {
-  padding-inline-end: 0;
-}
-
+/* Small grid columns are about 64px: a folder card hides the count and its menu button shrinks. */
 .cover-grid[data-layout='grid'][data-size='small'] .folder-card .cover-date {
   display: none;
-}
-
-.cover-grid[data-layout='grid'][data-size='small'] .cover-item:has(.folder-card) .cover-menu {
-  top: 0;
 }
 
 .cover-grid[data-layout='grid'][data-size='small'] .cover-item:has(.folder-card) .cover-menu-button.btn {
