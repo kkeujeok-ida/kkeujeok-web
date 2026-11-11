@@ -73,7 +73,7 @@ describe('settings', () => {
     act(() => settingsButton().click())
     expect(host.querySelector('.settings')).not.toBeNull()
     expect(document.activeElement).toBe(host.querySelector('#settings-title'))
-    const close = host.querySelector<HTMLButtonElement>('.settings-header button')!
+    const close = host.querySelector<HTMLButtonElement>('.settings-header > button')!
     act(() => close.click())
     expect(host.querySelector('.settings')).toBeNull()
     expect(document.activeElement).toBe(settingsButton())

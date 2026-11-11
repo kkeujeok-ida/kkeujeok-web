@@ -130,6 +130,20 @@ export function Settings({
   const [active, setActive] = useState<string>(sections[0]!.id)
   const [query, setQuery] = useState('')
   const searching = query.trim() !== ''
+  const searchInput = useRef<HTMLInputElement>(null)
+  const searchButton = useRef<HTMLButtonElement>(null)
+  // The search is one icon until opened; it stays open while there is a query.
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchWanted = useRef(false)
+  const searchShown = searchOpen || query !== ''
+  const openSearch = () => {
+    searchWanted.current = true
+    setSearchOpen(true)
+  }
+  useEffect(() => {
+    if (searchShown && searchWanted.current) searchInput.current?.focus()
+    searchWanted.current = false
+  }, [searchShown])
   const savedScroll = useRef<number | null>(null)
   const shown = useRef<string[]>([]) // sections with a match; hidden headings must not drive the highlight
   const search = (q: string) => {
@@ -152,7 +166,7 @@ export function Settings({
         return h ? [{ id: x.id, top: h.getBoundingClientRect().top, h }] : []
       })
       if (!hs.length) return
-      // The sticky chip row covers the top: headings count from below it (scroll-margin-top).
+      // Headings count from their scroll-margin-top (0: the sticky title sits at the top).
       const viewportTop = parseFloat(getComputedStyle(hs[0]!.h).scrollMarginTop) || 0
       const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 1
       setActive(settingsActiveSection({ headings: hs, viewportTop, offset: 8, atEnd }))
@@ -233,14 +247,20 @@ export function Settings({
     ),
     leftHanded: (
       <label className="settings-group option">
-        <input type="checkbox" checked={leftHanded} onChange={(e) => setLeftHanded(e.target.checked)} />
+        <input type="checkbox" role="switch" className="switch-input" checked={leftHanded} onChange={(e) => setLeftHanded(e.target.checked)} />
         <span>{t('settings.leftHanded')}</span>
+        <span className="switch-track" aria-hidden="true">
+          <span className="switch-thumb" />
+        </span>
       </label>
     ),
     straighten: (
       <label className="settings-group option">
-        <input type="checkbox" checked={straighten} onChange={(e) => setStraighten(e.target.checked)} />
+        <input type="checkbox" role="switch" className="switch-input" checked={straighten} onChange={(e) => setStraighten(e.target.checked)} />
         <span>{t('settings.straighten')}</span>
+        <span className="switch-track" aria-hidden="true">
+          <span className="switch-thumb" />
+        </span>
       </label>
     ),
     smooth: (
@@ -313,38 +333,53 @@ export function Settings({
         <h1 id="settings-title" ref={title} tabIndex={-1}>
           {t('settings.title')}
         </h1>
+        <div className={searchShown ? 'library-search is-open' : 'library-search'} role="search">
+          {searchShown ? (
+            <>
+              <input
+                id="settings-search-input"
+                ref={searchInput}
+                type="search"
+                className="field-input"
+                autoComplete="off"
+                aria-label={t('settings.search.label')}
+                placeholder={t('settings.search.label')}
+                value={query}
+                onChange={(e) => search(e.target.value)}
+                onBlur={(e) => {
+                  if (!query && !e.currentTarget.parentElement?.contains(e.relatedTarget as Node | null)) setSearchOpen(false)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && !e.nativeEvent.isComposing) {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    search('')
+                    setSearchOpen(false)
+                    requestAnimationFrame(() => searchButton.current?.focus())
+                  }
+                }}
+              />
+              {query !== '' && (
+                <button type="button" className="btn" onClick={() => { search(''); searchInput.current?.focus() }}>
+                  {t('settings.search.clear')}
+                </button>
+              )}
+            </>
+          ) : (
+            <button ref={searchButton} type="button" className="btn library-search-button" aria-label={t('settings.search.label')} aria-expanded={false} onClick={openSearch}>
+              <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M7 2.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              </svg>
+            </button>
+          )}
+        </div>
         <button type="button" className="btn" onClick={onClose}>
           {t('settings.close')}
         </button>
       </header>
-      <div className="settings-search" role="search">
-        <label htmlFor="settings-search-input">{t('settings.search.label')}</label>
-        <div className="settings-search-row">
-          <input
-            id="settings-search-input"
-            type="text"
-            className="field-input"
-            autoComplete="off"
-            value={query}
-            onChange={(e) => search(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape' && query !== '') {
-                e.preventDefault()
-                e.stopPropagation()
-                search('')
-              }
-            }}
-          />
-          {query !== '' && (
-            <button type="button" className="btn" onClick={() => search('')}>
-              {t('settings.search.clear')}
-            </button>
-          )}
-        </div>
-        <p className="settings-search-status" aria-live="polite">
-          {searching ? (total === 0 ? t('settings.search.none') : fmt(t('settings.search.count'), { n: total })) : ''}
-        </p>
-      </div>
+      <p className="settings-search-status" aria-live="polite">
+        {searching ? (total === 0 ? t('settings.search.none') : fmt(t('settings.search.count'), { n: total })) : ''}
+      </p>
       <div className="settings-body">
         <nav className="settings-nav" aria-label={t('settings.cat.nav')}>
           {sections.map((sec) => (

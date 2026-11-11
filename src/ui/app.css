@@ -125,6 +125,11 @@ h1 {
   display: flex;
   align-items: center;
   gap: var(--spacing-4);
+  align-self: stretch;
+}
+
+.settings-header .library-search {
+  margin-inline-start: auto;
 }
 
 .settings-group {
@@ -840,6 +845,15 @@ h1 {
   right: auto;
   left: var(--components-fab-inset);
   align-items: flex-start;
+}
+
+/* The app sidebar sits at the left edge: the + clears it. */
+.sidebar ~ .content .fab[data-left-handed] {
+  left: calc(var(--spacing-hit-min-web) + var(--spacing-4) + var(--components-fab-inset));
+}
+
+.sidebar:not(.collapsed) ~ .content .fab[data-left-handed] {
+  left: calc(var(--spacing-cover-column-min) + var(--spacing-5) + var(--components-fab-inset));
 }
 
 .fab[data-left-handed] .fab-menu {
@@ -1634,6 +1648,29 @@ h1 {
 
 .pen-popover-switch[aria-checked='true'] .switch-thumb {
   background: var(--color-on-accent);
+}
+
+/* Settings switch: a real checkbox (role="switch"), visually hidden, drawn by the track after it. */
+.switch-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.switch-input:checked ~ .switch-track {
+  justify-content: flex-end;
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+.switch-input:checked ~ .switch-track .switch-thumb {
+  background: var(--color-on-accent);
+}
+
+.switch-input:focus-visible ~ .switch-track {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .pen-preview {
@@ -3284,20 +3321,14 @@ input[type='range'] {
   align-self: stretch;
 }
 
+/* Narrow: no chip row; the section title sticks to the top while its section scrolls. */
 .settings-nav {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-2);
-  padding: var(--spacing-2) 0;
-  background: var(--color-surface-base);
+  display: none;
 }
 
 .settings .settings-nav .settings-nav-item {
-  border: 1px solid var(--color-border-control);
-  background: var(--color-surface-raised);
+  border: 0;
+  background: none;
 }
 
 .settings .settings-nav .settings-nav-item[aria-current='true'] {
@@ -3326,8 +3357,13 @@ input[type='range'] {
 }
 
 .settings-section-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  align-self: stretch;
   margin: 0;
-  scroll-margin-top: calc(var(--spacing-hit-min-web) + var(--spacing-4));
+  padding: var(--spacing-2) 0;
+  background: var(--color-surface-base);
   font-size: var(--typography-title-font-size);
   font-weight: var(--typography-title-font-weight);
   line-height: var(--typography-title-line-height);
@@ -3341,15 +3377,18 @@ input[type='range'] {
   }
 
   .settings-nav {
+    position: sticky;
+    top: 0;
+    display: flex;
     flex: none;
     flex-direction: column;
-    flex-wrap: nowrap;
+    align-self: flex-start;
     width: calc(var(--spacing-cover-column-min) + var(--spacing-5));
-    padding: 0;
   }
 
   .settings-section-title {
-    scroll-margin-top: 0;
+    position: static;
+    padding: 0;
   }
 
   .settings .settings-nav .settings-nav-item {
@@ -3359,27 +3398,26 @@ input[type='range'] {
   }
 }
 
+/* Levels: section title, then the item (one step in), then its controls (two steps). */
+.settings-item {
+  padding-inline-start: var(--spacing-4);
+}
+
+.settings-item .option,
+.settings-item .segmented,
+.settings-item .settings-stepper,
+.settings-item .settings-group > .btn,
+.settings-item > .btn {
+  margin-inline-start: var(--spacing-4);
+}
+
+.settings-item > .settings-group.option {
+  margin-inline-start: 0;
+}
+
 /* Settings search: hidden items stay mounted. */
 .settings [hidden] {
   display: none;
-}
-
-.settings-search {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
-  align-self: stretch;
-}
-
-.settings-search-row {
-  display: flex;
-  gap: var(--spacing-2);
-}
-
-.settings-search-row .field-input {
-  flex: 1;
-  min-width: 0;
-  min-height: var(--spacing-hit-min-web);
 }
 
 .settings-search-status {

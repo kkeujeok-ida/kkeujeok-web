@@ -24,11 +24,15 @@ afterEach(() => {
   host.remove()
 })
 
-const input = () => host.querySelector<HTMLInputElement>('#settings-search-input')!
+const input = () => {
+  if (!host.querySelector('#settings-search-input')) act(() => host.querySelector<HTMLButtonElement>('.library-search-button')!.click())
+  return host.querySelector<HTMLInputElement>('#settings-search-input')!
+}
 function type(v: string) {
+  const el = input()
   act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input(), v)
-    input().dispatchEvent(new Event('input', { bubbles: true }))
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v)
+    el.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
 const sections = () => [...host.querySelectorAll<HTMLElement>('section.settings-section')]
@@ -37,7 +41,9 @@ const status = () => host.querySelector('.settings-search-status')!
 
 describe('settings search', () => {
   test('field is labelled', () => {
-    expect(host.querySelector('label[for="settings-search-input"]')?.textContent).toBe('Search settings')
+    expect(host.querySelector('.library-search-button')?.getAttribute('aria-label')).toBe('Search settings')
+    expect(input().getAttribute('aria-label')).toBe('Search settings')
+    expect(document.activeElement).toBe(input())
   })
 
   test('filters items, hides empty sections and shows counts', () => {
@@ -58,7 +64,7 @@ describe('settings search', () => {
   test('clear button and Esc restore everything and the scroll position', () => {
     Object.defineProperty(window, 'scrollY', { value: 120, configurable: true })
     type('theme')
-    act(() => host.querySelector<HTMLButtonElement>('.settings-search-row button')!.click())
+    act(() => host.querySelector<HTMLButtonElement>('.library-search button')!.click())
     expect(sections().some((s) => s.hidden)).toBe(false)
     expect(navs()[0]!.textContent).toBe('General')
     expect(window.scrollTo).toHaveBeenCalledWith(0, 120)
