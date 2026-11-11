@@ -3,6 +3,7 @@
   "sidebar.label": "사이드바",
   "sidebar.settings": "설정",
   "library.label": "노트",
+  "library.refresh": "동기화 새로고침",
   "library.view": "보기 방식",
   "library.view.list": "리스트",
   "library.view.grid": "그리드",

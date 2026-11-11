@@ -34,10 +34,10 @@ function mountGraph(init: number[][], props: object = {}) {
 }
 
 describe('curve graph (brush.curveEdit)', () => {
-  test('rule: add off the line, not on it, not past 8 points; release outside deletes inner only', () => {
+  test('rule: add on the line, not off it, not past 8 points; release outside deletes inner only', () => {
     const two = [[0, 0], [1, 1]]
-    expect(curveEdit(two, { kind: 'add', x: 0.5, y: 0.9 })).toEqual([[0, 0], [0.5, 0.9], [1, 1]])
-    expect(curveEdit(two, { kind: 'add', x: 0.5, y: 0.52 })).toEqual(two)
+    expect(curveEdit(two, { kind: 'add', x: 0.5, y: 0.52 })).toEqual([[0, 0], [0.5, 0.52], [1, 1]])
+    expect(curveEdit(two, { kind: 'add', x: 0.5, y: 0.9 })).toEqual(two)
     const eight = Array.from({ length: 8 }, (_, i) => [i / 7, i % 2])
     expect(curveEdit(eight, { kind: 'add', x: 0.07, y: 0.5 })).toHaveLength(8)
     const three = [[0, 0], [0.5, 0.9], [1, 1]]
@@ -46,11 +46,14 @@ describe('curve graph (brush.curveEdit)', () => {
     expect(curveEdit(two, { kind: 'release', index: 1, outside: 0.5 })).toEqual(two)
   })
 
-  test('touching off the line adds a point; dragging it out of the box deletes it; no popup or slider appears', () => {
+  test('touching the line adds a point; touching beside it adds none; dragging it out of the box deletes it; no popup or slider appears', () => {
     const { svg, host, seen } = mountGraph([[0, 0], [1, 1]])
     ptr(svg, 'pointerdown', ...at(0.5, 0.9))
-    expect(seen.value).toEqual([[0, 0], [0.5, 0.9], [1, 1]])
-    expect(seen.touched).toBe(1)
+    expect(seen.value).toEqual([[0, 0], [1, 1]])
+    ptr(svg, 'pointerup', ...at(0.5, 0.9))
+    ptr(svg, 'pointerdown', ...at(0.5, 0.5))
+    expect(seen.value).toEqual([[0, 0], [0.5, 0.5], [1, 1]])
+    expect(seen.touched).toBe(2)
     expect(host.querySelector('input[type="range"]')).toBeNull()
     expect(host.querySelectorAll('circle')).toHaveLength(3)
     ptr(svg, 'pointerup', ...at(0.5, -0.5))
@@ -133,10 +136,10 @@ describe('advanced settings (one column, curve switches)', () => {
 
   test('touching a switched-off graph turns it on and edits it in the same gesture', () => {
     const { seen, graphs } = mountPanel({ ...pen0, brush: { opacityPressureCurve: [[0, 0], [1, 1]], curvesOff: ['opacityPressure', 'sizeTilt'] } })
-    ptr(graphs()[2]!, 'pointerdown', ...at(0.5, 0.9))
+    ptr(graphs()[2]!, 'pointerdown', ...at(0.5, 0.5))
     const b = seen.pen.brush as Record<string, unknown>
     expect(b.curvesOff).toEqual(['sizeTilt'])
-    expect(b.opacityPressureCurve).toEqual([[0, 0], [0.5, 0.9], [1, 1]])
+    expect(b.opacityPressureCurve).toEqual([[0, 0], [0.5, 0.5], [1, 1]])
   })
 
   test('the old tiltTarget/tiltCurve show as the size tilt curve and stay in the brush', () => {

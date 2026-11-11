@@ -3,6 +3,7 @@
   "sidebar.label": "Sidebar",
   "sidebar.settings": "Settings",
   "library.label": "Notes",
+  "library.refresh": "Refresh and sync",
   "library.view": "View",
   "library.view.list": "list",
   "library.view.grid": "grid",

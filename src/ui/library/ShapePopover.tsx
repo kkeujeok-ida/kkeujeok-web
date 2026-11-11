@@ -12,7 +12,7 @@ export const SHAPE_KIND_D: Record<ShapeKind, string> = {
 }
 // Back to front: each path is filled with the toolbar face so the front one hides the overlap (spec/tool-icons.md).
 export const SHAPES_GLYPH_PATHS = [
-  'M8 3L14.5 14H1.5Z',
+  'M10 3L16.5 14H3.5Z',
   'M3 10H12V19H3Z',
   'M21.5 15L21.04 17.3L19.74 19.24L17.8 20.54L15.5 21L13.2 20.54L11.26 19.24L9.96 17.3L9.5 15L9.96 12.7L11.26 10.76L13.2 9.46L15.5 9L17.8 9.46L19.74 10.76L21.04 12.7Z',
 ]

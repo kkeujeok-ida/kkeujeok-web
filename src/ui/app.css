@@ -1611,7 +1611,7 @@ h1 {
   justify-content: space-between;
   gap: var(--spacing-3);
   box-sizing: border-box;
-  min-height: 44px;
+  min-height: 36px;
   padding: 0;
   border: 0;
   background: none;
@@ -2262,11 +2262,11 @@ h1 {
   background: var(--color-accent-soft);
 }
 
-/* Cell = swatch + 4 wide, 48 tall (spec/brush.md Sizes; the swatch is 0.7 x the old 48). */
+/* Cell = swatch + 4 both ways: the gap is 4 px sideways and down; 8 cells fill the 296 px row (spec/brush.md Sizes). */
 .pen-popover {
-  --pen-swatch: 34px;
+  --pen-swatch: 33px;
   --pen-cell-width: calc(var(--pen-swatch) + 4px);
-  --pen-cell-height: 48px;
+  --pen-cell-height: calc(var(--pen-swatch) + 4px);
 }
 
 .pen-palette {
@@ -2405,7 +2405,7 @@ h1 {
   display: flex;
   align-items: center;
   gap: var(--spacing-1);
-  min-height: 44px;
+  min-height: 36px;
 }
 
 .pen-slider-label {
@@ -2430,8 +2430,8 @@ input[type='range'] {
 }
 
 .pen-step {
-  min-width: 40px;
-  min-height: 44px;
+  min-width: 28px;
+  min-height: 36px;
   border: 0;
   border-radius: var(--rounded-sm);
   background: none;

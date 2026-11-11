@@ -2302,16 +2302,16 @@ describe('pen popover (story 5.5)', () => {
     expect(document.activeElement).toBe(cell(1))
     expect(slots.get(PEN_SLOTS_KEY)).toBeUndefined()
     act(() => cell(0).focus())
-    key(cell(0), 'ArrowDown') // 7 cells per row
-    expect(document.activeElement).toBe(cell(7))
-    key(cell(7), 'Enter')
-    expect(slotList(slots)[0]!.color).toBe('#0c8599')
-    expect(cell(7).getAttribute('aria-checked')).toBe('true')
-    expect(cell(7).getAttribute('aria-label')).toBe('청록')
-    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#0c8599'])
+    key(cell(0), 'ArrowDown') // 8 cells per row
+    expect(document.activeElement).toBe(cell(8))
+    key(cell(8), 'Enter')
+    expect(slotList(slots)[0]!.color).toBe('#3b5bdb')
+    expect(cell(8).getAttribute('aria-checked')).toBe('true')
+    expect(cell(8).getAttribute('aria-label')).toBe('남색')
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#3b5bdb'])
     expect(qa('.pen-recent [role="radio"]')).toHaveLength(1)
     click(qa('.pen-recent [role="radio"]')[0]!)
-    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#0c8599'])
+    expect(JSON.parse(rec.get(RECENT_COLORS_KEY)!)).toEqual(['#3b5bdb'])
   })
 
   test('recent keeps six: a new color goes first, the oldest drops, an old one moves up', async () => {

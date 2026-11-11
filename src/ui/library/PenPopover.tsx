@@ -1,4 +1,4 @@
-import { PenAdvancedPanel, PenOpacity, PenPresets, PenTexture, SliderRow } from './PenAdvanced'
+import { PenAdvancedPanel, PenOpacity, PenPresets, SliderRow } from './PenAdvanced'
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useI18n } from '../../i18n'
 import { PEN_WIDTH, colorNameKey, paletteFamily, snapWidth, type Pen, type PenTool } from '../../model/pen'
@@ -14,7 +14,7 @@ const H = 72
 const AMP = 8
 const MARGIN = 32 // room for the round caps
 const SCALE = 3 // the preview is drawn this much thicker than the page
-const PALETTE_COLUMNS = 7 // 38 px cells (spec/brush.md "Sizes"): more fit in a row than the 6 of the model
+const PALETTE_COLUMNS = 8 // 37 px cells (spec/brush.md "Sizes"): more fit in a row than the 6 of the model
 const TOOLS: PenTool[] = ['pen', 'highlighter', 'fountain', 'pencil', 'tape']
 
 // A wave whose pressure rises and falls: flat when "use pressure" is off. The highlighter is the chisel rectangles in one path.
@@ -220,7 +220,6 @@ export function PenPopover({ pen, anchor, tool, recent, canDelete, onChange, onR
           upLabel={t('editor.widthUp')}
         />
         <PenOpacity pen={pen} onChange={onChange} />
-        {!shapeRow && <PenTexture pen={pen} onChange={onChange} />}
         <div className="pen-palette" role="radiogroup" aria-label={t('editor.palette')} style={{ gridTemplateColumns: `repeat(${columns}, var(--pen-cell-width))` }}>
           {colors.map((hex, i) => (
             <button

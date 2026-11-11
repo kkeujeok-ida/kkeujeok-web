@@ -55,7 +55,7 @@ type Props = {
   /** [로그아웃] of the missing-root dialog: drops the in-memory token only. */
   signOut?: () => void
   /** Remote changes (Story 3.14): cards of notes not downloaded yet, the ↓ badge, the scan placeholder. */
-  receiver?: Pick<NoteReceiver, 'subscribe' | 'getState'>
+  receiver?: Pick<NoteReceiver, 'subscribe' | 'getState'> & Partial<Pick<NoteReceiver, 'check'>>
   /** Story 7.8: deleting a note sends what is unsent, then trashes it on Drive. Without it no delete is offered. */
   uploads?: Pick<UploadCoordinator, 'deleteNote'> & Partial<Pick<UploadCoordinator, 'noteClosed' | 'cancelDelete'>>
   /** [복구] of a delete that already reached `.trashbin`. */
@@ -82,7 +82,7 @@ const PDF_ERROR: Record<PdfImportError, Key> = {
 }
 
 const NO_RECEIVE: ReceiveState = { version: 0, receiving: new Set(), scanning: false, revived: 0 }
-const NO_RECEIVER = { subscribe: () => () => {}, getState: () => NO_RECEIVE }
+const NO_RECEIVER: NonNullable<Props['receiver']> = { subscribe: () => () => {}, getState: () => NO_RECEIVE }
 /** The scan placeholder shows only when the scan takes longer than this. */
 export const SCAN_PLACEHOLDER_MS = 1000
 
@@ -583,6 +583,9 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       <Banner />
       <div className="library-toolbar">
         <h2 className="library-heading">{t('library.label')}</h2>
+        <button type="button" className="btn library-refresh" aria-label={t('library.refresh')} title={t('library.refresh')} onClick={() => void Promise.resolve(rx.check?.()).then(() => lib.reload())}>
+          ↻
+        </button>
         <select
           className="field-input library-view"
           aria-label={t('library.view')}

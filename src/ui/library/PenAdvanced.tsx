@@ -1,6 +1,6 @@
 import { useId, useRef, useState } from 'react'
 import { useI18n } from '../../i18n'
-import { type BrushPatch, brushCurves, brushLegacyTilt, brushResolve, curvesOffOf, patchBrush } from '../../model/brush'
+import { type BrushPatch, brushLegacyTilt, brushResolve, curvesOffOf, patchBrush } from '../../model/brush'
 import { editPoints, opacityPressureCurve, validCurve } from '../../model/curve'
 import type { Pen } from '../../model/pen'
 import { type BrushPreset, sharedBrushPresets } from '../../storage/brushPresets'
@@ -86,41 +86,6 @@ export function PenOpacity({ pen, onChange }: Props) {
       downLabel={t('editor.brush.opacityDown')}
       upLabel={t('editor.brush.opacityUp')}
     />
-  )
-}
-
-/** Basic-settings texture choice (spec/brush.md, Story 28.5): none / pencil stamp, plus the 농도 row when textured. Pen, fountain and pencil only. */
-export function PenTexture({ pen, onChange }: Props) {
-  const { t } = useI18n()
-  const id = useId()
-  const { set } = useBrushSetter({ pen, onChange })
-  if (!['pen', 'fountain', 'pencil'].includes(pen.tool)) return null
-  const tex = brushResolve(pen.tool, pen.brush).texture
-  const density = brushCurves(pen.brush).density
-  return (
-    <>
-      <div className="segmented" role="radiogroup" aria-label={t('editor.brush.texture')}>
-        {(['none', 'pencil'] as const).map((k) => (
-          <label key={k} className="segmented-option">
-            <input type="radio" name={`${id}-tex`} checked={tex === k} onChange={() => set({ texture: k })} />
-            <span>{t(k === 'none' ? 'editor.brush.textureNone' : 'editor.brush.textureStamp')}</span>
-          </label>
-        ))}
-      </div>
-      {tex === 'pencil' && (
-        <SliderRow
-          label={t('editor.brush.density')}
-          text={`${Math.round(density * 100)}%`}
-          min={0.05}
-          max={1}
-          step={0.05}
-          value={density}
-          onChange={(x) => set({ density: Math.round(x * 100) / 100 })}
-          downLabel={t('editor.brush.densityDown')}
-          upLabel={t('editor.brush.densityUp')}
-        />
-      )}
-    </>
   )
 }
 

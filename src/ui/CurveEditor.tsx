@@ -43,7 +43,7 @@ export type CurveEditorProps = {
 
 /**
  * A curve graph with draggable, keyboard-movable points and an optional pen-only test pad (pen-feel.md, brush.md `brush.curveEdit`).
- * A point list adds a point by touching off the line, and deletes an inner point dragged out of the graph or by Delete; there is no value popup.
+ * A point list adds a point by touching the line, and deletes an inner point dragged out of the graph or by Delete; there is no value popup.
  */
 export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i18n = 'settings.pressureCurve', onReset, curveOf, pad: showPad = true, label, onTouch }: CurveEditorProps) {
   const { t } = useI18n()
@@ -53,6 +53,7 @@ export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i1
   const p = points ? (value as Pt[]) : toPts(value as number[])
   const [sel, setSel] = useState(-1)
   const drag = useRef(-1)
+  const [dropping, setDropping] = useState(false) // the dragged point is past the edge: it will be deleted
   const pad = useRef<HTMLCanvasElement>(null)
   const pts = useRef<number[][]>([])
   const [drawing, setDrawing] = useState(false)
@@ -102,14 +103,26 @@ export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i1
     const [x, y] = box(e)
     return [x, 1 - y]
   }
+  const onLine = (x: number, y: number) => {
+    for (let k = 0; k < 64; k++) {
+      const [ax, ay, bx, by] = [(k / 64) * SIZE, (1 - pressureCurve(value, k / 64)) * SIZE, ((k + 1) / 64) * SIZE, (1 - pressureCurve(value, (k + 1) / 64)) * SIZE]
+      const [px, py] = [x * SIZE - ax, (1 - y) * SIZE - ay]
+      const [dx, dy] = [bx - ax, by - ay]
+      const len2 = dx * dx + dy * dy
+      const t = len2 === 0 ? 0 : Math.min(1, Math.max(0, (px * dx + py * dy) / len2))
+      if (Math.hypot(px - dx * t, py - dy * t) <= 14) return true
+    }
+    return false
+  }
   const graphDown = (e: React.PointerEvent<SVGSVGElement>) => {
     onTouch?.()
     const [x, y] = at(e)
-    let i = p.findIndex((q) => Math.hypot((q[0] - x) * SIZE, (q[1] - y) * SIZE) < 22)
-    if (i < 0 && !fixed) {
+    let i = p.findIndex((q) => Math.hypot((q[0] - x) * SIZE, (q[1] - y) * SIZE) < 16)
+    // A point is added only by a touch on the curve itself, not beside it.
+    if (i < 0 && !fixed && onLine(x, y)) {
       if (points) {
-        const next = curveEdit(p, { kind: 'add', x, y })
-        if (next.length === p.length) return // on the line, near a point, or full
+        const next = curveEdit(p, { kind: 'add', x, y: pressureCurve(value, x) })
+        if (next.length === p.length) return // near a point, or full
         i = next.findIndex((q) => !p.some((o) => o[0] === q[0] && o[1] === q[1]))
         save(next)
       } else if (p.length < MAX_INNER) {
@@ -134,6 +147,9 @@ export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i1
   const graphMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (drag.current < 0 || drag.current >= p.length) return
     const [x, y] = at(e)
+    const [bx, by] = box(e)
+    const out = !fixed && Math.max(-bx, bx - 1, -by, by - 1, 0) > 0.08
+    if (out !== dropping) setDropping(out)
     if (points) return save(curveEdit(p, { kind: 'move', index: drag.current, x, y }))
     const c = clampAt(p, drag.current, x, y)
     if (c) save(p.map((q, k) => (k === drag.current ? c : q)))
@@ -142,6 +158,7 @@ export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i1
   const graphUp = (e: React.PointerEvent<SVGSVGElement>) => {
     const i = drag.current
     drag.current = -1
+    setDropping(false)
     if (i < 0 || fixed || e.type === 'pointercancel') return
     const [x, y] = box(e)
     const over = (v: number) => Math.max(-v, v - 1, 0)
@@ -210,6 +227,7 @@ export function CurveEditor({ value, onChange, mode = 'pressure', fixedCount, i1
             <circle
               key={i}
               className={i === selected ? 'dot is-selected' : 'dot'}
+              opacity={dropping && i === drag.current ? 0.35 : 1}
               cx={q[0] * SIZE}
               cy={(1 - q[1]) * SIZE}
               r={i === selected ? 8 : 6}

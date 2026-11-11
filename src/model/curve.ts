@@ -80,7 +80,7 @@ export function curveEdit(points: readonly (readonly number[])[], op: CurveEditO
     const y = clamp01(op.y)
     const onLine = Math.abs(y - (curveEval(p, x) ?? y)) <= 0.04
     const near = p.some((q) => Math.abs(q[0] - x) < 0.02)
-    if (!onLine && !near && p.length < MAX_POINTS) {
+    if (onLine && !near && p.length < MAX_POINTS) {
       const at = p.findIndex((q) => q[0] > x)
       p.splice(at < 0 ? p.length : at, 0, [x, y])
     }
