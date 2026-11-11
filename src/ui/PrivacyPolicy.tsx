@@ -2,6 +2,9 @@ import { useEffect } from 'react'
 import { useI18n, type Key } from '../i18n'
 
 export const PRIVACY_PATH = '/privacy'
+
+/** The policy lives on the site (kkeujeok-site), one page per language. */
+export const privacyUrl = (locale: string) => `https://kkeujeok-ida.github.io/kkeujeok-site/${locale}/privacy/`
 export const CONTACT_URL = 'https://github.com/kkeujeok-ida/kkeujeok-web/issues'
 const PERMISSIONS_URL = 'https://myaccount.google.com/permissions'
 

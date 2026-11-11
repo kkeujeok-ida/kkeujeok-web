@@ -277,11 +277,21 @@ h1 {
   width: 100%;
   max-width: calc(var(--spacing-cover-column-min) * 2.5);
   padding: var(--spacing-6) var(--spacing-5);
-  border: 1px solid var(--color-border-hairline);
-  border-radius: var(--rounded-lg);
-  background: var(--color-surface-raised);
   text-align: center;
   overflow-wrap: anywhere;
+}
+
+/* The toolbar controls (view, sort, refresh, search) sit on the page: no box, no border. */
+.library-toolbar .btn,
+.library-toolbar .field-input,
+.settings-header .field-input {
+  border-color: transparent;
+  background: transparent;
+}
+
+.library-toolbar .btn:hover,
+.library-toolbar .field-input:hover {
+  background: var(--color-accent-soft);
 }
 
 .signin p {

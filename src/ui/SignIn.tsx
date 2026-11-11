@@ -1,9 +1,10 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { useI18n } from '../i18n'
+import { privacyUrl } from './PrivacyPolicy'
 import type { Auth } from '../drive/auth'
 
 export function SignIn({ auth, notice }: { auth: Auth; notice: 'denied' | 'network' | 'unconfigured' | null }) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const busy = useSyncExternalStore(auth.subscribe, () => auth.getState().busy)
   useEffect(() => auth.preload(), [auth])
   const go = () => void auth.signIn()
@@ -38,7 +39,7 @@ export function SignIn({ auth, notice }: { auth: Auth; notice: 'denied' | 'netwo
           )}
           {notice === 'unconfigured' && <p className="signin-error">{t('signin.unconfigured')}</p>}
         </div>
-        <a href="/privacy">{t('settings.privacy')}</a>
+        <a href={privacyUrl(locale)}>{t('settings.privacy')}</a>
       </div>
     </main>
   )

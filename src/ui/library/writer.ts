@@ -1010,7 +1010,11 @@ export class Writer {
       const cx = (b.left + b.right) / 2
       const cy = (b.top + b.bottom) / 2
       const turn = Math.atan2(x.cur[1] - cy, x.cur[0] - cx) - Math.atan2(x.start[1] - cy, x.start[0] - cx)
-      const angle = ((((turn * 180) / Math.PI + 180) % 360) + 360) % 360 - 180
+      let angle = ((((turn * 180) / Math.PI + 180) % 360) + 360) % 360 - 180
+      // Near a multiple of 45 degrees (turned since the pick) it snaps there.
+      const total = x.angle + angle
+      const snapped = Math.round(total / 45) * 45
+      if (Math.abs(total - snapped) <= 4) angle = snapped - x.angle
       return Number.isFinite(angle) && Math.abs(angle) > 1e-9 ? { op: 'rotate', ...base, angle } : null
     }
     // The anchor is the opposite corner; (vx, vy) runs from it to the grabbed corner.

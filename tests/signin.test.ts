@@ -62,7 +62,7 @@ describe('sign-in gate', () => {
     expect(host!.querySelector('nav')).toBeNull()
     expect(host!.querySelector('.library')).toBeNull()
     expect(host!.textContent).toContain('노트는 내 Google Drive의 Kkeujeok 폴더에 저장돼요')
-    expect(host!.querySelector('a[href="/privacy"]')).not.toBeNull()
+    expect(host!.querySelector('a[href$="/privacy/"]')).not.toBeNull()
     expect(host!.querySelectorAll('button')).toHaveLength(1)
     expect(live().textContent).toBe('')
   })

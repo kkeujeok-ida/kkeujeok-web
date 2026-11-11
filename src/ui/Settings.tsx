@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { syncLog } from '../sync/syncLog'
 import { countUnsent, defaultUnsentStore } from '../sync/unsent'
+import { privacyUrl } from './PrivacyPolicy'
 import { fmt, useI18n, type Choice, type Key } from '../i18n'
 import type { Auth } from '../drive/auth'
 import { clearSessionHistories } from '../ops/sessionHistories'
@@ -41,7 +42,7 @@ export function Settings({
   /** Ids of the notes with unsent changes; null = could not be checked. */
   unsentIds?: () => Promise<string[] | null>
 }) {
-  const { t, choice, setChoice } = useI18n()
+  const { t, locale, choice, setChoice } = useI18n()
   const theme = useSyncExternalStore(subscribeTheme, getTheme, getTheme)
   const leftHanded = useSyncExternalStore(subscribeLeftHanded, getLeftHanded, getLeftHanded)
   const straighten = useSyncExternalStore(subscribeStraighten, getStraighten, getStraighten)
@@ -303,7 +304,7 @@ export function Settings({
       </button>
     ),
     privacy: (
-      <a className="btn" href="/privacy" target="_blank" rel="noopener noreferrer">
+      <a className="btn" href={privacyUrl(locale)} target="_blank" rel="noopener noreferrer">
         {t('settings.privacy')}
       </a>
     ),
