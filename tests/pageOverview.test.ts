@@ -181,7 +181,7 @@ describe('page overview panel', () => {
     const calls: string[] = []
     const pages = mkNote({ title: 'x', pages: { [PA]: 'a1', [PB]: 'b1' } }).pages
     pages[0]!.elements = [{ id: 'e1', type: 'stroke', tool: 'pen', color: '#000000', width: 2, usePressure: false, points: [[-90, 5, 0.5, 0], [10, 10, 0.5, 5]] }] as never
-    m = mountUi(createElement(PageOverview, { id: 'p', pages, current: 0, conflicted: new Set(), side: 'right', overlay: false, onGo: () => {}, onClose: () => {}, onBackground: (ids: string[], b: string) => calls.push(`bg ${ids.length} ${b}`), onSelectOutOfBounds: (id: string) => calls.push(`out ${id === PA ? 'A' : '?'}`) }), 'ko')
+    m = mountUi(createElement(PageOverview, { id: 'p', pages, current: 0, conflicted: new Set<string>(), side: 'right', overlay: false, onGo: () => {}, onClose: () => {}, onBackground: (ids: string[], b: string) => calls.push(`bg ${ids.length} ${b}`), onSelectOutOfBounds: (id: string) => calls.push(`out ${id === PA ? 'A' : '?'}`) }), 'ko')
     const badge = document.querySelector<HTMLElement>('.po-badge-btn')!
     expect(badge.textContent).toContain('페이지 밖 요소 1개')
     act(() => badge.click())

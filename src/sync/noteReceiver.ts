@@ -469,7 +469,7 @@ export function createNoteReceiver(d: ReceiverDeps) {
       // An origin inside the bin is no destination.
       if (found && found.parents.every((p) => !cur.parents.includes(p))) target = found.id
     }
-    if (!target) throw new DriveError('http', { status: 404 })
+    if (!target) throw new DriveError('http', 404)
     await drive.update(fileId, { addParents: target, removeParents: cur.parents.join(','), appProperties: { trashedFrom: null, trashedAt: null } })
   }
 

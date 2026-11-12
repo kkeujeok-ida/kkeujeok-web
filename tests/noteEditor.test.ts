@@ -2288,7 +2288,10 @@ describe('pen popover (story 5.5)', () => {
   const slotList = (m: Map<string, string>) => JSON.parse(m.get(PEN_SLOTS_KEY)!) as { tool: string; color: string; width: number; usePressure: boolean }[]
   const cell = (i: number) => qa('.pen-palette [role="radio"]')[i]!
   const hexField = () => q<HTMLInputElement>('.color-hex')!
-  const typeHex = (v: string) => act(() => void Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(hexField(), v) || hexField().dispatchEvent(new Event('input', { bubbles: true })))
+  const typeHex = (v: string) => act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(hexField(), v)
+    hexField().dispatchEvent(new Event('input', { bubbles: true }))
+  })
   const caption = () => `${q('.pen-slider-label')!.textContent} ${q('.pen-slider-value')!.textContent}`
   const slider = () => q<HTMLInputElement>('.pen-width-slider')!
   const up = () => q('.pen-step:not(.pen-step-down)')!

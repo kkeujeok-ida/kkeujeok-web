@@ -72,7 +72,7 @@ describe('overview of a PDF page', () => {
   test('named PDF page, background and orientation disabled', () => {
     const pages = mkNote({ title: 'x', pages: { [PA]: 'a1', [PB]: 'b1' } }).pages
     pages[0]!.background = bg as never
-    m = mountUi(createElement(PageOverview, { id: 'p', pages, current: 0, conflicted: new Set(), side: 'right', overlay: false, onGo: () => {}, onClose: () => {} }), 'ko')
+    m = mountUi(createElement(PageOverview, { id: 'p', pages, current: 0, conflicted: new Set<string>(), side: 'right', overlay: false, onGo: () => {}, onClose: () => {} }), 'ko')
     const o = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
     expect(o[0]!.getAttribute('aria-label')).toContain('PDF 페이지')
     expect(o[1]!.getAttribute('aria-label')).not.toContain('PDF')

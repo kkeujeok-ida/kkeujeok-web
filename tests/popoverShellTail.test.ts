@@ -24,7 +24,7 @@ function tailOf(bar: DOMRect, slot: DOMRect) {
   Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 100 })
   window.innerWidth = 1000
   window.innerHeight = 800
-  act(() => createRoot(host).render(createElement(PopoverShell, { anchor: toolbar, tool: '[data-slot="3"]', onClose: () => {}, labelledBy: 'x', className: 'pen-popover' }, null)))
+  act(() => createRoot(host).render(createElement(PopoverShell, { anchor: toolbar, tool: '[data-slot="3"]', onClose: () => {}, labelledBy: 'x', className: 'pen-popover', children: null })))
   const bubble = host.querySelector<HTMLElement>('.pen-popover')!
   const tail = host.querySelector<HTMLElement>('.pen-popover-tail')!
   return { bubble, tail }

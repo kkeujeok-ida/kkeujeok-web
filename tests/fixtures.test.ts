@@ -372,7 +372,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   },
   'shape.outline': ({ input, expected, tolerance }) => {
     const i = input as { points: number[][]; width: number; join: 'miter' | 'round' }
-    const got = shapeOutline(i.points, i.width, i.join)
+    const got = shapeOutline(i.points, i.width, i.join)!
     const want = (expected as { rings: number[][][] }).rings
     expect(got).toHaveLength(want.length)
     got.forEach((ring, r) => {

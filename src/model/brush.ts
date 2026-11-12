@@ -80,13 +80,13 @@ export function brushAlpha(o: { opacity: number; opacityPressureCurve?: unknown;
 }
 
 /** Curve output q (0..1) of a point's tilt, or null when the point has no tilt (4 numbers). */
-export function tiltQ(p: readonly number[], curve: readonly number[]): number | null {
+export function tiltQ(p: readonly number[], curve: unknown): number | null {
   if (p.length < 6 || typeof p[4] !== 'number' || !Number.isFinite(p[4])) return null
   return pressureCurve(curve, Math.min(90, Math.max(0, p[4])) / 90)
 }
 
 /** Width factor of a point: `0.5 + q` under tilt `size`; 1 when the tilt is unknown. */
-export const tiltSizeFactor = (p: readonly number[], curve: readonly number[]) => {
+export const tiltSizeFactor = (p: readonly number[], curve: unknown) => {
   const q = tiltQ(p, curve)
   return q === null ? 1 : 0.5 + q
 }

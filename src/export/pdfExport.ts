@@ -239,7 +239,7 @@ export async function buildPdf(job: PdfJob): Promise<PdfResult> {
         ops.push(fill(), popGraphicsState())
       } else if (pe.kind === 'text') {
         drawText(ops, e, fonts, nameOf)
-      } else {
+      } else if (pe.kind === 'image') {
         const img = images.get(pe.asset)!
         const name = page.node.newXObject('Img', img.ref)
         ops.push(pushGraphicsState())

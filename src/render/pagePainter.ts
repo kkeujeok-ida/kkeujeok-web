@@ -627,10 +627,6 @@ export function paintPage(
       }
     }
     const ink = dark ? inkHex : undefined
-    let dpr = 1
-    try { dpr = ctx.getTransform().a / scale || 1 } catch { /* a context without a transform */ }
-    const cw = ctx.canvas?.width, ch = ctx.canvas?.height
-    const view = cw && ch ? { x0: -offsetX / scale, y0: -offsetY / scale, x1: (cw / dpr - offsetX) / scale, y1: (ch / dpr - offsetY) / scale } : { x0: -Infinity, y0: -Infinity, x1: Infinity, y1: Infinity }
     let drafted = false
     for (const e of Array.isArray(elements) ? elements : []) {
       const moved = !!selPreview && selPreview.ids.has((e as { id?: string } | null)?.id as string)

@@ -54,7 +54,7 @@ describe('CurveEditor', () => {
     key(dots[0]!, 'ArrowRight')
     expect(calls.at(-1)![0]).toEqual([0, 0])
     key(dots[2]!, 'ArrowDown', true)
-    expect(calls.at(-1)![2]![1]).toBeCloseTo(0.95)
+    expect((calls.at(-1)![2] as unknown as number[])[1]).toBeCloseTo(0.95)
     key(dots[1]!, 'ArrowUp', true)
     expect(calls.at(-1)![1]).toEqual([0.5, 0.55])
   })

@@ -25,7 +25,8 @@ async function pdfGround(assets: AssetSource, bg: { asset: string; page: number 
   const rec = await assets.get(bg.asset)
   if (!rec) return null
   const lib = await browserPdfjs()
-  const doc = await lib.getDocument({ data: rec.bytes.slice(), verbosity: 0 }).promise
+  const task = lib.getDocument({ data: rec.bytes.slice(), verbosity: 0 })
+  const doc = await task.promise
   try {
     const page = await doc.getPage(bg.page + 1)
     const v1 = page.getViewport({ scale: 1 })
@@ -34,7 +35,7 @@ async function pdfGround(assets: AssetSource, bg: { asset: string; page: number 
     await page.render({ canvas, viewport: page.getViewport({ scale: kx }), transform: [1, 0, 0, ky / kx, 0, 0] }).promise
     return canvas
   } finally {
-    void doc.destroy()
+    void task.destroy()
   }
 }
 
