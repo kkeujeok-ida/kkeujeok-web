@@ -63,7 +63,8 @@ export type WriterMessage =
   | 'imageUnsupported'
   | 'imageUnreadable'
   | 'imageStoreFailed'
-  | 'exportPngSoon'
+  | 'exportPngTooLarge'
+  | 'exportPngFailed'
 
 /** `ox`, `oy`: where the page of the stroke starts in the continuous scroll; `points` are in that page's coordinates. */
 /** Line straightening state of one stroke (pen-feel.md pen.straighten): `anchor` is the still-detection anchor, `dead` once a second pointer came. */

@@ -22,7 +22,7 @@ import { lineSnapEnd, straightenActive, type StraightenInput } from '../src/mode
 import { highlighterOutline } from '../src/render/highlighterOutline'
 import { History } from '../src/ops/history'
 import { type Ctx, type Op, applyOp, createCanvas, createNote } from '../src/ops/ops'
-import { canvasMode, canvasSize } from '../src/model/canvasRules'
+import { canvasExportSize, canvasMode, canvasSize } from '../src/model/canvasRules'
 import { pageOutOfBounds } from '../src/model/pageBounds'
 import { selectLasso, selectRect, selectTap, type El, type P } from '../src/model/select'
 import { dockAtPointer } from '../src/ui/library/toolbarDock'
@@ -186,6 +186,10 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'canvas.size': ({ input, expected }) => {
     const i = input as { width: unknown; height: unknown }
     expect(canvasSize(i.width, i.height)).toEqual(expected)
+  },
+  'canvas.exportSize': ({ input, expected }) => {
+    const i = input as { width: number; height: number; scale: unknown; background: unknown }
+    expect(canvasExportSize(i.width, i.height, i.scale, i.background)).toEqual(expected)
   },
   'canvas.create': ({ input, expected }) => {
     expect(createCanvas(input as Parameters<typeof createCanvas>[0])).toEqual(expected)
@@ -629,8 +633,6 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
-  // Story 33.1: canvas.exportSize; its runner arrives with the web story 33.7.
-  'canvas.exportSize',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
 

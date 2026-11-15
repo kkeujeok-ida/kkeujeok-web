@@ -39,7 +39,8 @@ async function pdfGround(assets: AssetSource, bg: { asset: string; page: number 
   }
 }
 
-export async function renderPageRaster(page: Page, wPx: number, hPx: number, assets: AssetSource): Promise<Uint8Array | null> {
+/** `opts.scale` px per page unit (default 2.5); `opts.alpha`: no white ground, so a transparent canvas page stays transparent. */
+export async function renderPageRaster(page: Page, wPx: number, hPx: number, assets: AssetSource, opts: { scale?: number; alpha?: boolean } = {}): Promise<Uint8Array | null> {
   const cache = new StrokePathCache()
   const owned: ImageBitmap[] = []
   try {
@@ -80,9 +81,11 @@ export async function renderPageRaster(page: Page, wPx: number, hPx: number, ass
       ...(ground && { pdf: { labels: { downloading: '', failed: '' }, state: () => 'ready' as const, retry() {}, paint: (ctx: CanvasRenderingContext2D, p: { width: number; height: number }) => ctx.drawImage(ground!, 0, 0, p.width, p.height) } }),
     }
     const draw = () => {
-      s.ctx.fillStyle = '#fff' // opaque, also the sub-pixel edge strip (no alpha plane in the PNG)
-      s.ctx.fillRect(0, 0, wPx, hPx)
-      paintPage(s.ctx, page, { scale: 2.5, offsetX: 0, offsetY: 0 }, cache, null, null, src, null, false)
+      if (!opts.alpha) {
+        s.ctx.fillStyle = '#fff' // opaque, also the sub-pixel edge strip (no alpha plane in the PNG)
+        s.ctx.fillRect(0, 0, wPx, hPx)
+      }
+      paintPage(s.ctx, page, { scale: opts.scale ?? 2.5, offsetX: 0, offsetY: 0 }, cache, null, null, src, null, false)
     }
     await cache.textures.settled() // the pencil stamp image
     draw()

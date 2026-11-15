@@ -66,6 +66,9 @@ test('a canvas has no page buttons; the menu offers Export PNG and no Print', as
   const items = m!.qa('[role=menuitem]').map((x) => x.textContent)
   expect(items).toContain('Export PNG')
   expect(items).not.toContain('Print')
+  act(() => void [...m!.qa('[role=menuitem]')].find((x) => x.textContent === 'Export PNG')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  await settle()
+  expect(m!.q('[role=dialog]')?.textContent).toContain('2x')
 })
 
 test('an unknown kind is view only: a stroke is not saved', async () => {

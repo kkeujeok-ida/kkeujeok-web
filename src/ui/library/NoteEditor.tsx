@@ -50,7 +50,7 @@ import { onResolveRequest, takeResolveRequest } from './resolveRequest'
 import { detectEditedBy } from './useLibrary'
 import { ZOOM_MAX } from '../../render/pagePainter'
 import { canvasMode } from '../../model/canvasRules'
-import { exportCanvasPng } from '../../export/canvasPng'
+import { CanvasPngDialog } from './CanvasPngDialog'
 import type { ImageHost } from '../../render/imageHost'
 import { SHAPE_KINDS, type ShapeKind } from '../../model/shape'
 import { ARROW_STEP, Writer, ZOOM_STEP, type EditInfo, type ErasedInfo, type Tool, type SelectionBox, type TapeNode, type ViewInfo, type WriterMessage } from './writer'
@@ -103,7 +103,8 @@ const MESSAGE_KEY: Record<WriterMessage, Key> = {
   imageUnsupported: 'editor.imageUnsupported',
   imageUnreadable: 'editor.imageUnreadable',
   imageStoreFailed: 'editor.imageStoreFailed',
-  exportPngSoon: 'editor.exportPngSoon',
+  exportPngTooLarge: 'editor.exportPngTooLarge',
+  exportPngFailed: 'editor.exportPngFailed',
 }
 
 // Per note: the release of the lock a left editor still holds.
@@ -253,7 +254,7 @@ export function NoteEditor({
   const wantResolve = useRef(false)
   // The version history dialog (Story 3.25).
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [exportOpen, setExportOpen] = useState<false | 'export' | 'print'>(false)
+  const [exportOpen, setExportOpen] = useState<false | 'export' | 'print' | 'png'>(false)
   const receiving = useNoteReceiving(noteId)
   const receivingRef = useRef(receiving)
   receivingRef.current = receiving
@@ -1614,8 +1615,7 @@ export function NoteEditor({
                     className="editor-menu-item"
                     onClick={() => {
                       setMenuOpen(false)
-                      if (!isCanvas) return setExportOpen('export')
-                      exportCanvasPng(loaded.writer.history.note).catch(() => setMessage((p) => ({ key: 'exportPngSoon', n: (p?.n ?? 0) + 1 })))
+                      setExportOpen(isCanvas ? 'png' : 'export')
                     }}
                   >
                     {t(isCanvas ? 'editor.exportPng' : 'editor.export')}
@@ -1835,7 +1835,17 @@ export function NoteEditor({
           <div role="alert" className="sr-only" key={alert.n}>
             {alert.text}
           </div>
-          {exportOpen && (
+          {exportOpen === 'png' && (
+            <CanvasPngDialog
+              note={loaded.writer.history.note}
+              onMessage={(key) => setMessage((p) => ({ key, n: (p?.n ?? 0) + 1 }))}
+              onClose={() => {
+                setExportOpen(false)
+                canvas.current?.focus()
+              }}
+            />
+          )}
+          {(exportOpen === 'export' || exportOpen === 'print') && (
             <ExportDialog
               mode={exportOpen}
               note={loaded.writer.history.note}
