@@ -1,4 +1,5 @@
 // spec rules invert.* (spec/invert.md): how All Dark shows a page. Display only: never saved, exported or printed.
+import { effectivePaper, isCustomBackground } from './note'
 import { isPdfBackground } from './pdfRules'
 
 type Rgb = [number, number, number]
@@ -95,13 +96,19 @@ export function invertBackground({ background }: { background: unknown }) {
   return out
 }
 
-type LayersIn = { page?: { background?: unknown }; element?: { type?: unknown; tool?: unknown }; layer?: 'paper' | 'pattern' | 'pdf' | 'cover' }
-type LayersOut = { invert: boolean; how: 'ink' | 'highlighter' | 'paper' | 'pattern' | 'none'; underlay?: '#ffffff' }
+type LayersIn = { page?: { background?: unknown; paper?: unknown }; element?: { type?: unknown; tool?: unknown }; layer?: 'paper' | 'pattern' | 'pdf' | 'cover' }
+type LayersOut = { invert: boolean; how: 'ink' | 'highlighter' | 'paper' | 'pattern' | 'none'; underlay?: '#ffffff'; color?: string }
+const PAPER_HEX = { cream: '#fbf5df', black: '#16171a' } as const
 
 export function invertLayers({ page, element, layer }: LayersIn): LayersOut {
   const none: LayersOut = { invert: false, how: 'none' }
   if (layer === 'cover' || layer === 'pdf') return none
-  const pdf = isPdfBackground(page?.background)
+  // invert.paperColor: only a white-paper pattern page inverts; cream and black keep their palette, custom is an image.
+  const paper = effectivePaper(page?.paper)
+  if (!isPdfBackground(page?.background) && !isCustomBackground(page?.background) && paper !== 'white') {
+    return layer === 'paper' ? { ...none, color: PAPER_HEX[paper] } : none
+  }
+  const pdf = isPdfBackground(page?.background) || isCustomBackground(page?.background)
   if (layer === 'paper' || layer === 'pattern') return pdf ? none : { invert: true, how: layer }
   if (!element || pdf) return none
   if (element.type === 'stroke' && element.tool === 'tape') return none // a cover color, drawn as stored

@@ -169,7 +169,7 @@ describe('page overview panel', () => {
     key(document.activeElement!, 'End')
     key(document.activeElement!, 'ArrowUp')
     act(() => (document.activeElement as HTMLElement).click()) // the background choices
-    expect(items().map((i) => i.textContent)).toEqual(['무지', '줄', '모눈', '점'])
+    expect(items().map((i) => i.textContent)).toEqual(['무지', '줄', '모눈', '점', '작은 모눈', '코넬', '넓은 줄', '속지색: 흰색', '속지색: 크림', '속지색: 검정'])
     act(() => items()[2]!.click())
     expect(calls).toEqual(['A landscape', 'bg 1 grid'])
     act(() => more.click())

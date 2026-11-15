@@ -1,5 +1,6 @@
 // spec rules export.range, export.fileName, export.plan (spec/export.md). Pure: the PDF builder draws this plan.
 import { isAssetHash } from '../model/imageRules'
+import { isCustomBackground } from '../model/note'
 import { isPdfBackground, patternOf } from '../model/pdfRules'
 import { round2 } from '../model/number'
 import { trimTitle } from '../model/noteTitle'
@@ -96,13 +97,29 @@ function textEntry(e: El, fonts: Set<string>): PlanElement {
   return { id: e.id as string, kind: 'text', x: e.x as number, y: e.y as number, width: e.width as number, height: round2(L.height), rotation: (e.rotation as number) || 0, lines, colors }
 }
 
+/** `export.paper`: paper colors and pattern counts per page. */
+export function exportPaper({ pages }: { pages: { background: unknown; paper?: unknown; width: number; height: number }[] }) {
+  const custom = new Set<string>()
+  const out = pages.map((p) => {
+    if (isCustomBackground(p.background)) {
+      const asset = (p.background as { asset: string }).asset
+      custom.add(asset)
+      return { background: 'custom', custom: { asset }, lines: 0, dots: 0 }
+    }
+    const name = patternOf(p.background)
+    const bg = pageBackground(name, p.width, p.height, p.paper)
+    return { background: name, paper: bg.paper, lineColor: bg.lineColor, dotColor: bg.dotColor, lines: bg.lines.length, dots: bg.dots.length }
+  })
+  return { pages: out, ...(custom.size && { customAssets: [...custom].sort() }) }
+}
+
 export function exportPlan({ note, range, localAssets }: PlanInput): PlanResult {
   const r = exportRange({ ...range, pageCount: note.pages.length })
   if ('error' in r) return r
   const fonts = new Set<string>(), assets = new Set<string>(), pdfAssets = new Set<string>(), pages: PlanPage[] = []
   for (const n of r.pages) {
     const p = note.pages[n - 1]!
-    const bg = pageBackground(patternOf(p.background), p.width, p.height)
+    const bg = pageBackground(patternOf(p.background), p.width, p.height, p.paper)
     const elements: PlanElement[] = [], omitted: string[] = []
     // A PDF page has no paper and no background path: only the ink counts (the original page is the ground).
     const pdf = isPdfBackground(p.background) ? p.background : null

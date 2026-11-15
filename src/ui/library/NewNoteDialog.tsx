@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useI18n, type Key } from '../../i18n'
-import { BACKGROUNDS } from '../../model/note'
+import { BACKGROUNDS, PAPERS, type Paper } from '../../model/note'
 import { MAX_TITLE_LENGTH } from '../../model/noteTitle'
 import { CoverRadios } from './CoverArt'
 import { pageBackground } from '../../render/pageBackground'
@@ -11,6 +11,9 @@ const BACKGROUND_LABEL: Record<(typeof BACKGROUNDS)[number], Key> = {
   lined: 'library.background.lined',
   grid: 'library.background.grid',
   dot: 'library.background.dot',
+  'grid-s': 'library.background.grid-s',
+  cornell: 'library.background.cornell',
+  'lined-wide': 'library.background.lined-wide',
 }
 const ORIENTATION_LABEL: Record<(typeof ORIENTATIONS)[number], Key> = {
   portrait: 'library.orientation.portrait',
@@ -20,7 +23,7 @@ const ORIENTATION_LABEL: Record<(typeof ORIENTATIONS)[number], Key> = {
 const PREVIEW_LONG = 72 // css px of the long side; the page keeps its A4 proportions
 
 /** The page background drawn small, so the choice is seen rather than read. Hairlines stay one pixel. */
-function BackgroundPreview({ kind, orientation }: { kind: string; orientation: Orientation }) {
+function BackgroundPreview({ kind, orientation, paper }: { kind: string; orientation: Orientation; paper: Paper }) {
   const ref = useRef<HTMLCanvasElement>(null)
   const landscape = orientation === 'landscape'
   const pageW = landscape ? 842 : 595
@@ -35,7 +38,7 @@ function BackgroundPreview({ kind, orientation }: { kind: string; orientation: O
     c.width = Math.round(w * dpr)
     c.height = Math.round(h * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    const bg = pageBackground(kind, pageW, pageH)
+    const bg = pageBackground(kind, pageW, pageH, paper)
     const k = w / pageW
     ctx.fillStyle = bg.paper
     ctx.fillRect(0, 0, w, h)
@@ -54,14 +57,14 @@ function BackgroundPreview({ kind, orientation }: { kind: string; orientation: O
       ctx.arc(x! * k, y! * k, 1, 0, Math.PI * 2)
     }
     ctx.fill()
-  }, [kind, pageW, pageH, w, h])
+  }, [kind, paper, pageW, pageH, w, h])
   return <canvas ref={ref} className="bg-preview" style={{ width: w, height: h }} aria-hidden="true" />
 }
 
 type Props = {
   defaults: NewNoteDefaults
   /** Resolves false when the note could not be saved. */
-  onCreate: (v: { title: string; background: Background; orientation: Orientation; coverId: string | null }) => Promise<boolean>
+  onCreate: (v: { title: string; background: Background; orientation: Orientation; paper: Paper; coverId: string | null }) => Promise<boolean>
   onClose: () => void
 }
 
@@ -73,13 +76,14 @@ export function NewNoteDialog({ defaults, onCreate, onClose }: Props) {
   const [title, setTitle] = useState('')
   const [background, setBackground] = useState<Background>(defaults.background)
   const [orientation, setOrientation] = useState<Orientation>(defaults.orientation)
+  const [paper, setPaper] = useState<Paper>(defaults.paper)
   const [coverId, setCoverId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const busyRef = useRef(false)
   const box = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
-  const ids = { head: useId(), title: useId(), bg: useId(), or: useId(), cover: useId() }
+  const ids = { head: useId(), title: useId(), bg: useId(), paper: useId(), or: useId(), cover: useId() }
   const composing = useRef(false)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
@@ -97,7 +101,7 @@ export function NewNoteDialog({ defaults, onCreate, onClose }: Props) {
     setFailed(false)
     let ok = false
     try {
-      ok = await onCreate({ title, background, orientation, coverId })
+      ok = await onCreate({ title, background, orientation, paper, coverId })
     } catch {
       ok = false
     }
@@ -191,10 +195,30 @@ export function NewNoteDialog({ defaults, onCreate, onClose }: Props) {
                   setBackground(b)
                 }}
               />
-              <BackgroundPreview kind={b} orientation={orientation} />
+              <BackgroundPreview kind={b} orientation={orientation} paper={paper} />
               {t(BACKGROUND_LABEL[b])}
             </label>
           ))}
+        </fieldset>
+        <fieldset className="settings-group">
+          <legend>{t('library.paper')}</legend>
+          {PAPERS.map((p) => (
+            <label key={p} className="option">
+              <input
+                type="radio"
+                name={ids.paper}
+                value={p}
+                checked={paper === p}
+                disabled={busy}
+                onChange={() => {
+                  setFailed(false)
+                  setPaper(p)
+                }}
+              />
+              {t(`library.paper.${p}`)}
+            </label>
+          ))}
+          {paper === 'black' && <p className="one-line-hint">{t('library.paper.blackHint')}</p>}
         </fieldset>
         <CoverRadios
           name={ids.cover}

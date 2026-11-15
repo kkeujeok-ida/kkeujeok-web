@@ -1,9 +1,8 @@
 // Page operations (spec/ops.md "Page operations"; mirrors test/tools/pages.js). Never mutate the input note.
-import type { Note, Page } from '../model/note'
+import { BACKGROUNDS, PAPERS, effectivePaper, isCustomBackground, type Note, type Page } from '../model/note'
 import { isPdfBackground, patternOf } from '../model/pdfRules'
 import type { Ctx, Op, OpResult } from './ops'
 
-const BACKGROUNDS = ['plain', 'lined', 'grid', 'dot']
 const unchanged = (note: Note): OpResult => ({ note: structuredClone(note), inverse: null })
 const hasDup = (xs: unknown[]) => new Set(xs).size !== xs.length
 const idList = (v: unknown) => (Array.isArray(v) ? (v as string[]) : [])
@@ -140,8 +139,9 @@ export function setPageBackground(note: Note, op: Op, ctx: Ctx): OpResult {
   const named = new Set(items.map((it) => it.pageId))
   if (items.some((it) => !have.has(it.pageId))) return { error: 'pageNotFound' }
   if (hasDup(items.map((it) => it.pageId))) return { error: 'duplicateId' }
-  if (items.some((it) => !BACKGROUNDS.includes(it.background))) return { error: 'invalidBackground' }
+  if (items.some((it) => !(BACKGROUNDS as readonly string[]).includes(it.background))) return { error: 'invalidBackground' }
   if (note.pages.some((p) => named.has(p.id) && isPdfBackground(p.background))) return { error: 'pdfBackground' }
+  if (note.pages.some((p) => named.has(p.id) && isCustomBackground(p.background))) return { error: 'customBackground' }
   const want = new Map(items.map((it) => [it.pageId, it.background]))
   const next = structuredClone(note)
   const back: { pageId: string; background: unknown }[] = []
@@ -154,6 +154,31 @@ export function setPageBackground(note: Note, op: Op, ctx: Ctx): OpResult {
   }
   if (!back.length) return unchanged(note)
   return { note: next, inverse: { op: 'setPageBackground', items: back } }
+}
+
+export function setPaper(note: Note, op: Op, ctx: Ctx): OpResult {
+  const items = (Array.isArray(op.items) ? op.items : []) as { pageId: string; paper: string }[]
+  const have = new Set(note.pages.map((p) => p.id))
+  const named = new Set(items.map((it) => it.pageId))
+  if (items.some((it) => !have.has(it.pageId))) return { error: 'pageNotFound' }
+  if (hasDup(items.map((it) => it.pageId))) return { error: 'duplicateId' }
+  if (items.some((it) => !(PAPERS as readonly string[]).includes(it.paper))) return { error: 'invalidPaper' }
+  if (note.pages.some((p) => named.has(p.id) && (isPdfBackground(p.background) || isCustomBackground(p.background)))) return { error: 'paperlessBackground' }
+  const want = new Map(items.map((it) => [it.pageId, it.paper]))
+  const next = structuredClone(note)
+  const back: { pageId: string; paper: string }[] = []
+  let k = 0
+  for (const page of next.pages) {
+    const w = want.get(page.id)
+    const old = effectivePaper(page.paper)
+    if (w === undefined || w === old) continue
+    back.push({ pageId: page.id, paper: old })
+    if (w === 'white') delete page.paper
+    else page.paper = w
+    stamp(page, ctx, ctx.revs![k++]!)
+  }
+  if (!back.length) return unchanged(note)
+  return { note: next, inverse: { op: 'setPaper', items: back } }
 }
 
 export function setPageOrientation(note: Note, op: Op, ctx: Ctx): OpResult {

@@ -46,7 +46,7 @@ import { resolveConflict } from '../src/ops/resolveConflict'
 import { errorClassRule } from '../src/sync/errorClass'
 import { backoffRule, staleHeadRule, stateMachineRule, uploadKindRule, verifyPlanRule } from '../src/sync/syncRules'
 import { driveFileNameRule, driveRemoteTitleRule, listSummaryRule } from '../src/drive/noteSummary'
-import { exportFileName, exportPlan, exportRange } from '../src/export/exportRules'
+import { exportFileName, exportPaper, exportPlan, exportRange } from '../src/export/exportRules'
 import { restoreNote, restorePage } from '../src/ops/restore'
 import { keepForeverRule, versionListRule } from '../src/sync/versionList'
 import { libraryCreateFolder, libraryFolderName, libraryMoveFolder, libraryMoveNote, libraryNormalize, librarySearch, librarySort, libraryRenameFolder, libraryRenameNote, librarySetCover, libraryCoverResolve, libraryTree, trashFolderRule, trashNoteRule, trashRestoreRule, trashPurgeRule, trashEmptyRule, trashListRule, trashAccessRule, trashRemoteRule } from '../src/library/libraryRules'
@@ -466,6 +466,15 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     const i = input as { background: string; width: number; height: number }
     expect(pageBackground(i.background, i.width, i.height)).toEqual(expected)
   },
+  'page.paper': ({ input, expected }) => {
+    const i = input as { background: string; width: number; height: number; paper?: unknown }
+    expect(pageBackground(i.background, i.width, i.height, i.paper)).toEqual(expected)
+  },
+  'note.paper': noteFormatVersion,
+  'ops.setPaper': opRunner,
+  'ops.setNewBackground': opRunner,
+  'invert.paperColor': ({ input, expected }) => void expect(invertLayers(input as Parameters<typeof invertLayers>[0])).toEqual(expected),
+  'export.paper': ({ input, expected }) => void expect(exportPaper(input as Parameters<typeof exportPaper>[0])).toEqual(expected),
   'sync.hasUnsent': ({ input, expected }) => {
     expect(hasUnsentRule(input)).toEqual(expected)
   },
@@ -601,13 +610,7 @@ const PENDING: string[] = [
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
-  // Epic 32 (Story 32.1): runners arrive with 32.2 (Android) and 32.3 (web); formatVersion 3 too.
-  'page.paper',
-  'note.paper',
-  'ops.setPaper',
-  'ops.setNewBackground',
-  'invert.paperColor',
-  'export.paper',
+  // Epic 32: the paper rules have runners (32.3); the custom.* ones arrive with 32.5.
   'custom.accept',
   'custom.coverId',
   'custom.referencedAssets',

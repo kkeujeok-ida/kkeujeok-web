@@ -202,8 +202,8 @@ export async function buildPdf(job: PdfJob): Promise<PdfResult> {
     }
     ops.push(pushGraphicsState(), concatTransformationMatrix(1, 0, 0, -1, 0, pp.height), rectangle(0, 0, pp.width, pp.height), clip(), endPath())
     // a PDF page has no paper: the original page is the ground
-    if (!ref) ops.push(fillRgb('#ffffff'), rectangle(0, 0, pp.width, pp.height), fill())
-    const bg = ref ? { lines: [], dots: [], lineColor: '', lineWidth: 0, dotColor: '', dotRadius: 0 } : pageBackground(patternOf(np.background), pp.width, pp.height)
+    const bg = ref ? { paper: '', lines: [], dots: [], lineColor: '', lineWidth: 0, dotColor: '', dotRadius: 0 } : pageBackground(patternOf(np.background), pp.width, pp.height, np.paper)
+    if (!ref) ops.push(fillRgb(bg.paper), rectangle(0, 0, pp.width, pp.height), fill())
     if (bg.lines.length) {
       ops.push(setStrokingRgbColor(...rgb(bg.lineColor)), setLineWidth(bg.lineWidth))
       for (const [x1, y1, x2, y2] of bg.lines) ops.push(moveTo(x1!, y1!), lineTo(x2!, y2!))

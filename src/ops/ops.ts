@@ -1,6 +1,6 @@
 // Edit operations (spec ops.md). Never mutate the input note.
 import { type Note, type Page, type Stroke, SUPPORTED_FORMAT_VERSION, isValidStroke, roundStroke } from '../model/note'
-import { addPage, deletePage, duplicatePage, insertPages, movePages, setPageBackground, setPageOrder, setPageOrientation } from './pageOps'
+import { addPage, deletePage, duplicatePage, insertPages, movePages, setPageBackground, setPageOrder, setPageOrientation, setPaper } from './pageOps'
 import { normalizeTitle } from '../model/noteTitle'
 import { round2 } from '../model/number'
 import { isKnownShape, shapeCorners, shapePoints, transformShape } from '../model/shape'
@@ -21,6 +21,8 @@ export function createNote(a: {
   existingTitles: string[]
   background: string
   orientation: string
+  /** New-note default paper; `white` (or absent) writes no `paper`. */
+  paper?: string
   noteId: string
   pageId: string
   pageRev: string
@@ -54,6 +56,7 @@ export function createNote(a: {
           editedAt: a.now,
           editedBy: a.editedBy,
           elements: [],
+          ...(a.paper && a.paper !== 'white' ? { paper: a.paper } : {}),
         },
       ],
     },
@@ -108,6 +111,8 @@ export function applyOp(note: Note, op: Op, ctx: Ctx): OpResult {
       return setPageOrder(note, op, ctx)
     case 'setPageBackground':
       return setPageBackground(note, op, ctx)
+    case 'setPaper':
+      return setPaper(note, op, ctx)
     case 'setPageOrientation':
       return setPageOrientation(note, op, ctx)
     default:

@@ -1382,6 +1382,11 @@ export function NoteEditor({
     if (!w || w.pageEdit({ op: 'setPageBackground', items: ids.map((pageId) => ({ pageId, background })) })) return
     sayPage(fmt(t('page.backgroundSet'), { name: t(`library.background.${background}` as 'library.background.plain') }))
   }
+  const setPaperOf = (ids: string[], paper: string) => {
+    const w = loaded?.writer
+    if (!w || w.pageEdit({ op: 'setPaper', items: ids.map((pageId) => ({ pageId, paper })) })) return
+    sayPage(fmt(t('page.paperSet'), { name: t(`library.paper.${paper}` as 'library.paper.white') }))
+  }
   const setOrientationOf = (pageId: string, orientation: 'portrait' | 'landscape') => {
     const w = loaded?.writer
     const i = pages.findIndex((p) => p.id === pageId)
@@ -1766,6 +1771,7 @@ export function NoteEditor({
               onDelete={deletePagesOf}
               onMove={movePagesTo}
               onBackground={setBackgroundOf}
+              onPaper={setPaperOf}
               onOrientation={setOrientationOf}
               onSelectOutOfBounds={selectOutOfBoundsOf}
               onGo={(i) => loaded.writer.goToPage(i)}

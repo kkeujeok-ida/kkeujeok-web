@@ -9,7 +9,7 @@ export const PDF_MAX_PAGES = 500
 /** First 5 bytes of a PDF (`%PDF-`) as hex. */
 export const PDF_HEAD_HEX = '255044462d'
 
-const PATTERNS = ['plain', 'lined', 'grid', 'dot']
+const PATTERNS = ['plain', 'lined', 'grid', 'dot', 'grid-s', 'cornell', 'lined-wide']
 type Obj = Record<string, unknown>
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 const rect = (v: unknown): v is number[] => Array.isArray(v) && v.length === 4 && v.every(num)
@@ -33,7 +33,7 @@ export function isPdfBackground(bg: unknown): bg is Obj & { asset: string; page:
 export const patternOf = (bg: unknown): string => (typeof bg === 'string' && PATTERNS.includes(bg) ? bg : 'plain')
 
 /** A background value a client reads: a pattern or a PDF object. */
-export const isKnownBackground = (bg: unknown): boolean => (typeof bg === 'string' && PATTERNS.includes(bg)) || isPdfRef(bg)
+export const isKnownBackground = (bg: unknown): boolean => (typeof bg === 'string' && PATTERNS.includes(bg)) || isPdfRef(bg) || (typeof bg === 'object' && bg !== null && !Array.isArray(bg) && (bg as Obj).type === 'custom')
 
 function norm(r: unknown): number[] | null {
   if (!rect(r)) return null

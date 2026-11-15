@@ -4,8 +4,17 @@ import { round2 } from './number'
 import { PEN_TOOLS, type PenTool } from './pen'
 import { isKnownBackground } from './pdfRules'
 
-export const SUPPORTED_FORMAT_VERSION = 2
-export const BACKGROUNDS = ['plain', 'lined', 'grid', 'dot'] as const
+export const SUPPORTED_FORMAT_VERSION = 3
+export const BACKGROUNDS = ['plain', 'lined', 'grid', 'dot', 'grid-s', 'cornell', 'lined-wide'] as const
+export const PAPERS = ['white', 'cream', 'black'] as const
+export type Paper = (typeof PAPERS)[number]
+
+/** The page `paper` as drawn: one of PAPERS, else white (spec page-background.md). */
+export const effectivePaper = (paper: unknown): Paper => (PAPERS.find((p) => p === paper) ?? 'white')
+
+/** A `type: "custom"` background with a 64-hex asset (spec custom.md); a malformed one is read as plain. Drawn in 32.5. */
+export const isCustomBackground = (bg: unknown): boolean =>
+  isObj(bg) && bg.type === 'custom' && typeof bg.asset === 'string' && /^[0-9a-f]{64}$/.test(bg.asset)
 
 type Extra = { [unknown: string]: unknown }
 export type Stroke = Extra & {
@@ -21,8 +30,10 @@ export type Page = Extra & {
   id: string
   width: number
   height: number
-  /** A pattern name or a PDF reference object (spec pdf.md). */
+  /** A pattern name, a PDF reference or a custom-image object (spec pdf.md, custom.md). */
   background: string | Extra
+  /** `white` (absent), `cream` or `black`; anything else draws as white. */
+  paper?: string
   rev: string
   seq: number
   editedAt: string

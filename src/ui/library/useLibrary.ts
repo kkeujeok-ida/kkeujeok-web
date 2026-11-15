@@ -7,6 +7,7 @@ import type { Note, Page } from '../../model/note'
 import { createNote } from '../../ops/ops'
 import { referencedAssets } from '../../model/imageRules'
 import type { PdfImportOut } from '../../model/pdfRules'
+import type { Paper } from '../../model/note'
 import type { Background, NewNoteDefaults, Orientation } from '../../storage/newNoteDefaults'
 import type { NoteStore } from '../../storage/noteStore'
 import { savesSettled } from '../../storage/saveQueue'
@@ -125,7 +126,7 @@ export function detectEditedBy(nav: Nav | undefined = globalThis.navigator as Na
   return os ? `${browser}, ${os}` : browser
 }
 
-export type CreateInput = { title: string; background: Background; orientation: Orientation; coverId?: string | null; /** The folder the new note goes in; null or unset = top level. */ folderId?: string | null }
+export type CreateInput = { title: string; background: Background; orientation: Orientation; paper?: Paper; coverId?: string | null; /** The folder the new note goes in; null or unset = top level. */ folderId?: string | null }
 
 export function useLibrary(
   openStore: () => NoteStore,
@@ -239,7 +240,7 @@ export function useLibrary(
 
   /** Resolves with the new noteId; rejects (nothing stored, defaults untouched) on any failure. */
   const create = useCallback(
-    async ({ title, background, orientation, folderId, coverId }: CreateInput): Promise<string> => {
+    async ({ title, background, orientation, paper = 'white', folderId, coverId }: CreateInput): Promise<string> => {
       const s = storeRef.current
       // Titles are numbered from the loaded list, so only a loaded library may create.
       if (!s || statusRef.current !== 'ready') throw new Error('library not ready')
@@ -249,6 +250,7 @@ export function useLibrary(
         existingTitles: itemsRef.current.flatMap((i) => (i.title === null ? [] : [i.title])),
         background,
         orientation,
+        paper,
         noteId,
         pageId: newId(),
         pageRev: newId(),
@@ -262,7 +264,7 @@ export function useLibrary(
       if (folderId) await folders?.assignNote(noteId, folderId)
       await s.writeNote(r.note)
       seq.current++ // a load that started before this write must not replace the list
-      defaults.write({ background, orientation })
+      defaults.write({ background, orientation, paper })
       const item: LibraryItem = { ...toItem({ noteId, result: { result: 'ok', writable: true, note: r.note } }), ...(folders && { folderId: folderId ?? null }) }
       setState((p) => ({ ...p, items: sortItems([...p.items.filter((i) => i.noteId !== noteId), item]) }))
       return noteId

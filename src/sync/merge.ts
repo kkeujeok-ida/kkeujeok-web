@@ -1,7 +1,7 @@
 // Spec merge.md: page-by-page 3-way merge, page order, note fields. Pure: no
 // clock, no random number, no input mutated (inputs are deep-copied first, so
 // the result never shares an object with an argument). Unknown fields ride along.
-import { SUPPORTED_FORMAT_VERSION, type Note, type Page } from '../model/note'
+import { BACKGROUNDS as PATTERNS, SUPPORTED_FORMAT_VERSION, isCustomBackground, type Note, type Page } from '../model/note'
 import { isPdfBackground } from '../model/pdfRules'
 
 export type MergeCtx = { now: string; orderRev: string; rev: string; editedBy: string; lastSeenRemoteSeq: number }
@@ -44,7 +44,7 @@ export type RequeueResult = (MergeOk & { requeue: Requeue }) | { result: 'unsupp
 
 const KNOWN_TOP = new Set(['formatVersion', 'noteId', 'meta', 'metaRev', 'metaSeq', 'orderRev', 'orderSeq', 'pages'])
 const KNOWN_META = new Set(['title', 'coverId'])
-const BACKGROUNDS: readonly unknown[] = ['plain', 'lined', 'grid', 'dot']
+const BACKGROUNDS: readonly unknown[] = PATTERNS
 const LINEAGE_MAX = 16
 
 // Own-property write: a JSON key named "__proto__" must not reach the prototype.
@@ -194,7 +194,7 @@ function mergeChecked(base0: Note | null, local0: Note, remote0: Note, ctx0: Mer
     return !!p && (!rr || rr.rev !== p.rev)
   })
   const undoDrop = [...lp.keys()].filter((id) => result.get(id)?.rev !== lp.get(id)!.rev)
-  const readOnlyPages = U.filter((id) => result.has(id) && !(BACKGROUNDS.includes(result.get(id)!.background as never) || isPdfBackground(result.get(id)!.background)))
+  const readOnlyPages = U.filter((id) => result.has(id) && !(BACKGROUNDS.includes(result.get(id)!.background as never) || isPdfBackground(result.get(id)!.background) || isCustomBackground(result.get(id)!.background)))
   let seen = ctx.lastSeenRemoteSeq
   for (const p of remote.pages) seen = Math.max(seen, p.seq)
   seen = Math.max(seen, remote.orderSeq, remote.metaSeq)

@@ -1,16 +1,16 @@
 // The default background and orientation of the next new note: a device setting
 // (localStorage), kept apart from note data so logout and disconnect leave it.
-import { BACKGROUNDS } from '../model/note'
+import { BACKGROUNDS, PAPERS, type Paper } from '../model/note'
 
 export const NEW_NOTE_DEFAULTS_KEY = 'kkeujeok.newNote.defaults'
 export const ORIENTATIONS = ['portrait', 'landscape'] as const
 
 export type Background = (typeof BACKGROUNDS)[number]
 export type Orientation = (typeof ORIENTATIONS)[number]
-export type NewNoteDefaults = { background: Background; orientation: Orientation }
+export type NewNoteDefaults = { background: Background; orientation: Orientation; paper: Paper }
 type Store = Pick<Storage, 'getItem' | 'setItem'>
 
-const FALLBACK: NewNoteDefaults = { background: 'plain', orientation: 'portrait' }
+const FALLBACK: NewNoteDefaults = { background: 'plain', orientation: 'portrait', paper: 'white' }
 
 function browserStorage(): Store | undefined {
   try {
@@ -31,6 +31,7 @@ export function createNewNoteDefaults(storage: Store | undefined = browserStorag
         return {
           background: BACKGROUNDS.find((b) => b === raw?.background) ?? FALLBACK.background,
           orientation: ORIENTATIONS.find((o) => o === raw?.orientation) ?? FALLBACK.orientation,
+          paper: PAPERS.find((p) => p === raw?.paper) ?? FALLBACK.paper,
         }
       } catch {
         return { ...FALLBACK }

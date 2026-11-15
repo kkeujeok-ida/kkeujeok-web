@@ -144,7 +144,7 @@ describe('change queue (AD-16)', () => {
     edit(h, 'a', 's1')
     const before = structuredClone(h.note)
     const start = structuredClone(base)
-    const bad = commitMerge(h, { base, localAtStart: start, remote: note([page('a', 'a1')], { formatVersion: 3 }), ctx })
+    const bad = commitMerge(h, { base, localAtStart: start, remote: note([page('a', 'a1')], { formatVersion: 4 }), ctx })
     expect(bad).toEqual({ result: 'unsupportedVersion' })
     const mism = commitMerge(h, { base, localAtStart: start, remote: { ...note([]), noteId: 'other' }, ctx })
     expect(mism).toEqual({ error: 'noteIdMismatch' })
@@ -193,7 +193,7 @@ describe('change queue (AD-16)', () => {
     let changes = 0
     const w = new Writer(h, store as never, () => ({}) as never, () => {}, () => 'X', () => changes++)
     edit(h, 'a', 's1')
-    const r = w.applyMerge({ base, localAtStart: base, remote: note([], { formatVersion: 3 }), ctx })
+    const r = w.applyMerge({ base, localAtStart: base, remote: note([], { formatVersion: 4 }), ctx })
     expect(r).toEqual({ result: 'unsupportedVersion' })
     expect(changes).toBe(0)
     expect(w.canUndo).toBe(true)

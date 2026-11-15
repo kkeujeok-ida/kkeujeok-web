@@ -162,6 +162,7 @@ describe('empty library', () => {
     expect(document.activeElement).toBe(titleInput())
     expect(qa<HTMLInputElement>('input[type="radio"]').filter((r) => r.checked).map((r) => r.value)).toEqual([
       'plain',
+      'white',
       '', // no cover
       'portrait',
     ])
@@ -233,7 +234,7 @@ describe('creating', () => {
     expect(created.pages).toHaveLength(1)
     expect(created.pages[0]).toMatchObject({ background: 'grid', width: 842, height: 595, editedBy: 'Chrome, Windows' })
     expect(location.hash).toBe(`#/notes/${created.noteId}`)
-    expect(JSON.parse(storage.m.get(NEW_NOTE_DEFAULTS_KEY)!)).toEqual({ background: 'grid', orientation: 'landscape' })
+    expect(JSON.parse(storage.m.get(NEW_NOTE_DEFAULTS_KEY)!)).toEqual({ background: 'grid', orientation: 'landscape', paper: 'white' })
     expect(dialog()).toBeNull()
   })
 
@@ -253,6 +254,7 @@ describe('creating', () => {
     click(q('.cover-card')!)
     expect(qa<HTMLInputElement>('input[type="radio"]').filter((r) => r.checked).map((r) => r.value)).toEqual([
       'dot',
+      'white',
       '',
       'landscape',
     ])
@@ -330,17 +332,19 @@ describe('save failure', () => {
         throw new Error('blocked')
       },
     })
-    expect(d.read()).toEqual({ background: 'dot', orientation: 'portrait' })
-    d.write({ background: 'lined', orientation: 'landscape' })
-    expect(d.read()).toEqual({ background: 'lined', orientation: 'landscape' })
+    expect(d.read()).toEqual({ background: 'dot', orientation: 'portrait', paper: 'white' })
+    d.write({ background: 'lined', orientation: 'landscape', paper: 'white' })
+    expect(d.read()).toEqual({ background: 'lined', orientation: 'landscape', paper: 'white' })
     // unreadable storage and bad values fall back
     expect(createNewNoteDefaults({ getItem: () => { throw new Error('x') }, setItem: () => {} }).read()).toEqual({
       background: 'plain',
       orientation: 'portrait',
+      paper: 'white',
     })
     expect(createNewNoteDefaults({ getItem: () => '{"background":"x","orientation":5}', setItem: () => {} }).read()).toEqual({
       background: 'plain',
       orientation: 'portrait',
+      paper: 'white',
     })
   })
 
@@ -379,8 +383,8 @@ describe('sheet keyboard', () => {
     expect(document.activeElement).toBe(create)
 
     const groups = new Set(qa<HTMLInputElement>('input[type="radio"]').map((r) => r.name))
-    expect(groups.size).toBe(3)
-    expect(qa('fieldset')).toHaveLength(3)
+    expect(groups.size).toBe(4)
+    expect(qa('fieldset')).toHaveLength(4)
 
     key(document.activeElement!, 'Escape')
     expect(dialog()).toBeNull()

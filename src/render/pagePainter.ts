@@ -580,8 +580,8 @@ export function paintPage(
     const dark = allDark && invertLayers({ page, layer: 'paper' }).invert
     const name = patternOf(page.background)
     // A huge page would make the pattern explode: paper only past this count.
-    const count = name === 'dot' ? (w / 28) * (h / 28) : name === 'grid' ? (w + h) / 28 : h / 28
-    const bg = count > MAX_BACKGROUND_ITEMS ? pageBackground('plain', w, h) : pageBackground(name, w, h)
+    const count = name === 'dot' ? (w / 28) * (h / 28) : name === 'grid' ? (w + h) / 28 : name === 'grid-s' ? (w + h) / 14 : h / 28
+    const bg = count > MAX_BACKGROUND_ITEMS ? pageBackground('plain', w, h, page.paper) : pageBackground(name, w, h, page.paper)
     ctx.fillStyle = dark ? paperHex() : bg.paper
     ctx.fillRect(0, 0, w, h)
     if (bg.lines.length > 0) {
