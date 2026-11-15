@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { newId } from '../../model/ids'
 import { encodeKkj } from '../../model/kkjCodec'
 import type { Note, Page } from '../../model/note'
-import { createNote } from '../../ops/ops'
+import { createCanvas, createNote } from '../../ops/ops'
 import { referencedAssets } from '../../model/imageRules'
 import type { PdfImportOut } from '../../model/pdfRules'
 import type { Paper } from '../../model/note'
@@ -29,6 +29,8 @@ export type LibraryItem = {
   page?: Page
   /** `meta.coverId` as stored (may be an id this app does not know); null = none. */
   coverId?: string | null
+  /** `meta.kind` is a string other than `note` (Story 33.3): the canvas badge. */
+  canvas?: true
   remote?: true
   /** Story 7.6: the folder the note is in (null = top level); unset when no folder service is wired. */
   folderId?: string | null
@@ -59,6 +61,7 @@ export function toItem({ noteId, result }: Entry): LibraryItem {
   const item: LibraryItem = { noteId, title, editedMs: latestEditedMs(note) }
   if (typeof first === 'object' && first !== null) item.page = first as Page
   item.coverId = typeof note.meta.coverId === 'string' ? note.meta.coverId : null
+  if (typeof note.meta.kind === 'string' && note.meta.kind !== 'note') item.canvas = true
   return item
 }
 
@@ -273,6 +276,37 @@ export function useLibrary(
     [defaults, editedBy, folders],
   )
 
+  /** Story 33.3: a one-page canvas (rule `canvas.create`) in `folderId`; resolves with the noteId, rejects when nothing was stored. */
+  const createCanvasNote = useCallback(
+    async ({ title, width, height, background, folderId }: { title: string; width: number; height: number; background: unknown; folderId?: string | null }): Promise<string> => {
+      const s = storeRef.current
+      if (!s || statusRef.current !== 'ready') throw new Error('library not ready')
+      const noteId = newId()
+      const r = createCanvas({
+        title,
+        existingTitles: itemsRef.current.flatMap((i) => (i.title === null ? [] : [i.title])),
+        width,
+        height,
+        background,
+        noteId,
+        pageId: newId(),
+        pageRev: newId(),
+        metaRev: newId(),
+        orderRev: newId(),
+        now: new Date().toISOString(),
+        editedBy: editedBy ?? detectEditedBy(),
+      })
+      if ('error' in r) throw new Error(r.error)
+      if (folderId) await folders?.assignNote(noteId, folderId)
+      await s.writeNote(r.note)
+      seq.current++
+      const item: LibraryItem = { ...toItem({ noteId, result: { result: 'ok', writable: true, note: r.note } }), ...(folders && { folderId: folderId ?? null }) }
+      setState((p) => ({ ...p, items: sortItems([...p.items.filter((i) => i.noteId !== noteId), item]) }))
+      return noteId
+    },
+    [editedBy, folders],
+  )
+
   /** Story 9.3: a new note with the pages of an imported PDF (rule `pdf.import`); the title is not made unique. Rejects when nothing was stored. */
   const createFromPdf = useCallback(
     async (imp: PdfImportOut, folderId?: string | null): Promise<string> => {
@@ -380,5 +414,5 @@ export function useLibrary(
     return { name: `${r.note.meta.title}-${noteId.slice(0, 8)}.kkj`, bytes: await encodeKkj(r.note) }
   }, [])
 
-  return { status: state.status, items: state.items, failed: state.failed, reload: load, create, exportCopy, rename, setCover, createFromPdf, pdfReferenced }
+  return { status: state.status, items: state.items, failed: state.failed, reload: load, create, exportCopy, rename, setCover, createFromPdf, createCanvas: createCanvasNote, pdfReferenced }
 }

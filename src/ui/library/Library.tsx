@@ -25,6 +25,7 @@ import { sharedAssetStore } from '../../sync/imageWiring'
 import type { ImageHost } from '../../render/imageHost'
 import type { Key } from '../../i18n'
 import { NewNoteDialog } from './NewNoteDialog'
+import { NewCanvasDialog } from './NewCanvasDialog'
 import { noteHref } from './NoteEditor'
 import { requestResolve } from './resolveRequest'
 import type { FolderResult, FolderService, FolderView } from '../../library/folderService'
@@ -128,6 +129,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     return () => clearTimeout(id)
   }, [scanning])
   const [sheet, setSheet] = useState<NewNoteDefaults | null>(null)
+  const [canvasSheet, setCanvasSheet] = useState(false)
   const opener = useRef<HTMLElement | null>(null)
   const entering = useRef(false) // a note was created and the editor is opening
   const wasOpen = useRef(false)
@@ -162,15 +164,36 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     setSheet(defaults.read())
   }
 
+  const openCanvasSheet = (from: HTMLElement | null) => {
+    if (entering.current || sheet || canvasSheet || lib.status !== 'ready') return
+    opener.current = from
+    setCanvasSheet(true)
+  }
+
+  async function createCanvas(v: { title: string; width: number; height: number; background: unknown }) {
+    if (entering.current) return true
+    try {
+      const noteId = await lib.createCanvas({ ...v, folderId: inFolder ? folderId : null })
+      if (!mounted.current) return true
+      entering.current = true
+      setCanvasSheet(false)
+      globalThis.location.hash = noteHref(noteId)
+      return true
+    } catch (e) {
+      console.warn('Could not create the canvas', e)
+      return false
+    }
+  }
+
   // Closing the sheet hands focus back to the button that opened it.
   useEffect(() => {
-    if (wasOpen.current && !sheet && !entering.current) {
+    if (wasOpen.current && !sheet && !canvasSheet && !entering.current) {
       // The opener may be gone (its card replaced); the fab is always there.
       const target = opener.current?.isConnected ? opener.current : section.current?.querySelector<HTMLElement>('.fab-button')
       target?.focus()
     }
-    wasOpen.current = sheet !== null
-  }, [sheet])
+    wasOpen.current = sheet !== null || canvasSheet
+  }, [sheet, canvasSheet])
 
   async function create(v: { title: string; background: Background; orientation: Orientation; coverId: string | null; customPaper?: string | null }) {
     if (entering.current) return true
@@ -236,7 +259,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
   }, [])
 
   // The question waits while the new-note sheet covers the library and is asked when it closes.
-  const asking = rootState.status === 'missing' && !later && !sheet && !entering.current
+  const asking = rootState.status === 'missing' && !later && !sheet && !canvasSheet && !entering.current
   const askOpener = useRef<HTMLElement | null>(null)
   const wasAsking = useRef(false)
   useEffect(() => {
@@ -820,9 +843,17 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
           />
         ))}
       </ul>
-      {status === 'ready' && <LibraryFab onNewNote={openSheet} onImportPdf={() => pdfInput.current?.click()} {...(folders && { onNewFolder: (from: HTMLElement | null) => setNewFolder(from) })} />}
+      {status === 'ready' && <LibraryFab onNewNote={openSheet} onNewCanvas={openCanvasSheet} onImportPdf={() => pdfInput.current?.click()} {...(folders && { onNewFolder: (from: HTMLElement | null) => setNewFolder(from) })} />}
       {root && asking && (
         <MissingRootDialog onCreate={() => void root.recreate()} onLater={() => setLater(true)} onSignOut={signOut} />
+      )}
+      {canvasSheet && (
+        <NewCanvasDialog
+          onCreate={createCanvas}
+          onClose={() => {
+            if (!entering.current) setCanvasSheet(false)
+          }}
+        />
       )}
       {sheet && (
         <NewNoteDialog
@@ -1157,6 +1188,7 @@ function Card({
   const titleId = useId()
   const dateId = useId()
   const statusId = useId()
+  const canvasId = useId()
   const sync = useCardStatus(item.noteId).label
   const conflicted = (useNoteConflicts(item.noteId)?.length ?? 0) > 0
   const link = useRef<HTMLAnchorElement>(null)
@@ -1181,7 +1213,14 @@ function Card({
   const date = formatDate(item.editedMs, locale)
   // A note that is being received has the badge whatever its record says.
   const badge = held === 'saved' ? null : held
-  const described = [badge ? statusId : null, date ? dateId : null].filter(Boolean).join(' ') || undefined
+  const described = [item.canvas ? canvasId : null, badge ? statusId : null, date ? dateId : null].filter(Boolean).join(' ') || undefined
+  const canvasBadge = item.canvas && (
+    <span id={canvasId} className="canvas-badge" role="img" aria-label={t('canvas.badge')}>
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M2 14l1-4 8-8 3 3-8 8z" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      </svg>
+    </span>
+  )
   const status = badge && <span id={statusId} className="sr-only">{t(BADGE_KEY[badge])}</span>
   if (offline) {
     // No connection: the card is shown but cannot be opened (UX-DR59).
@@ -1190,6 +1229,7 @@ function Card({
         <div className="cover-card cover-card-disabled" aria-disabled="true" aria-labelledby={titleId} aria-describedby={described} title={item.title}>
           <span className="cover-thumb-wrap">
             <Thumb page={item.page} coverId={item.coverId} images={images} />
+            {canvasBadge}
             {badge && <SyncBadge label={badge} />}
           </span>
           <span className="cover-text">
@@ -1242,7 +1282,8 @@ function Card({
       >
         <span className="cover-thumb-wrap">
           <Thumb page={item.page} coverId={item.coverId} images={images} />
-          {badge && <SyncBadge label={badge} />}
+          {canvasBadge}
+            {badge && <SyncBadge label={badge} />}
         </span>
         <span className="cover-text">
           <span id={titleId} className="cover-title">

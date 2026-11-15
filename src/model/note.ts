@@ -3,6 +3,7 @@
 import { round2 } from './number'
 import { PEN_TOOLS, type PenTool } from './pen'
 import { isKnownBackground } from './pdfRules'
+import { validCanvasBackground } from './canvasRules'
 
 export const SUPPORTED_FORMAT_VERSION = 3
 export const BACKGROUNDS = ['plain', 'lined', 'grid', 'dot', 'grid-s', 'cornell', 'lined-wide'] as const
@@ -43,7 +44,7 @@ export type Page = Extra & {
 export type Note = Extra & {
   formatVersion: number
   noteId: string
-  meta: Extra & { title: string; coverId?: string }
+  meta: Extra & { title: string; coverId?: string; /** `note` or absent; `canvas` (spec canvas.md); read as is. */ kind?: unknown }
   metaRev: string
   metaSeq: number
   orderRev: string
@@ -80,7 +81,7 @@ function validPage(p: unknown): boolean {
     isStr(p.id) &&
     isNum(p.width) && p.width > 0 &&
     isNum(p.height) && p.height > 0 &&
-    isKnownBackground(p.background) &&
+    (isKnownBackground(p.background) || validCanvasBackground(p.background)) &&
     isStr(p.rev) &&
     isInt(p.seq) &&
     isStr(p.editedAt) &&

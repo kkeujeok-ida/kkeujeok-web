@@ -1,6 +1,7 @@
 // Edit operations (spec ops.md). Never mutate the input note.
 import { type Note, type Page, type Stroke, SUPPORTED_FORMAT_VERSION, isValidStroke, roundStroke } from '../model/note'
 import { addPage, deletePage, duplicatePage, insertPages, movePages, setPageBackground, setPageOrder, setPageOrientation, setPaper } from './pageOps'
+import { canvasMode, canvasSize, validCanvasBackground } from '../model/canvasRules'
 import { normalizeTitle } from '../model/noteTitle'
 import { round2 } from '../model/number'
 import { isKnownShape, shapeCorners, shapePoints, transformShape } from '../model/shape'
@@ -66,7 +67,38 @@ export function createNote(a: {
   }
 }
 
+const PAGE_OPS = ['addPage', 'deletePage', 'insertPages', 'duplicatePage', 'movePages', 'setPageOrder', 'restorePage', 'setPageBackground', 'setPaper', 'setPageOrientation']
+
+/** Spec `canvas.create`: a one-page canvas; errors in the spec's order. */
+export function createCanvas(a: { title: string; existingTitles: string[]; width: number; height: number; background: unknown; noteId: string; pageId: string; pageRev: string; metaRev: string; orderRev: string; now: string; editedBy: string }): OpResult {
+  const title = normalizeTitle(a.title, a.existingTitles)
+  if (title === null) return { error: 'titleTooLong' }
+  if (!canvasSize(a.width, a.height).ok) return { error: 'invalidSize' }
+  if (!validCanvasBackground(a.background)) return { error: 'invalidBackground' }
+  return {
+    note: {
+      formatVersion: SUPPORTED_FORMAT_VERSION,
+      noteId: a.noteId,
+      meta: { title, kind: 'canvas' },
+      metaRev: a.metaRev,
+      metaSeq: 1,
+      orderRev: a.orderRev,
+      orderSeq: 1,
+      pages: [{ id: a.pageId, width: a.width, height: a.height, background: a.background as Page['background'], rev: a.pageRev, seq: 1, editedAt: a.now, editedBy: a.editedBy, elements: [] }],
+    },
+    inverse: { op: 'deleteNote', noteId: a.noteId },
+  }
+}
+
 export function applyOp(note: Note, op: Op, ctx: Ctx): OpResult {
+  // canvas.ops: checked before any other error of the operation.
+  const mode = canvasMode(note)
+  if (mode === 'readOnly') return { error: 'readOnly' }
+  if (mode === 'canvas' && PAGE_OPS.includes(op.op)) return { error: 'notForCanvas' }
+  return applyOpInner(note, op, ctx)
+}
+
+function applyOpInner(note: Note, op: Op, ctx: Ctx): OpResult {
   switch (op.op) {
     case 'addStroke':
       return addStroke(note, op, ctx)

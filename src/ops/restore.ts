@@ -1,6 +1,7 @@
 // Spec ops.restoreNote / ops.restorePage: a restore is a new edit of the note, not an operation of the undo
 // history (no inverse, `applyOp` answers unknownOp). Pure: inputs are deep-copied, none is changed, malformed
 // input is `{error: 'invalidInput'}`, never a throw. Mirrors kkeujeok-client/lib/ops/restore.dart.
+import { canvasModeOf } from '../model/canvasRules'
 import type { Note, Page } from '../model/note'
 
 type Json = Record<string, unknown>
@@ -37,6 +38,11 @@ export function restoreNote(note0: Note, op0: { op: 'restoreNote'; version: Note
     const ctx = structuredClone(ctx0) as RestoreCtx
     const conflicts = structuredClone(conflicts0)
     if (version.noteId !== note.noteId) return { error: 'noteIdMismatch' }
+    const kind = note.meta?.kind
+    if (typeof kind === 'string' && kind !== 'note') {
+      if (canvasModeOf(kind, note.pages) === 'readOnly') return { error: 'readOnly' }
+      if (version.meta?.kind !== kind || version.pages?.length !== 1) return { error: 'notForCanvas' }
+    }
     const vpages = version.pages as Page[]
     const revs = ctx.revs
     if (!Array.isArray(vpages) || !Array.isArray(revs) || vpages.some((p) => typeof p.id !== 'string' || typeof p.rev !== 'string') || revs.length < vpages.length) return BAD

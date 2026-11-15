@@ -173,7 +173,7 @@ describe('fab', () => {
   test('opens [import PDF] above [new note], + becomes x, veil shown; x, outside and Esc collapse; Esc focuses +', async () => {
     await mountLibrary()
     click(fabButton())
-    expect(qa('[role="menuitem"]').map((m) => m.textContent)).toEqual(['PDF 가져오기', '새 노트'])
+    expect(qa('[role="menuitem"]').map((m) => m.textContent)).toEqual(['PDF 가져오기', '새 캔버스', '새 노트'])
     expect(q('[role="menu"]')).not.toBeNull()
     expect(q('.fab-veil')).not.toBeNull()
     expect(fabButton().getAttribute('aria-expanded')).toBe('true')
@@ -199,7 +199,9 @@ describe('fab', () => {
     await mountLibrary()
     click(fabButton())
     key(document.activeElement!, 'ArrowDown')
+    key(document.activeElement!, 'ArrowDown')
     expect(document.activeElement).toBe(newNoteItem())
+    key(document.activeElement!, 'ArrowUp')
     key(document.activeElement!, 'ArrowUp')
     expect(document.activeElement).toBe(q('[role="menuitem"]'))
     click(newNoteItem())

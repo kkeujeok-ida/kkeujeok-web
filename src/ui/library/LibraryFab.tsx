@@ -4,7 +4,7 @@ import { getLeftHanded, subscribeLeftHanded } from '../../storage/leftHanded'
 
 // The round "+" at the bottom right. It expands a menu holding [new folder] (with folders), [import PDF] and [new note], in the Android order (Story 18.3).
 // Focus: first item when opened, back on "+" when closed by Esc, x or outside press.
-export function LibraryFab({ onNewNote, onNewFolder, onImportPdf }: { onNewNote: (opener: HTMLElement | null) => void; onNewFolder?: (opener: HTMLElement | null) => void; onImportPdf?: (opener: HTMLElement | null) => void }) {
+export function LibraryFab({ onNewNote, onNewCanvas, onNewFolder, onImportPdf }: { onNewNote: (opener: HTMLElement | null) => void; onNewCanvas?: (opener: HTMLElement | null) => void; onNewFolder?: (opener: HTMLElement | null) => void; onImportPdf?: (opener: HTMLElement | null) => void }) {
   const { t } = useI18n()
   const lefty = useSyncExternalStore(subscribeLeftHanded, getLeftHanded, getLeftHanded)
   const [open, setOpen] = useState(false)
@@ -77,6 +77,24 @@ export function LibraryFab({ onNewNote, onNewFolder, onImportPdf }: { onNewNote:
                 <span className="fab-item-icon" aria-hidden="true">
                   <svg className="icon" viewBox="0 0 16 16">
                     <path d="M3 2h7l3 3v9H3z M8 6v5 M6 9l2 2 2-2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                  </svg>
+                </span>
+              </button>
+            )}
+            {onNewCanvas && (
+              <button
+                type="button"
+                role="menuitem"
+                className="fab-item"
+                onClick={() => {
+                  setOpen(false)
+                  onNewCanvas(button.current)
+                }}
+              >
+                <span>{t('library.newCanvas')}</span>
+                <span className="fab-item-icon" aria-hidden="true">
+                  <svg className="icon" viewBox="0 0 16 16">
+                    <path d="M2 14l1-4 8-8 3 3-8 8z M9 4l3 3" stroke="currentColor" strokeWidth="1.5" fill="none" />
                   </svg>
                 </span>
               </button>
