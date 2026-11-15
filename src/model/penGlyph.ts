@@ -7,3 +7,17 @@ const D: Record<string, string> = {
   tape: 'M3 8H17V28H3ZM7 14H13M7 22H13',
 }
 export const penGlyphD = (tool: string): string => D[tool] ?? D.pen!
+
+const RANGE: Record<string, [number, number]> = { pen: [0.5, 10], highlighter: [4, 30], fountain: [0.5, 8], pencil: [0.5, 6], tape: [8, 30] }
+export const GRAIN_DOTS: readonly (readonly [number, number])[] = [[6, 20], [10, 21], [14, 20], [8, 25], [12, 25]]
+
+/** Pen slot icon facts (spec/pen-icon.md, rule `pen.icon`). */
+export function penIcon(tool: string, color: string, width: number, texture?: string) {
+  const silhouette = tool in D ? tool : 'pen'
+  const [lo, hi] = RANGE[silhouette]!
+  const w = Math.min(hi, Math.max(lo, width))
+  const bandStep = 1 + Math.min(4, Math.floor(((w - lo) * 5) / (hi - lo)))
+  const resolved = texture === 'none' || texture === 'pencil' ? texture : silhouette === 'pencil' ? 'pencil' : 'none'
+  const grain = resolved === 'pencil' && silhouette !== 'highlighter' && silhouette !== 'tape'
+  return { silhouette, bodyColor: color, bandStep, grain }
+}

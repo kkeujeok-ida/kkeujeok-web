@@ -1,4 +1,4 @@
-import { penGlyphD } from '../../model/penGlyph'
+import { GRAIN_DOTS, penGlyphD, penIcon } from '../../model/penGlyph'
 import { useEffect, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type PointerEvent, type Ref } from 'react'
 import { colorNameKey, type Pen } from '../../model/pen'
 import { fmt, useI18n } from '../../i18n'
@@ -239,16 +239,23 @@ export function PenToolbar({ onShapeEdit, pens, selected, onSelect, onEdit, onAd
                 else onSelect(i)
               }}
             >
-              <svg className="pen-nib" viewBox="0 0 20 36" aria-hidden="true">
-                <path
-                  d={penGlyphD(pen.tool)}
-                  fill="none"
-                  stroke={pen.color}
-                  strokeWidth="1.75"
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-              </svg>
+              {(() => {
+                const ic = penIcon(pen.tool, pen.color, pen.width, pen.brush?.texture as string | undefined)
+                return (
+                  <svg className="pen-nib" viewBox="0 0 20 36" aria-hidden="true">
+                    <path
+                      d={penGlyphD(ic.silhouette)}
+                      fill={ic.bodyColor}
+                      stroke="currentColor"
+                      strokeWidth="1.75"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                    <rect x="3" y="10" width="14" height={ic.bandStep * 1.5} fill="currentColor" />
+                    {ic.grain && GRAIN_DOTS.map(([x, y]) => <circle key={`${x},${y}`} cx={x} cy={y} r="1" fill="currentColor" />)}
+                  </svg>
+                )
+              })()}
               {pen.lineMode && (
                 <svg className="pen-ruler" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H3V8h2v4h2V8h2v4h2V8h2v4h2V8h2v4h2V8h2v8z" fill="currentColor" />

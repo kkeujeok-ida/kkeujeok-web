@@ -1,5 +1,6 @@
 // Runs every fixture in the root repo's test/ folder (read unchanged from the
 // sibling path) against this client's implementation of the rule.
+import { penIcon } from '../src/model/penGlyph'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -482,6 +483,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   },
   'pen.palette': penKinds,
   'pen.kinds': penKinds,
+  'pen.icon': penIconRunner,
   'pen.switchKind': ({ input, expected }) => {
     const i = input as { slot: Pen; to: PenTool }
     expect({ slot: switchKind(i.slot, i.to) }).toEqual(expected)
@@ -633,10 +635,13 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
-  // Story 34.1: pen.icon runner arrives with Story 34.3.
-  'pen.icon',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
+
+function penIconRunner({ input, expected }: Case) {
+  const i = input as { tool: string; color: string; width: number; texture?: string }
+  expect(penIcon(i.tool, i.color, i.width, i.texture)).toEqual(expected)
+}
 
 function mergeRunner({ input, expected }: Case) {
   const i = input as { base: Note | null; local: Note; remote: Note; ctx: MergeCtx }
