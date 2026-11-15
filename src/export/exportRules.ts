@@ -54,7 +54,7 @@ export type PlanElement =
   | { id: string; kind: 'image'; x: number; y: number; width: number; height: number; rotation: number; asset: string; ext: string }
 export type PlanPage = {
   number: number; id: string; width: number; height: number; orientation: 'portrait' | 'landscape'; paper?: string
-  background: string; pdf?: { asset: string; page: number }; lines: number; dots: number; shapes: { min: number; max: number }; images: number
+  background: string; pdf?: { asset: string; page: number }; custom?: { asset: string }; lines: number; dots: number; shapes: { min: number; max: number }; images: number
   omitted: string[]; elements: PlanElement[]
 }
 export type ExportPlan = { fileName: string; fonts: string[]; assets: string[]; pdfAssets?: string[]; pages: PlanPage[] }
@@ -125,7 +125,10 @@ export function exportPlan({ note, range, localAssets }: PlanInput): PlanResult 
     const pdf = isPdfBackground(p.background) ? p.background : null
     const raster = hasTape(p as { elements: Record<string, any>[] })
     if (pdf && !raster) pdfAssets.add(pdf.asset)
-    let min = pdf ? 0 : 1 + (bg.lines.length + bg.dots.length > 0 ? 1 : 0), max = pdf ? 0 : 1 + bg.lines.length + bg.dots.length
+    const custom = isCustomBackground(p.background) ? (p.background as { asset: string }).asset : null
+    if (custom) assets.add(custom)
+    const bare = !!pdf || !!custom // no paper, no pattern: the ground is the original page or the image
+    let min = bare ? 0 : 1 + (bg.lines.length + bg.dots.length > 0 ? 1 : 0), max = bare ? 0 : 1 + bg.lines.length + bg.dots.length
     let images = 0
     for (const e of p.elements as El[]) {
       if (!visible(e, p.width, p.height)) { omitted.push(e.id as string); continue }
@@ -154,8 +157,8 @@ export function exportPlan({ note, range, localAssets }: PlanInput): PlanResult 
     }
     pages.push({
       number: n, id: p.id, width: p.width, height: p.height, orientation: p.width > p.height ? 'landscape' : 'portrait',
-      ...(pdf ? { background: 'pdf', ...(!raster && { pdf: { asset: pdf.asset, page: pdf.page } }) } : { paper: bg.paper, background: patternOf(p.background) }),
-      lines: pdf ? 0 : bg.lines.length, dots: pdf ? 0 : bg.dots.length, shapes: { min, max }, images, omitted, elements,
+      ...(pdf ? { background: 'pdf', ...(!raster && { pdf: { asset: pdf.asset, page: pdf.page } }) } : custom ? { background: 'custom', custom: { asset: custom } } : { paper: bg.paper, background: patternOf(p.background) }),
+      lines: bare ? 0 : bg.lines.length, dots: bare ? 0 : bg.dots.length, shapes: { min, max }, images, omitted, elements,
     })
   }
   const local = new Set(localAssets)

@@ -637,5 +637,20 @@
   "editor.brush.presetName": "프리셋 이름",
   "editor.brush.presetSave": "프리셋 저장",
   "editor.brush.presetMenu": "프리셋 옵션",
-  "editor.brush.presetRename": "이름 바꾸기"
+  "editor.brush.presetRename": "이름 바꾸기",
+  "custom.addCover": "표지 추가",
+  "custom.addPaper": "속지 추가",
+  "custom.mine": "내 이미지",
+  "custom.delete": "삭제",
+  "custom.deleteTitle": "이 이미지를 목록에서 삭제할까요?",
+  "custom.deleteBody": "이미 사용 중인 노트는 그대로 보여요.",
+  "custom.unsupported": "PNG 또는 JPEG 이미지만 추가할 수 있어요.",
+  "custom.tooLarge": "2MB보다 큰 이미지는 추가할 수 없어요.",
+  "custom.tooSmall": "이미지가 너무 작아요. 가로와 세로가 64픽셀 이상이어야 해요.",
+  "custom.tooManyPixels": "이미지가 너무 커요. 가로와 세로가 4096픽셀 이하여야 해요.",
+  "custom.limitReached": "20개까지 추가할 수 있어요. 하나를 삭제한 뒤 다시 해 주세요.",
+  "custom.storeFailed": "이미지를 저장하지 못했어요.",
+  "custom.paperPage": "{name} 속지 페이지를 추가했어요",
+  "custom.paperNew": "이 속지로 새 페이지 추가",
+  "custom.imageName": "내 이미지 {n}"
 }

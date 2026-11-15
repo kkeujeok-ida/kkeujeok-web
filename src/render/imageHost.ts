@@ -3,6 +3,9 @@
 import { type ImageIo, type ImportError, type Prepared, browserImageIo, prepareImage } from '../model/imageImport'
 import type { Note } from '../model/note'
 import { isPdfBackground } from '../model/pdfRules'
+import { isCustomBackground } from '../model/note'
+import { userAssets, type UserKind } from '../storage/userAssets'
+import type { CustomError } from '../model/customRules'
 import type { AssetStore } from '../storage/assetStore'
 import type { AssetSync } from '../sync/assetSync'
 import type { ImageSource } from './imagePainter'
@@ -24,6 +27,10 @@ export type ImageHost = ImageSource & {
   /** The file as bytes in the store and the sync state, ready for `insertImage`; nothing is stored on an error. */
   prepare(file: Blob): Promise<(Prepared & { stored: true }) | { error: ImportError | 'storeFailed' }>
   markConfirmed(hash: string): void
+  /** A user cover or paper picked from a file: checked with `custom.accept`, stored on this device, listed. */
+  addUser(kind: UserKind, file: Blob): Promise<{ hash: string } | { error: CustomError | 'storeFailed' }>
+  /** An object URL of a user image for a picture element; null while it is read or fetched (listeners are told). */
+  userUrl(hash: string): string | null
   /** Story 9.3: keeps the bytes of an imported PDF and marks them on this device; throws when they cannot be kept. */
   storePdf(hash: string, bytes: Uint8Array): Promise<void>
   /** Drops the bytes of a PDF whose import did not finish. */
@@ -37,7 +44,21 @@ export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: Im
   const exts = new Map<string, string>()
   const listeners = new Set<() => void>()
   const tell = () => listeners.forEach((f) => f())
-  d.sync.subscribe(tell)
+  const urls = new Map<string, string>()
+  const wanting = new Set<string>()
+  async function loadUrl(hash: string) {
+    const rec = await d.store.get(hash)
+    if (!rec) return false
+    urls.set(hash, URL.createObjectURL(new Blob([rec.bytes as BlobPart], { type: MIME[rec.ext] ?? '' })))
+    wanting.delete(hash)
+    tell()
+    return true
+  }
+  d.sync.subscribe(() => {
+    // A user image that was being fetched is here now.
+    for (const h of wanting) if (!urls.has(h) && d.sync.state(h) === 'ready') void loadUrl(h)
+    tell()
+  })
   const pdfPages = createPdfPages({ store: d.store, sync: d.sync, changed: tell, ...(d.pdfjs && { load: d.pdfjs }) })
   let seen: Note | null = null
   const thumbChecked = new Set<string>()
@@ -87,6 +108,8 @@ export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: Im
       seen = note
       const found = new Map<string, string>()
       for (const p of note.pages) for (const e of p.elements as { type?: unknown; asset?: unknown; ext?: unknown }[]) if (e?.type === 'image' && typeof e.asset === 'string') found.set(e.asset, String(e.ext))
+      // A custom page background is fetched like an image; its ext is not known (named by hash), so the bytes decide.
+      for (const p of note.pages) if (isCustomBackground(p.background)) found.set((p.background as { asset: string }).asset, '')
       for (const [h, ext] of found) exts.set(h, ext)
       // A PDF background is fetched like an image: the page shows a placeholder until its bytes are here (Story 9.5 draws it).
       for (const p of note.pages) if (isPdfBackground(p.background)) (found.set(p.background.asset, 'pdf'), exts.set(p.background.asset, 'pdf'))
@@ -106,6 +129,25 @@ export function createImageHost(d: { store: AssetStore; sync: AssetSync; io?: Im
       void d.store.get(hash).then((r) => r && d.sync.markLocal(hash))
     },
     markConfirmed: (hash) => d.sync.markConfirmed(hash),
+    async addUser(kind, file) {
+      try {
+        const r = await userAssets.add(kind, file, d.store)
+        if ('error' in r) return r
+        d.sync.markLocal(r.asset.hash)
+        return { hash: r.asset.hash }
+      } catch {
+        return { error: 'storeFailed' }
+      }
+    },
+    userUrl(hash) {
+      const u = urls.get(hash)
+      if (u) return u
+      if (!wanting.has(hash)) {
+        wanting.add(hash)
+        void loadUrl(hash).then((ok) => ok || d.sync.ensure(new Map([[hash, '']])))
+      }
+      return null
+    },
     async discardPdf(hash) {
       await d.store.remove(hash)
       d.sync.dropLocal(hash)

@@ -637,5 +637,20 @@
   "editor.brush.presetName": "Preset name",
   "editor.brush.presetSave": "Save preset",
   "editor.brush.presetMenu": "Preset options",
-  "editor.brush.presetRename": "Rename"
+  "editor.brush.presetRename": "Rename",
+  "custom.addCover": "Add cover",
+  "custom.addPaper": "Add paper",
+  "custom.mine": "My images",
+  "custom.delete": "Delete",
+  "custom.deleteTitle": "Remove this image from the list?",
+  "custom.deleteBody": "Notes that already use it keep showing it.",
+  "custom.unsupported": "Only PNG or JPEG images can be added.",
+  "custom.tooLarge": "Images larger than 2 MB cannot be added.",
+  "custom.tooSmall": "The image is too small. Both sides must be at least 64 pixels.",
+  "custom.tooManyPixels": "The image is too large. Both sides must be at most 4096 pixels.",
+  "custom.limitReached": "You can add up to 20. Delete one and try again.",
+  "custom.storeFailed": "Could not save the image.",
+  "custom.paperPage": "Added a page with {name}",
+  "custom.paperNew": "Add a page with this paper",
+  "custom.imageName": "My image {n}"
 }

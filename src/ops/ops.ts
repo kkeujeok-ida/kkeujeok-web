@@ -32,6 +32,8 @@ export function createNote(a: {
   editedBy: string
   /** Story 7.4: the cover; absent = none (no key written). */
   coverId?: string
+  /** Epic 32: a user paper's asset hash; the first page is then a `custom` background (no paper). */
+  customPaper?: string
 }): OpResult {
   const title = normalizeTitle(a.title, a.existingTitles)
   if (title === null) return { error: 'titleTooLong' }
@@ -50,13 +52,13 @@ export function createNote(a: {
           id: a.pageId,
           width: landscape ? 842 : 595,
           height: landscape ? 595 : 842,
-          background: a.background,
+          background: a.customPaper ? { type: 'custom', asset: a.customPaper } : a.background,
           rev: a.pageRev,
           seq: 1,
           editedAt: a.now,
           editedBy: a.editedBy,
           elements: [],
-          ...(a.paper && a.paper !== 'white' ? { paper: a.paper } : {}),
+          ...(a.paper && a.paper !== 'white' && !a.customPaper ? { paper: a.paper } : {}),
         },
       ],
     },

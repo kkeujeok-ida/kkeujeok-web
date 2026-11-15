@@ -202,8 +202,15 @@ export async function buildPdf(job: PdfJob): Promise<PdfResult> {
     }
     ops.push(pushGraphicsState(), concatTransformationMatrix(1, 0, 0, -1, 0, pp.height), rectangle(0, 0, pp.width, pp.height), clip(), endPath())
     // a PDF page has no paper: the original page is the ground
-    const bg = ref ? { paper: '', lines: [], dots: [], lineColor: '', lineWidth: 0, dotColor: '', dotRadius: 0 } : pageBackground(patternOf(np.background), pp.width, pp.height, np.paper)
-    if (!ref) ops.push(fillRgb(bg.paper), rectangle(0, 0, pp.width, pp.height), fill())
+    const customAsset = (pp as { custom?: { asset: string } }).custom?.asset
+    const bg = ref || customAsset ? { paper: '', lines: [], dots: [], lineColor: '', lineWidth: 0, dotColor: '', dotRadius: 0 } : pageBackground(patternOf(np.background), pp.width, pp.height, np.paper)
+    if (customAsset) {
+      // The image fills the page, cover fit, never inverted (spec custom.md); the clip above cuts the overflow.
+      const img = images.get(customAsset)!
+      const k = Math.max(pp.width / img.width, pp.height / img.height)
+      const iw = img.width * k, ih = img.height * k
+      ops.push(pushGraphicsState(), concatTransformationMatrix(iw, 0, 0, -ih, (pp.width - iw) / 2, (pp.height - ih) / 2 + ih), drawObject(page.node.newXObject('Img', img.ref)), popGraphicsState())
+    } else if (!ref) ops.push(fillRgb(bg.paper), rectangle(0, 0, pp.width, pp.height), fill())
     if (bg.lines.length) {
       ops.push(setStrokingRgbColor(...rgb(bg.lineColor)), setLineWidth(bg.lineWidth))
       for (const [x1, y1, x2, y2] of bg.lines) ops.push(moveTo(x1!, y1!), lineTo(x2!, y2!))

@@ -3,6 +3,7 @@ import { useI18n, type Key } from '../../i18n'
 import { BACKGROUNDS, PAPERS, type Paper } from '../../model/note'
 import { MAX_TITLE_LENGTH } from '../../model/noteTitle'
 import { CoverRadios } from './CoverArt'
+import { UserImageTiles, type UserHost } from './UserImages'
 import { pageBackground } from '../../render/pageBackground'
 import { ORIENTATIONS, type Background, type NewNoteDefaults, type Orientation } from '../../storage/newNoteDefaults'
 
@@ -63,21 +64,23 @@ function BackgroundPreview({ kind, orientation, paper }: { kind: string; orienta
 
 type Props = {
   defaults: NewNoteDefaults
+  images?: UserHost
   /** Resolves false when the note could not be saved. */
-  onCreate: (v: { title: string; background: Background; orientation: Orientation; paper: Paper; coverId: string | null }) => Promise<boolean>
+  onCreate: (v: { title: string; background: Background; orientation: Orientation; paper: Paper; coverId: string | null; customPaper: string | null }) => Promise<boolean>
   onClose: () => void
 }
 
 // Modal sheet. Focus starts on the title and is trapped inside. While a save is
 // running the buttons are aria-disabled (not disabled, so focus stays in the trap)
 // and Esc, [cancel] and an outside press do nothing.
-export function NewNoteDialog({ defaults, onCreate, onClose }: Props) {
+export function NewNoteDialog({ defaults, images, onCreate, onClose }: Props) {
   const { t } = useI18n()
   const [title, setTitle] = useState('')
   const [background, setBackground] = useState<Background>(defaults.background)
   const [orientation, setOrientation] = useState<Orientation>(defaults.orientation)
   const [paper, setPaper] = useState<Paper>(defaults.paper)
   const [coverId, setCoverId] = useState<string | null>(null)
+  const [customPaper, setCustomPaper] = useState<string | null>(null) // a user paper instead of a paper color
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const busyRef = useRef(false)
@@ -101,7 +104,7 @@ export function NewNoteDialog({ defaults, onCreate, onClose }: Props) {
     setFailed(false)
     let ok = false
     try {
-      ok = await onCreate({ title, background, orientation, paper, coverId })
+      ok = await onCreate({ title, background, orientation, paper, coverId, customPaper })
     } catch {
       ok = false
     }
@@ -208,22 +211,33 @@ export function NewNoteDialog({ defaults, onCreate, onClose }: Props) {
                 type="radio"
                 name={ids.paper}
                 value={p}
-                checked={paper === p}
+                checked={!customPaper && paper === p}
                 disabled={busy}
                 onChange={() => {
                   setFailed(false)
+                  setCustomPaper(null)
                   setPaper(p)
                 }}
               />
               {t(`library.paper.${p}`)}
             </label>
           ))}
-          {paper === 'black' && <p className="one-line-hint">{t('library.paper.blackHint')}</p>}
+          <UserImageTiles
+            kind="paper"
+            images={images}
+            name={ids.paper}
+            disabled={busy}
+            isSelected={(h) => customPaper === h}
+            onPick={(h) => (setFailed(false), setCustomPaper(h))}
+            onRemoved={(h) => setCustomPaper((c) => (c === h ? null : c))}
+          />
+          {!customPaper && paper === 'black' && <p className="one-line-hint">{t('library.paper.blackHint')}</p>}
         </fieldset>
         <CoverRadios
           name={ids.cover}
           value={coverId}
           disabled={busy}
+          images={images}
           onChange={(id) => (setFailed(false), setCoverId(id))}
           onEnter={() => void submit()}
         />

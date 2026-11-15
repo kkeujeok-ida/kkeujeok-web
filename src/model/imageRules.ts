@@ -50,6 +50,9 @@ export function referencedAssets(note: Pick<Note, 'pages'>): string[] {
     }
     // A well-formed PDF background names its asset too (spec pdf.md "Asset first").
     if (isPdfBackground(p.background)) out.add(p.background.asset)
+    // custom.referencedAssets: a custom background too, a malformed one as `""` or its malformed value.
+    const bg = p.background as { type?: unknown; asset?: unknown } | null
+    if (bg && typeof bg === 'object' && bg.type === 'custom') out.add(typeof bg.asset === 'string' ? bg.asset : '')
   }
   return [...out].sort(byCodeUnit)
 }

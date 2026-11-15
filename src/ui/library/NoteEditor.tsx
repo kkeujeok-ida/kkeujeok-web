@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyEvent } from 'react'
+import { newId } from '../../model/ids'
 import { SNACKBAR_MS } from '../snackbar'
 import { fmt, useI18n, type Key } from '../../i18n'
 import { PEN_TOOLS, switchKind, type Pen, type PenTool } from '../../model/pen'
@@ -1382,6 +1383,18 @@ export function NoteEditor({
     if (!w || w.pageEdit({ op: 'setPageBackground', items: ids.map((pageId) => ({ pageId, background })) })) return
     sayPage(fmt(t('page.backgroundSet'), { name: t(`library.background.${background}` as 'library.background.plain') }))
   }
+  // A user paper chosen in the page background menu: a new page with it goes after `afterId` (the ops have no op that
+  // swaps a page's background for an image: setPageBackground names patterns only).
+  const addCustomPageAfter = (afterId: string, hash: string) => {
+    const w = loaded?.writer
+    const i = pages.findIndex((p) => p.id === afterId)
+    const ref = pages[i]
+    if (!w || !ref) return
+    const page = { id: newId(), width: ref.width, height: ref.height, background: { type: 'custom', asset: hash }, rev: '', seq: 0, editedAt: '', editedBy: '', elements: [] }
+    if (w.pageEdit({ op: 'insertPages', items: [{ index: i + 1, page }] })) return
+    w.goToPage(i + 1)
+    sayPage(fmt(t('custom.paperPage'), { name: t('custom.mine') }))
+  }
   const setPaperOf = (ids: string[], paper: string) => {
     const w = loaded?.writer
     if (!w || w.pageEdit({ op: 'setPaper', items: ids.map((pageId) => ({ pageId, paper })) })) return
@@ -1772,6 +1785,7 @@ export function NoteEditor({
               onMove={movePagesTo}
               onBackground={setBackgroundOf}
               onPaper={setPaperOf}
+              onAddCustomPage={addCustomPageAfter}
               onOrientation={setOrientationOf}
               onSelectOutOfBounds={selectOutOfBoundsOf}
               onGo={(i) => loaded.writer.goToPage(i)}

@@ -28,6 +28,7 @@ import { dockAtPointer } from '../src/ui/library/toolbarDock'
 import { placeBubble } from '../src/ui/library/bubblePlace'
 import { driveAssetsFolderRule, driveTrashbinFolderRule } from '../src/drive/duplicates'
 import { assetState, imageAccept, imageInitialSize, imageUploadPlan, referencedAssets } from '../src/model/imageRules'
+import { customAccept, userCoverAsset } from '../src/model/customRules'
 import { pdfImport, pdfPageBox, pdfPageDisplay, pdfPageMatrix, pdfPagePoint, type PdfImportIn } from '../src/model/pdfRules'
 import { invertBackground, invertColor, invertHighlighter, invertInk, invertLayers, invertPaper } from '../src/model/invert'
 import { layoutText, type LineBox } from '../src/model/textLayout'
@@ -228,6 +229,12 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     const i = input as { pxWidth: number; pxHeight: number; pageWidth: number; pageHeight: number }
     expect(imageInitialSize(i.pxWidth, i.pxHeight, i.pageWidth, i.pageHeight)).toEqual(expected)
   },
+  'custom.accept': ({ input, expected }) => void expect(customAccept(input as Parameters<typeof customAccept>[0])).toEqual(expected),
+  'custom.coverId': ({ input, expected }) => {
+    const asset = userCoverAsset((input as { coverId?: unknown }).coverId)
+    expect(asset ? { kind: 'user', asset } : { kind: 'none' }).toEqual(expected)
+  },
+  'custom.referencedAssets': ({ input, expected }) => void expect(referencedAssets((input as { note: Note }).note)).toEqual(expected),
   'image.referencedAssets': ({ input, expected }) => void expect(referencedAssets((input as { note: Note }).note)).toEqual(expected),
   'image.uploadPlan': ({ input, expected }) => {
     const i = input as { referenced: string[]; confirmed: string[]; onDevice: string[] }
@@ -610,10 +617,6 @@ const PENDING: string[] = [
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
-  // Epic 32: the paper rules have runners (32.3); the custom.* ones arrive with 32.5.
-  'custom.accept',
-  'custom.coverId',
-  'custom.referencedAssets',
 ]
 
 function mergeRunner({ input, expected }: Case) {

@@ -2,7 +2,7 @@
 // The context's own transform is the device pixel ratio; the viewport maps
 // page points (pt, top-left origin) into CSS pixels of the canvas.
 import { isPdfBackground, patternOf } from '../model/pdfRules'
-import { isValidStroke, type Page, type Stroke } from '../model/note'
+import { isCustomBackground, isValidStroke, type Page, type Stroke } from '../model/note'
 import { shapeRings } from '../model/shape'
 import { pageBackground } from './pageBackground'
 import { outlinePath, strokeOutlineFor, strokeSamples } from './strokeOutline'
@@ -581,7 +581,8 @@ export function paintPage(
     const name = patternOf(page.background)
     // A huge page would make the pattern explode: paper only past this count.
     const count = name === 'dot' ? (w / 28) * (h / 28) : name === 'grid' ? (w + h) / 28 : name === 'grid-s' ? (w + h) / 14 : h / 28
-    const bg = count > MAX_BACKGROUND_ITEMS ? pageBackground('plain', w, h, page.paper) : pageBackground(name, w, h, page.paper)
+    const custom = isCustomBackground(page.background) // no paper, no pattern: the image is the ground
+    const bg = custom || count > MAX_BACKGROUND_ITEMS ? pageBackground('plain', w, h, custom ? 'white' : page.paper) : pageBackground(name, w, h, page.paper)
     ctx.fillStyle = dark ? paperHex() : bg.paper
     ctx.fillRect(0, 0, w, h)
     if (bg.lines.length > 0) {
@@ -604,6 +605,16 @@ export function paintPage(
       ctx.fill()
     }
 
+    if (custom) {
+      const hash = (page.background as { asset: string }).asset
+      const img = images && images.state(hash) === 'ready' ? images.bitmap(hash) : null
+      if (img && img !== 'broken') {
+        // Cover fit, centered, overflow clipped by the page clip; never inverted (spec custom.md).
+        const iw = (img as { width: number }).width, ih = (img as { height: number }).height
+        const k = Math.max(w / iw, h / ih)
+        ctx.drawImage(img, (iw - w / k) / 2, (ih - h / k) / 2, w / k, h / k, 0, 0, w, h)
+      }
+    }
     if (images?.pdf && isPdfBackground(page.background)) {
       // The part of the page on screen, for the sharp tile of a zoomed view.
       const dpr = ctx.getTransform().a / scale || 1 // the transform already holds the page scale

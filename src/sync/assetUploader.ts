@@ -4,6 +4,7 @@
 import { RESUMABLE_CHUNK, type DriveClient, type DriveFile, kkeujeokIdQuery } from '../drive/driveClient'
 import type { Note } from '../model/note'
 import { isPdfBackground } from '../model/pdfRules'
+import { userCoverAsset } from '../model/customRules'
 import { imageUploadPlan, isAssetHash, referencedAssets } from '../model/imageRules'
 import type { AssetStore } from '../storage/assetStore'
 import type { SyncDeviceStore } from '../storage/syncDevice'
@@ -82,7 +83,9 @@ export function createAssetUploader(d: AssetUploaderDeps) {
     let folder: string | undefined
     for (let round = 0; round < ROUNDS; round++) {
       const note = await read()
-      const referenced = referencedAssets(note)
+      // A user cover's image goes up with the note that names it (spec custom.md).
+      const cover = userCoverAsset(note.meta.coverId)
+      const referenced = [...new Set([...referencedAssets(note), ...(cover ? [cover] : [])])].sort()
       if (referenced.length === 0) return note
       const exts = new Map<string, string>()
       for (const p of note.pages) for (const e of p.elements as { type?: unknown; asset?: unknown; ext?: unknown }[]) if (e?.type === 'image') exts.set(String(e.asset), String(e.ext))
@@ -106,7 +109,7 @@ export function createAssetUploader(d: AssetUploaderDeps) {
         if (root === null) throw d.failure('fatal', { reason: 'rootMissing' })
         folder ??= await d.ensureFolder(noteId, ASSETS_KKEUJEOK_ID, ASSETS_FOLDER_NAME, root)
         for (const h of plan.upload) {
-          await put(noteId, folder, h, exts.get(h) ?? 'jpg', bytes.get(h)!)
+          await put(noteId, folder, h, exts.get(h) || (await d.assets.get(h))?.ext || 'jpg', bytes.get(h)!)
           confirmed.add(h)
           d.onConfirmed?.(h)
         }

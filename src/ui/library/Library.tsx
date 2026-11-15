@@ -33,7 +33,8 @@ import { SNACKBAR_MS } from '../snackbar'
 import { FolderPicker } from './FolderPicker'
 import { NOTE_DRAG } from './FolderTree'
 import { folderHref } from './useFolders'
-import { CoverArt, CoverDialog, coverUrl } from './CoverArt'
+import { CoverArt, CoverDialog, coverUrl, useUserCoverUrl } from './CoverArt'
+import { userCoverAsset } from '../../model/customRules'
 import { NameDialog } from './NameDialog'
 import { ConfirmDialog } from '../ConfirmDialog'
 import { FOLDER_COLORS, getFolderColor, setFolderColor } from '../../library/folderColor'
@@ -171,7 +172,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
     wasOpen.current = sheet !== null
   }, [sheet])
 
-  async function create(v: { title: string; background: Background; orientation: Orientation; coverId: string | null }) {
+  async function create(v: { title: string; background: Background; orientation: Orientation; coverId: string | null; customPaper?: string | null }) {
     if (entering.current) return true
     try {
       const noteId = await lib.create({ ...v, folderId: inFolder ? folderId : null })
@@ -826,6 +827,7 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       {sheet && (
         <NewNoteDialog
           defaults={sheet}
+          images={images}
           onCreate={create}
           onClose={() => {
             if (!entering.current) setSheet(null)
@@ -925,13 +927,14 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
       {covering && (
         <CoverDialog
           current={covering.coverId}
+          images={images}
           onClose={() => {
             const from = covering.from
             setCovering(null)
             refocus(from)
           }}
           onSave={async (id) => {
-            if (id === covering.coverId || (id === null && coverUrl(covering.coverId) === null)) return true // nothing to change; an unknown id stays
+            if (id === covering.coverId || (id === null && coverUrl(covering.coverId) === null && !userCoverAsset(covering.coverId))) return true // nothing to change; an unknown id stays
             if (!(await lib.setCover(covering.noteId, id))) return false
             void uploads?.noteClosed?.(covering.noteId)
             return true
@@ -1031,7 +1034,8 @@ export function Library({ openStore = defaultOpenStore, defaults = sharedDefault
 // The first page on the card, drawn by the writing screen's renderer. A page
 // that cannot be drawn leaves an empty card.
 function Thumb({ page, coverId, images }: { page: Page | undefined; coverId?: string | null; images?: Partial<ImageHost> | undefined }) {
-  const art = coverUrl(coverId)
+  const user = useUserCoverUrl(coverId, images)
+  const art = coverUrl(coverId) ?? user
   return art ? <CoverArt url={art} /> : <PageThumb page={page} images={images} />
 }
 

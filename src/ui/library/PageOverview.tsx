@@ -1,7 +1,8 @@
-import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyEvent, type MouseEvent as ReactMouseEvent, type RefObject } from 'react'
+import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyEvent, type MouseEvent as ReactMouseEvent, type RefObject } from 'react'
 import { fmt, useI18n } from '../../i18n'
 import { ConfirmDialog } from '../ConfirmDialog'
-import { PAPERS, effectivePaper, type Page } from '../../model/note'
+import { userAssets } from '../../storage/userAssets'
+import { PAPERS, effectivePaper, isCustomBackground, type Page } from '../../model/note'
 import { dropIndex, stepIndex } from '../../model/pageMove'
 import { pageOutOfBounds } from '../../model/pageBounds'
 import { isPdfBackground } from '../../model/pdfRules'
@@ -26,8 +27,9 @@ function menuKey(e: ReactKeyEvent, root: HTMLElement | null): boolean {
 }
 
 /** The four backgrounds as radio items, the current one checked. */
-function BackgroundItems({ value, onPick, paper, onPaper }: { value: string | null; onPick: (b: string) => void; paper?: string | null; onPaper?: (p: string) => void }) {
+function BackgroundItems({ value, onPick, paper, onPaper, onCustom }: { value: string | null; onPick: (b: string) => void; paper?: string | null; onPaper?: (p: string) => void; onCustom?: (hash: string) => void }) {
   const { t } = useI18n()
+  const mine = useSyncExternalStore(userAssets.subscribe, () => userAssets.list('paper'), () => userAssets.list('paper'))
   return (
     <>
       {BACKGROUNDS.map((b) => (
@@ -38,6 +40,11 @@ function BackgroundItems({ value, onPick, paper, onPaper }: { value: string | nu
       {onPaper && PAPERS.map((p) => (
         <button key={p} type="button" role="menuitemradio" aria-checked={paper === p} className="editor-menu-item" onClick={() => onPaper(p)}>
           {t('page.paper')}: {t(`library.paper.${p}`)}
+        </button>
+      ))}
+      {onCustom && mine.map((a, i) => (
+        <button key={a.hash} type="button" role="menuitem" className="editor-menu-item" onClick={() => onCustom(a.hash)}>
+          {t('custom.paperNew')}: {fmt(t('custom.imageName'), { n: i + 1 })}
         </button>
       ))}
     </>
@@ -85,15 +92,15 @@ function Thumb({ page, images }: { page: Page; images?: ImageHost | undefined })
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(draw) : null
     ro?.observe(c)
     // A PDF page is drawn once its bytes are here and rendered.
-    const un = isPdfBackground(page.background) ? images?.subscribe(draw) : undefined
+    const un = isPdfBackground(page.background) || isCustomBackground(page.background) ? images?.subscribe(draw) : undefined
     return () => (ro?.disconnect(), un?.(), cache.dispose())
   }, [page, images])
   return <canvas ref={ref} className="po-canvas" aria-hidden="true" />
 }
 
-type ItemProps = { images?: ImageHost | undefined; page: Page; index: number; total: number; current: boolean; picked: boolean; drop: 'before' | 'after' | null; conflict: boolean; focusable: boolean; readOnly: boolean; onGo: (e: ReactMouseEvent) => void; onDragStart: (e: ReactDragEvent) => void; onDragEnd: () => void; onDuplicate: () => void; onDelete: () => void; onBackground: (b: string) => void; onPaper: (p: string) => void; onOrientation: (o: 'portrait' | 'landscape') => void; onOutOfBounds: () => void }
+type ItemProps = { images?: ImageHost | undefined; page: Page; index: number; total: number; current: boolean; picked: boolean; drop: 'before' | 'after' | null; conflict: boolean; focusable: boolean; readOnly: boolean; onGo: (e: ReactMouseEvent) => void; onDragStart: (e: ReactDragEvent) => void; onDragEnd: () => void; onDuplicate: () => void; onDelete: () => void; onBackground: (b: string) => void; onPaper: (p: string) => void; onCustom: (hash: string) => void; onOrientation: (o: 'portrait' | 'landscape') => void; onOutOfBounds: () => void }
 
-function Item({ images, page, index, total, current, picked, drop, conflict, focusable, readOnly, onGo, onDragStart, onDragEnd, onDuplicate, onDelete, onBackground, onPaper, onOrientation, onOutOfBounds }: ItemProps) {
+function Item({ images, page, index, total, current, picked, drop, conflict, focusable, readOnly, onGo, onDragStart, onDragEnd, onDuplicate, onDelete, onBackground, onPaper, onCustom, onOrientation, onOutOfBounds }: ItemProps) {
   const { t } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const visible = useVisible(box)
@@ -209,7 +216,7 @@ function Item({ images, page, index, total, current, picked, drop, conflict, foc
       {open && (
         <div ref={menu} role="menu" aria-label={t('page.menu')} className="editor-menu po-menu" onKeyDown={onMenuKey}>
           {sub ? (
-            <BackgroundItems value={typeof page.background === 'string' && BACKGROUNDS.includes(page.background as never) ? page.background : null} onPick={(b) => pick(() => onBackground(b))()} paper={effectivePaper(page.paper)} onPaper={pdf ? undefined : (p) => pick(() => onPaper(p))()} />
+            <BackgroundItems value={typeof page.background === 'string' && BACKGROUNDS.includes(page.background as never) ? page.background : null} onPick={(b) => pick(() => onBackground(b))()} paper={effectivePaper(page.paper)} onPaper={pdf ? undefined : (p) => pick(() => onPaper(p))()} onCustom={(h) => pick(() => onCustom(h))()} />
           ) : (
             <>
               <button type="button" role="menuitem" className="editor-menu-item" onClick={pick(onDuplicate)}>
@@ -251,12 +258,14 @@ type Props = {
   onMove?: (pageIds: string[], index: number) => void
   onBackground?: (pageIds: string[], background: string) => void
   onPaper?: (pageIds: string[], paper: string) => void
+  /** A user paper was chosen: a new page with it goes after the page `afterPageId`. */
+  onAddCustomPage?: (afterPageId: string, hash: string) => void
   onOrientation?: (pageId: string, orientation: 'portrait' | 'landscape') => void
   /** The elements outside the page are selected (the badge). */
   onSelectOutOfBounds?: (pageId: string) => void
 }
 
-export const PageOverview = forwardRef<HTMLElement, Props>(function PageOverview({ images, id, pages, current, conflicted, side, overlay, readOnly = false, onGo, onClose, onAdd, onDuplicate, onDelete, onMove, onBackground, onPaper, onOrientation, onSelectOutOfBounds }, ref) {
+export const PageOverview = forwardRef<HTMLElement, Props>(function PageOverview({ images, id, pages, current, conflicted, side, overlay, readOnly = false, onGo, onClose, onAdd, onDuplicate, onDelete, onMove, onBackground, onPaper, onAddCustomPage, onOrientation, onSelectOutOfBounds }, ref) {
   const { t } = useI18n()
   const list = useRef<HTMLDivElement>(null)
   // The current page stays in view as the canvas scrolls.
@@ -437,6 +446,11 @@ export const PageOverview = forwardRef<HTMLElement, Props>(function PageOverview
                   setBgMenu(false)
                   onPaper?.(order.filter((x) => live.has(x)), p)
                 }}
+                onCustom={(h) => {
+                  setBgMenu(false)
+                  const picked = order.filter((x) => live.has(x))
+                  onAddCustomPage?.(picked[picked.length - 1]!, h)
+                }}
               />
             </div>
           )}
@@ -444,7 +458,7 @@ export const PageOverview = forwardRef<HTMLElement, Props>(function PageOverview
       )}
       <div ref={list} role="listbox" aria-label={t('page.overview')} aria-orientation="vertical" className="po-list" onKeyDown={onKeyDown} onDragOver={onDragOver} onDrop={onDrop}>
         {pages.map((p, i) => (
-          <Item key={p.id} images={images} page={p} index={i} total={pages.length} current={i === current} picked={live.has(p.id)} drop={drop === i ? 'before' : drop === pages.length && i === pages.length - 1 ? 'after' : null} conflict={conflicted.has(p.id)} focusable={i === current} readOnly={readOnly} onGo={(e) => clickItem(i, e)} onDragStart={(e) => { drag.current = block(p.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id) }} onDragEnd={() => { drag.current = []; setDrop(null) }} onDuplicate={() => onDuplicate?.([p.id])} onDelete={() => doDelete([p.id])} onBackground={(b) => onBackground?.([p.id], b)} onPaper={(x) => onPaper?.([p.id], x)} onOrientation={(o) => onOrientation?.(p.id, o)} onOutOfBounds={() => onSelectOutOfBounds?.(p.id)} />
+          <Item key={p.id} images={images} page={p} index={i} total={pages.length} current={i === current} picked={live.has(p.id)} drop={drop === i ? 'before' : drop === pages.length && i === pages.length - 1 ? 'after' : null} conflict={conflicted.has(p.id)} focusable={i === current} readOnly={readOnly} onGo={(e) => clickItem(i, e)} onDragStart={(e) => { drag.current = block(p.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id) }} onDragEnd={() => { drag.current = []; setDrop(null) }} onDuplicate={() => onDuplicate?.([p.id])} onDelete={() => doDelete([p.id])} onBackground={(b) => onBackground?.([p.id], b)} onPaper={(x) => onPaper?.([p.id], x)} onCustom={(h) => onAddCustomPage?.(p.id, h)} onOrientation={(o) => onOrientation?.(p.id, o)} onOutOfBounds={() => onSelectOutOfBounds?.(p.id)} />
         ))}
       </div>
       {ask && (

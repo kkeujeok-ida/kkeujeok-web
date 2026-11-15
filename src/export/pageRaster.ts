@@ -57,6 +57,17 @@ export async function renderPageRaster(page: Page, wPx: number, hPx: number, ass
         }
       } catch { /* undecodable: the grey box, as on screen */ }
     }
+    const cust = page.background as { type?: unknown; asset?: unknown } | null
+    if (cust && cust.type === 'custom' && typeof cust.asset === 'string' && !bitmaps.has(cust.asset)) {
+      try {
+        const rec = await assets.get(cust.asset)
+        if (rec) {
+          const bmp = await createImageBitmap(new Blob([rec.bytes as BlobPart], { type: MIME[rec.ext] ?? 'image/png' }))
+          owned.push(bmp)
+          bitmaps.set(cust.asset, bmp)
+        }
+      } catch { /* undecodable: plain white */ }
+    }
     let ground: HTMLCanvasElement | null = null
     if (isPdfBackground(page.background)) {
       try { ground = await pdfGround(assets, page.background as { asset: string; page: number }, wPx, hPx) } catch { /* plain paper */ }

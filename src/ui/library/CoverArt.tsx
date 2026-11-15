@@ -1,7 +1,10 @@
 // Note covers (Story 7.4, spec library "Covers"): the list comes from the design token index, the pictures are its SVG files.
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useReducer, useRef, useState } from 'react'
+import type { ImageHost } from '../../render/imageHost'
 import { useI18n, type Locale } from '../../i18n'
 import { libraryCoverEntries, libraryCoverResolve } from '../../library/libraryRules'
+import { USER_COVER_PREFIX, userCoverAsset } from '../../model/customRules'
+import { UserImageTiles, type UserHost } from './UserImages'
 import index from '../../../design_tokens/covers/index.json'
 
 const urls = import.meta.glob<string>('../../../design_tokens/covers/*.svg', { query: '?url', import: 'default', eager: true })
@@ -16,6 +19,14 @@ export function coverUrl(coverId: unknown): string | null {
   return r.kind === 'cover' ? (urlOf(r.file) ?? null) : null
 }
 
+/** The picture of a user cover (`cover:user-<sha256>`), read from this device or fetched; null until it is here. */
+export function useUserCoverUrl(coverId: unknown, images: Partial<Pick<ImageHost, 'userUrl' | 'subscribe'>> | undefined): string | null {
+  const hash = userCoverAsset(coverId)
+  const [, tick] = useReducer((n: number) => n + 1, 0)
+  useEffect(() => images?.subscribe?.(tick), [images])
+  return hash && images?.userUrl ? images.userUrl(hash) : null
+}
+
 /** The card picture, drawn in the `.cover-thumb` frame. */
 export function CoverArt({ url }: { url: string }) {
   return (
@@ -26,7 +37,7 @@ export function CoverArt({ url }: { url: string }) {
 }
 
 /** [표지 없음] and the index covers as native radios: arrows choose, Enter confirms (`onEnter`). `value` null = none. */
-export function CoverRadios({ name, value, disabled, onChange, onEnter }: { name: string; value: string | null; disabled?: boolean; onChange: (id: string | null) => void; onEnter?: () => void }) {
+export function CoverRadios({ name, value, disabled, images, onChange, onEnter }: { name: string; value: string | null; disabled?: boolean; images?: UserHost; onChange: (id: string | null) => void; onEnter?: () => void }) {
   const { t, locale } = useI18n()
   const items: { id: string | null; label: string; url: string | null }[] = [
     { id: null, label: t('library.coverNone'), url: null },
@@ -55,14 +66,23 @@ export function CoverRadios({ name, value, disabled, onChange, onEnter }: { name
           {c.label}
         </label>
       ))}
+      <UserImageTiles
+        kind="cover"
+        images={images}
+        name={name}
+        disabled={disabled}
+        isSelected={(h) => value === USER_COVER_PREFIX + h}
+        onPick={(h) => onChange(USER_COVER_PREFIX + h)}
+        onRemoved={(h) => value === USER_COVER_PREFIX + h && onChange(null)}
+      />
     </fieldset>
   )
 }
 
 /** [표지 변경]: pick with the arrows, Enter or [저장] confirms. A stored id not in the index starts as none. `onSave` resolves false on failure. */
-export function CoverDialog({ current, onSave, onClose }: { current: string | null; onSave: (id: string | null) => Promise<boolean>; onClose: () => void }) {
+export function CoverDialog({ current, images, onSave, onClose }: { current: string | null; images?: UserHost; onSave: (id: string | null) => Promise<boolean>; onClose: () => void }) {
   const { t } = useI18n()
-  const [value, setValue] = useState<string | null>(COVERS.some((c) => c.id === current) ? current : null)
+  const [value, setValue] = useState<string | null>(COVERS.some((c) => c.id === current) || userCoverAsset(current) ? current : null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const box = useRef<HTMLDivElement>(null)
@@ -89,7 +109,7 @@ export function CoverDialog({ current, onSave, onClose }: { current: string | nu
     >
       <div ref={box} className="dialog cover-dialog" role="dialog" aria-modal="true" aria-label={t('library.noteCover')}>
         <h2 className="dialog-title">{t('library.noteCover')}</h2>
-        <CoverRadios name={name} value={value} disabled={busy} onChange={(id) => (setFailed(false), setValue(id))} onEnter={() => void save()} />
+        <CoverRadios name={name} value={value} disabled={busy} images={images} onChange={(id) => (setFailed(false), setValue(id))} onEnter={() => void save()} />
         <div aria-live="polite" className="dialog-error">
           {failed && t('library.noteCoverFailed')}
         </div>

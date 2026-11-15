@@ -62,7 +62,7 @@ export function createAssetSync(d: AssetSyncDeps) {
           if (!f) throw new DriveError('network') // not up yet
           const bytes = await d.drive.downloadFile(f.id)
           // Size and SHA-256 must match; bytes that do not are dropped and fetched again.
-          if ((f.size !== undefined && f.size !== bytes.length) || !(await d.store.putVerified(hash, ext, bytes))) throw new DriveError('network')
+          if ((f.size !== undefined && f.size !== bytes.length) || !(await d.store.putVerified(hash, ext || (bytes[0] === 0xff ? 'jpg' : 'png'), bytes))) throw new DriveError('network')
           local.add(hash)
           confirmed.add(hash)
           failed.delete(hash)

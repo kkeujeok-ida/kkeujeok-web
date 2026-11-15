@@ -126,7 +126,7 @@ export function detectEditedBy(nav: Nav | undefined = globalThis.navigator as Na
   return os ? `${browser}, ${os}` : browser
 }
 
-export type CreateInput = { title: string; background: Background; orientation: Orientation; paper?: Paper; coverId?: string | null; /** The folder the new note goes in; null or unset = top level. */ folderId?: string | null }
+export type CreateInput = { title: string; background: Background; orientation: Orientation; paper?: Paper; coverId?: string | null; customPaper?: string | null; /** The folder the new note goes in; null or unset = top level. */ folderId?: string | null }
 
 export function useLibrary(
   openStore: () => NoteStore,
@@ -240,7 +240,7 @@ export function useLibrary(
 
   /** Resolves with the new noteId; rejects (nothing stored, defaults untouched) on any failure. */
   const create = useCallback(
-    async ({ title, background, orientation, paper = 'white', folderId, coverId }: CreateInput): Promise<string> => {
+    async ({ title, background, orientation, paper = 'white', folderId, coverId, customPaper }: CreateInput): Promise<string> => {
       const s = storeRef.current
       // Titles are numbered from the loaded list, so only a loaded library may create.
       if (!s || statusRef.current !== 'ready') throw new Error('library not ready')
@@ -259,6 +259,7 @@ export function useLibrary(
         now: new Date().toISOString(),
         editedBy: editedBy ?? detectEditedBy(),
         ...(coverId && { coverId }),
+        ...(customPaper && { customPaper }),
       })
       if ('error' in r) throw new Error(r.error)
       if (folderId) await folders?.assignNote(noteId, folderId)
