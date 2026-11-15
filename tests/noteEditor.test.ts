@@ -1052,7 +1052,7 @@ describe('zoom and pan', () => {
     return e
   }
   const openMenu = async () => {
-    click(q('.editor-more button')!)
+    click(q('.editor-more button[aria-haspopup="menu"]')!)
     await settle()
   }
   const level = () => q('.editor-zoom-level')!.textContent
@@ -1198,7 +1198,7 @@ describe('zoom and pan', () => {
 
   test('menu: rows, stays open on +/-, aria-disabled at the limits, focus returns to the button', async () => {
     await mountEditor({ lang: 'en-US' })
-    const more = q<HTMLButtonElement>('.editor-more button')!
+    const more = q<HTMLButtonElement>('.editor-more button[aria-haspopup="menu"]')!
     expect(more.getAttribute('aria-label')).toBe('More')
     expect(more.getAttribute('aria-expanded')).toBe('false')
     await openMenu()
@@ -1209,21 +1209,18 @@ describe('zoom and pan', () => {
       'Zoom in',
       'Fit width',
       'Fit page',
-      'Vertical scroll',
-      'Horizontal scroll',
-      'Two pages',
       'Export as PDF',
       'Print',
     ])
     expect(q('[role="status"][aria-live="polite"]')!.textContent).toBe(`Zoom ${Math.round(fit() * 100)}%`)
     expect(document.activeElement).toBe(items[0])
     key(items[0]!, 'ArrowUp')
-    expect(document.activeElement).toBe(items[8])
-    key(items[8]!, 'ArrowDown')
+    expect(document.activeElement).toBe(items[5])
+    key(items[5]!, 'ArrowDown')
     expect(document.activeElement).toBe(items[0])
     key(items[0]!, 'End')
-    expect(document.activeElement).toBe(items[8])
-    key(items[6]!, 'Home')
+    expect(document.activeElement).toBe(items[5])
+    key(items[3]!, 'Home')
     expect(document.activeElement).toBe(items[0])
 
     const plus = items[1]!
@@ -1530,7 +1527,7 @@ describe('same note in two tabs (story 2.13)', () => {
       }
 
       // zoom still works
-      act(() => h.querySelector<HTMLElement>('.editor-more button')!.click())
+      act(() => h.querySelector<HTMLElement>('.editor-more button[aria-haspopup="menu"]')!.click())
       await settle()
       const before = h.querySelector('.editor-zoom-level')!.textContent
       act(() => h.querySelector<HTMLElement>('button[aria-label="확대"]')!.click())
@@ -2911,7 +2908,7 @@ describe('print (Story 8.4)', () => {
 describe('⋯ menu (Story 15.12)', () => {
   test('has no previous / next note', async () => {
     await mountEditor({ id: 'a', note: newNote('a') })
-    click(q('.editor-more button')!)
+    click(q('.editor-more button[aria-haspopup="menu"]')!)
     await flush()
     const labels = qa('[role="menu"] [role="menuitem"]').map((b) => b.textContent)
     expect(labels).not.toContain('이전 노트')

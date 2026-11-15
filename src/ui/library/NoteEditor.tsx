@@ -35,7 +35,8 @@ import { ShapePopover } from './ShapePopover'
 import { sharedEraserSettings, type EraserSettingsStore } from '../../storage/eraserSettings'
 import { PenToolbar } from './PenToolbar'
 import { sharedToolbarPosition, type ToolbarPositionStore } from '../../storage/toolbarPosition'
-import { PRESET_NAMES, VIEW_PRESETS, sharedViewMode, type PageViewMode, type PresetName, type ViewModeStore } from '../../storage/viewMode'
+import { effectiveView, sharedViewMode, type PageViewMode, type ViewModeStore } from '../../storage/viewMode'
+import { ViewComboIcon, ViewOptionsPopover } from './ViewOptions'
 import { sharedPenDetected, type PenDetectedStore } from '../../storage/penDetected'
 import { revealShift } from './toolbarDock'
 import { useToolbarDock } from './useToolbarDock'
@@ -206,7 +207,9 @@ export function NoteEditor({
   const [view, setView] = useState<ViewInfo | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [viewMode, setViewMode] = useState<PageViewMode>(() => viewModeStore.read())
-  const [modeSay, setModeSay] = useState('')
+  const [viewOpen, setViewOpen] = useState(false)
+  const viewBtn = useRef<HTMLButtonElement>(null)
+  const viewPop = useRef<HTMLDivElement>(null)
   const [panelOpen, setPanelOpen] = useState(false)
   // [+ 페이지 추가] at the ends of the note: adds a page there (set once the page list is known).
   const addEdgeRef = useRef<(edge: 'start' | 'end') => void>(() => {})
@@ -1303,13 +1306,18 @@ export function NoteEditor({
     setPanelOpen(false)
     pageBtn.current?.focus()
   }
-  const modeName = (m: PresetName) => t({ vertical: 'editor.viewVertical', horizontal: 'editor.viewHorizontal', twoPage: 'editor.viewTwoPage' }[m] as 'editor.viewVertical')
-  const pickMode = (m: PresetName) => {
-    setViewMode(viewModeStore.write({ ...VIEW_PRESETS[m], pagination: viewMode.pagination }))
-    setModeSay(fmt(t('editor.viewModeChanged'), { mode: modeName(m) }))
-    setMenuOpen(false)
-    more.current?.focus()
-  }
+  const shown = effectiveView(viewMode, { w: globalThis.innerWidth, h: globalThis.innerHeight })
+  useEffect(() => {
+    if (!viewOpen) return
+    viewPop.current?.querySelector<HTMLElement>('[aria-pressed="true"]')?.focus()
+    const on = (e: PointerEvent) => {
+      const n = e.target as Node
+      if (!viewPop.current?.contains(n) && !viewBtn.current?.contains(n)) setViewOpen(false)
+    }
+    document.addEventListener('pointerdown', on, true)
+    return () => document.removeEventListener('pointerdown', on, true)
+  }, [viewOpen])
+  const pickView = (p: Partial<PageViewMode>) => setViewMode(viewModeStore.write({ ...viewMode, ...p }))
   const choose = (fit: 'width' | 'page') => {
     loaded?.writer.fit(fit)
     setMenuOpen(false)
@@ -1494,6 +1502,18 @@ export function NoteEditor({
                   </svg>
                 </button>
                 <button
+                  ref={viewBtn}
+                  type="button"
+                  className="btn editor-back"
+                  aria-label={t('editor.viewOptions')}
+                  title={t('editor.viewOptions')}
+                  aria-haspopup="dialog"
+                  aria-expanded={viewOpen}
+                  onClick={() => setViewOpen((o) => !o)}
+                >
+                  <ViewComboIcon mode={shown} />
+                </button>
+                <button
                   ref={pageBtn}
                   type="button"
                   className="btn editor-back"
@@ -1508,6 +1528,19 @@ export function NoteEditor({
                   </svg>
                 </button>
               </div>
+              {viewOpen && (
+                <div ref={viewPop}>
+                  <ViewOptionsPopover
+                    mode={viewMode}
+                    phone={Math.min(globalThis.innerWidth, globalThis.innerHeight) < 600}
+                    onChange={pickView}
+                    onClose={() => {
+                      setViewOpen(false)
+                      viewBtn.current?.focus()
+                    }}
+                  />
+                </div>
+              )}
               {badge && !menuOpen && (
                 <span className="editor-zoom-badge" data-testid="zoom-badge" aria-hidden="true">
                   {percent}%
@@ -1552,13 +1585,6 @@ export function NoteEditor({
                   <button type="button" role="menuitem" className="editor-menu-item" onClick={() => choose('page')}>
                     {t('editor.fitPage')}
                   </button>
-                  <div role="group" aria-label={t('editor.viewMode')} className="editor-menu-group">
-                    {PRESET_NAMES.map((m) => (
-                      <button key={m} type="button" role="menuitemradio" aria-checked={viewMode.direction === VIEW_PRESETS[m].direction && viewMode.pages === VIEW_PRESETS[m].pages} className="editor-menu-item" onClick={() => pickMode(m)}>
-                        {modeName(m)}
-                      </button>
-                    ))}
-                  </div>
                   <button
                     type="button"
                     role="menuitem"
@@ -1766,9 +1792,6 @@ export function NoteEditor({
           )}
           <div role="status" aria-live="polite" className="sr-only">
             {announce}
-          </div>
-          <div role="status" aria-live="polite" className="sr-only" data-view-mode="">
-            {modeSay}
           </div>
           <div role="status" aria-live="polite" className="sr-only" data-result="">
             {resultText}

@@ -311,36 +311,38 @@ describe('page view modes (Story 5.12)', () => {
   const PD = '01926f3a-0000-7000-8000-0000000000b4'
   const four = () => mkNote({ title: '넷', pages: { [PA]: 'a1', [PB]: 'b1', [PC]: 'c1', [PD]: 'd1' } })
   const menu = () => act(() => void m!.q<HTMLButtonElement>('button[aria-label="더 보기"]')!.click())
-  const radio = (name: string) => m!.qa<HTMLButtonElement>('[role="menuitemradio"]').find((b) => b.textContent === name)!
+  const viewBtn = () => m!.q<HTMLButtonElement>('button[aria-label="보기 설정"]')!
+  const seg = (label: string) => m!.qa<HTMLButtonElement>('.view-options button').find((b) => b.getAttribute('aria-label') === label)!
+  const PRESET: Record<string, string[]> = { '세로 연속': ['세로', '1쪽'], '가로 스크롤': ['가로', '1쪽'], '두 페이지': ['가로', '2쪽'] }
   const pick = (name: string) => {
-    menu()
-    act(() => void radio(name).click())
+    if (!m!.q('.view-options')) act(() => void viewBtn().click())
+    for (const l of PRESET[name]!) act(() => void seg(l).click())
   }
   const wheel = (deltaY: number, deltaX = 0) => act(() => void canvas().dispatchEvent(new WheelEvent('wheel', { deltaY, deltaX, bubbles: true, cancelable: true })))
   const G = 12 // jsdom: the gap token measures 0, so the editor uses 12 for the gap and for the toolbar room
   const S = (600 - 2 * G - G) / H // the height fit
   const lastPoint = async (id: string) => strokesOf(await stored(), id).at(-1)!.points[0]!
 
-  test('the menu has three radios, vertical is checked, the choice is announced, saved and gives the focus back', async () => {
+  test('the view button opens three icon rows, vertical is pressed, the choice is saved; Esc closes and gives the focus back', async () => {
     const dev = memory()
     await mount(three(), 'ko', undefined, dev)
-    menu()
-    expect(m!.qa('[role="group"][aria-label="보기 방식"] [role="menuitemradio"]').map((b) => [b.textContent, b.getAttribute('aria-checked')])).toEqual([
-      ['세로 연속', 'true'],
-      ['가로 스크롤', 'false'],
-      ['두 페이지', 'false'],
+    act(() => void viewBtn().click())
+    expect(m!.qa('.view-options [role="group"]').map((g) => g.getAttribute('aria-label'))).toEqual(['넘김 방식', '방향', '쪽수'])
+    expect(m!.qa('.view-options button').map((b) => [b.getAttribute('aria-label'), b.getAttribute('aria-pressed')])).toEqual([
+      ['스크롤', 'true'], ['페이지 넘김', 'false'], ['세로', 'true'], ['가로', 'false'], ['1쪽', 'true'], ['2쪽', 'false'],
     ])
-    act(() => void radio('가로 스크롤').click())
-    expect(m!.q('[role="menu"]')).toBeNull()
-    expect(document.activeElement).toBe(m!.q('button[aria-label="더 보기"]'))
-    expect(m!.q('[data-view-mode]')!.textContent).toBe('보기 방식: 가로 스크롤')
-    expect(JSON.parse(dev.data.get(PAGE_VIEW_KEY)!)).toEqual({ pagination: 'scroll', direction: 'horizontal', pages: 1 })
-    menu()
-    expect(radio('가로 스크롤').getAttribute('aria-checked')).toBe('true')
-    expect(m!.qa('[role="menuitem"]').some((b) => b.textContent === '높이 맞춤')).toBe(true)
+    act(() => void seg('가로').click())
+    act(() => void seg('페이지 넘김').click())
+    expect(JSON.parse(dev.data.get(PAGE_VIEW_KEY)!)).toEqual({ pagination: 'turn', direction: 'horizontal', pages: 1 })
+    expect(seg('가로').getAttribute('aria-pressed')).toBe('true')
+    act(() => void seg('가로').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })))
+    expect(document.activeElement).toBe(seg('세로'))
+    act(() => void seg('세로').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(m!.q('.view-options')).toBeNull()
+    expect(document.activeElement).toBe(viewBtn())
   })
 
-  test('End and Home in the menu reach the radios', async () => {
+  test('End and Home in the menu reach the first and last item', async () => {
     await mount(three())
     menu()
     const items = m!.qa<HTMLElement>('[role^="menuitem"]')
@@ -351,12 +353,12 @@ describe('page view modes (Story 5.12)', () => {
   test('a new mount restores the saved mode; a broken value is vertical', async () => {
     rect = { width: 800, height: 600 }
     await mount(three(), 'ko', undefined, memory({ [VIEW_MODE_KEY]: '{"mode":"horizontal"}' }))
-    menu()
-    expect(radio('가로 스크롤').getAttribute('aria-checked')).toBe('true')
+    act(() => void viewBtn().click())
+    expect(seg('가로').getAttribute('aria-pressed')).toBe('true')
     m!.unmount()
     await mount(three(), 'ko', undefined, memory({ [VIEW_MODE_KEY]: 'nope' }))
-    menu()
-    expect(radio('세로 연속').getAttribute('aria-checked')).toBe('true')
+    act(() => void viewBtn().click())
+    expect(seg('세로').getAttribute('aria-pressed')).toBe('true')
   })
 
   test('horizontal: fitted to the height, the wheel moves sideways and stops at the end', async () => {
