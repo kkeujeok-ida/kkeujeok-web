@@ -46,7 +46,7 @@ import {
   type Thumb,
   type ViewInsets,
 } from '../../render/pagePainter'
-import { PAGE_GAP, layoutSlots, type Unit } from '../../render/viewLayout'
+import { PAGE_GAP, TURN_MS, WheelLock, easeOutCurve, layoutSlots, nearestUnit, pageSnap, turnOffset, type AxisUnit, type Unit } from '../../render/viewLayout'
 import { DEFAULT_VIEW, effectiveView, type PageViewMode } from '../../storage/viewMode'
 import type { NoteStore } from '../../storage/noteStore'
 import { SaveQueue, markUnsaved, trackSave } from '../../storage/saveQueue'
@@ -200,7 +200,10 @@ export class Writer {
   private laidOut = false
   private layoutKey = ''
   private ins: ViewInsets = { gap: 0, extraBottom: 0 }
-  private anim: { from: PageViewport; to: PageViewport; t0: number; raf: number } | null = null
+  private anim: { from: PageViewport; to: PageViewport; t0: number; raf: number; turn: boolean } | null = null
+  private wheelLock = new WheelLock()
+  /** A finger or pen drag moved a turned view (it snaps when every contact is up): the unit it started on and its last speed along the axis. */
+  private dragged: { unit: number; v: number; t: number } | null = null
   private cssW = 0
   private cssH = 0
   private dpr = 1
@@ -392,6 +395,7 @@ export class Writer {
       this.mode = 'none'
       canvas.classList.remove('is-panning')
       this.setHand(false)
+      this.dragged = null
       this.snap()
     }
     globalThis.addEventListener?.('blur', onBlur)
@@ -541,6 +545,7 @@ export class Writer {
   pageStep(d: -1 | 1): void {
     const { list, units } = this.slots()
     if (list.length === 0) return
+    if (this.viewMode.pagination === 'turn') return void this.turnMove(d, true)
     const cur = this.currentIndex(list, units)
     if (this.viewMode.pages !== 2) return this.goToPage(cur + d)
     this.goToPage(units[Math.min(units.length - 1, Math.max(0, list[cur]!.unit + d))]!.first)
@@ -577,7 +582,7 @@ export class Writer {
   }
 
   /** Moves to `to`; at once when the system asks for no motion. Not under a stroke or a drag. */
-  private goTo(to: PageViewport, fit: FitMode): void {
+  private goTo(to: PageViewport, fit: FitMode, turn = false): void {
     if (this.busy()) return
     const from = this.viewport
     this.stopAnim()
@@ -590,9 +595,9 @@ export class Writer {
     const step = (now: number) => {
       const a = this.anim
       if (!a) return
-      const t = Math.max(0, Math.min(1, (now - a.t0) / ANIMATION_MS))
+      const t = Math.max(0, Math.min(1, (now - a.t0) / (a.turn ? TURN_MS : ANIMATION_MS)))
       if (t >= 1) return this.snap()
-      const k = 1 - (1 - t) * (1 - t) // ease out
+      const k = a.turn ? easeOutCurve(t) : 1 - (1 - t) * (1 - t) // ease out
       const lerp = (x: number, y: number) => x + (y - x) * k
       this.viewport = {
         scale: lerp(a.from.scale, a.to.scale),
@@ -603,7 +608,7 @@ export class Writer {
       this.onView(this.info())
       a.raf = globalThis.requestAnimationFrame(step)
     }
-    this.anim = { from, to, t0: globalThis.performance?.now() ?? 0, raf: 0 }
+    this.anim = { from, to, t0: globalThis.performance?.now() ?? 0, raf: 0, turn }
     this.anim.raf = globalThis.requestAnimationFrame(step)
     this.onView(this.info())
   }
@@ -634,6 +639,79 @@ export class Writer {
     if (this.busy()) return
     const sideways = this.viewMode.direction !== 'vertical' && this.info().y === null
     this.movePan(sideways ? dx + dy : dx, sideways ? 0 : dy)
+  }
+
+  /** Units along the direction axis in the scrolled space (screen px), the viewport length and the offset of `v`. */
+  private turnAxis(v: PageViewport): { units: AxisUnit[]; vp: number; off: number } {
+    const vertical = this.viewMode.direction === 'vertical'
+    const units = this.slots().units.map((u) => ({ start: (vertical ? u.y : u.x) * v.scale, size: (vertical ? u.h : u.w) * v.scale }))
+    return { units, vp: vertical ? this.cssH : this.cssW, off: -(vertical ? v.offsetY : v.offsetX) }
+  }
+
+  private withAxisOffset(v: PageViewport, off: number): PageViewport {
+    return this.clamp(this.viewMode.direction === 'vertical' ? { ...v, offsetY: -off } : { ...v, offsetX: -off })
+  }
+
+  private turnAt(): number {
+    const a = this.turnAxis(this.viewport)
+    return nearestUnit(a.units, a.vp, a.off)
+  }
+
+  /**
+   * One unit toward `d` with the turn slide. Without `force` (wheel, arrows) a zoomed unit that still has room that
+   * way is left to scroll: false. `probe` only asks.
+   */
+  private turnMove(d: -1 | 1, force = false, probe = false): boolean {
+    if (!this.page || this.busy() || !(d === 1 || d === -1)) return false
+    const v = this.anim?.to ?? this.viewport
+    const { units, vp, off } = this.turnAxis(v)
+    if (units.length === 0) return false
+    const cur = nearestUnit(units, vp, off)
+    const u = units[cur]!
+    if (!force && u.size > vp && (d > 0 ? off < u.start + u.size - vp - 0.5 : off > u.start + 0.5)) return false
+    if (probe) return true
+    this.forced = null
+    const target = Math.min(units.length - 1, Math.max(0, cur + d))
+    this.goTo(this.withAxisOffset(v, turnOffset(units, vp, target, cur, off)), 'free', true)
+    return true
+  }
+
+  /** The previous / next edge buttons: one unit, also from a zoomed unit. */
+  turnBy(d: -1 | 1): void {
+    this.turnMove(d, true)
+  }
+
+  /** An arrow key in a turned view: along the direction axis turns one unit (true); the other axis is left to scroll. */
+  turnArrow(dx: number, dy: number): boolean {
+    if (this.viewMode.pagination !== 'turn') return false
+    const along = this.viewMode.direction === 'vertical' ? dy : dx
+    return along !== 0 && this.turnMove(Math.sign(along) as -1 | 1)
+  }
+
+  /** Every contact is up after a drag: slide to the unit it settles on (spec pageview.snap). */
+  private turnSettle(): void {
+    const d = this.dragged
+    this.dragged = null
+    if (!d || !this.page || this.viewMode.pagination !== 'turn') return
+    const { units, vp, off } = this.turnAxis(this.viewport)
+    if (units.length === 0) return
+    const v = (globalThis.performance?.now() ?? 0) - d.t < 100 ? d.v : 0
+    const r = pageSnap(units, vp, off, v, Math.min(d.unit, units.length - 1))
+    this.forced = null
+    this.goTo(this.withAxisOffset(this.viewport, r.offset), 'free', true)
+  }
+
+  /** A finger or pen drag of the view; in a turned view it remembers the start unit and the speed for the snap. */
+  private drag(dx: number, dy: number): void {
+    if (this.viewMode.pagination === 'turn') {
+      const now = globalThis.performance?.now() ?? 0
+      const along = this.viewMode.direction === 'vertical' ? dy : dx
+      const prev = this.dragged
+      const dt = prev ? now - prev.t : 0
+      const inst = dt > 0 ? (along / dt) * 1000 : 0
+      this.dragged = { unit: prev?.unit ?? this.turnAt(), v: prev && dt > 0 ? prev.v * 0.5 + inst * 0.5 : inst, t: now }
+    }
+    this.movePan(dx, dy)
   }
 
   private movePan(dx: number, dy: number): void {
@@ -685,6 +763,14 @@ export class Writer {
     if (e.shiftKey) {
       dx = dx || dy
       dy = 0
+    }
+    if (this.viewMode.pagination === 'turn') {
+      const along = this.viewMode.direction === 'vertical' ? dy : Math.abs(dx) >= Math.abs(dy) ? dx : dy
+      const d = Math.sign(along) as -1 | 1
+      if (this.turnMove(d, false, true)) {
+        if (this.wheelLock.hit(e.timeStamp, along)) this.turnMove(d)
+        return
+      }
     }
     this.scroll(dx, dy)
   }
@@ -2018,6 +2104,7 @@ export class Writer {
     const pb = g && this.touches.get(g.b)
     if (!g || !pa || !pb) return
     this.forced = null
+    if (this.viewMode.pagination === 'turn') this.dragged ??= { unit: this.turnAt(), v: 0, t: 0 }
     const [fx, fy] = this.local((pa.x + pb.x) / 2, (pa.y + pb.y) / 2)
     const s = snapScale((g.s0 * Math.hypot(pa.x - pb.x, pa.y - pb.y)) / g.d0, this.fitFor('width').scale)
     this.changeView(this.clamp({ scale: s, offsetX: fx - g.p0[0] * s, offsetY: fy - g.p0[1] * s }))
@@ -2042,7 +2129,7 @@ export class Writer {
       t.y = e.clientY
       // A pen is known: one finger drags the view.
       if (this.penOnly && this.mode === 'idle' && this.touches.size === 1 && e.pointerId === this.firstId) {
-        this.movePan(px - e.clientX, py - e.clientY)
+        this.drag(px - e.clientX, py - e.clientY)
         return
       }
       if (this.mode === 'gesture' && (e.pointerId === this.gesture?.a || e.pointerId === this.gesture?.b)) {
@@ -2054,7 +2141,7 @@ export class Writer {
       const { x, y } = this.pan
       this.pan.x = e.clientX
       this.pan.y = e.clientY
-      this.movePan(x - e.clientX, y - e.clientY)
+      this.drag(x - e.clientX, y - e.clientY)
       return
     }
     if (this.mode === 'xform' && this.xform && e.pointerId === this.xform.id) {
@@ -2186,6 +2273,7 @@ export class Writer {
       this.mode = 'ignored'
     }
     if (this.mode === 'ignored' && this.touches.size === 0) this.mode = 'none'
+    if (this.dragged && this.touches.size === 0 && this.mode !== 'pan' && this.mode !== 'gesture') this.turnSettle()
   }
 
   /** Ends the stroke in progress with the points so far. */

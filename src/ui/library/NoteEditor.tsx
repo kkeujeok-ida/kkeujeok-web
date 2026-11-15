@@ -979,7 +979,7 @@ export function NoteEditor({
       const d = arrow[e.key]
       if (d && !e.shiftKey) {
         e.preventDefault()
-        writer.scroll(d[0], d[1])
+        if (!writer.turnArrow(d[0], d[1])) writer.scroll(d[0], d[1])
       }
     }
     const onUp = (e: KeyboardEvent) => {
@@ -1660,6 +1660,14 @@ export function NoteEditor({
                 </button>
               ) : null
             })}
+            {viewMode.pagination === 'turn' && view && (
+              [-1, 1] as const).map((d) => (
+              <button key={d} type="button" className="btn turn-edge" data-dir={d} data-axis={viewMode.direction === 'vertical' ? 'y' : 'x'} aria-label={t(d < 0 ? 'editor.pagePrev' : 'editor.pageNext')} title={t(d < 0 ? 'editor.pagePrev' : 'editor.pageNext')} onClick={() => loaded.writer.turnBy(d)}>
+                <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d={viewMode.direction === 'vertical' ? (d < 0 ? 'M3 10l5-5 5 5' : 'M3 6l5 5 5-5') : d < 0 ? 'M10 3L5 8l5 5' : 'M6 3l5 5-5 5'} stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                </svg>
+              </button>
+            ))}
             {tapes.map((tp) => (
               <button
                 key={tp.id}

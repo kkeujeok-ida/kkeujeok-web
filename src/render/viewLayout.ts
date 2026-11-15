@@ -48,3 +48,71 @@ export function layoutSlots(pages: readonly PageSize[], mode: PageViewMode): Doc
   const main = Math.max(0, at - PAGE_GAP)
   return { list, units, w: vertical ? cross : main, h: vertical ? main : cross }
 }
+
+// --- Page turn snap (spec page-view pageview.snap); screen px along the direction axis. ---
+export type AxisUnit = { start: number; size: number }
+/** A flick at least this fast (px/s) turns one unit. */
+export const FLICK_SPEED = 600
+export const TURN_MS = 250
+
+/** The unit whose center is nearest the viewport center; a tie goes to the earlier one. */
+export function nearestUnit(units: readonly AxisUnit[], viewport: number, offset: number): number {
+  const mid = offset + viewport / 2
+  let best = 0
+  for (let i = 1; i < units.length; i++) {
+    if (Math.abs(units[i]!.start + units[i]!.size / 2 - mid) < Math.abs(units[best]!.start + units[best]!.size / 2 - mid)) best = i
+  }
+  return best
+}
+
+/** Final offset for `target`: a unit that fits is centered; a longer one keeps `offset` clamped (current) or shows its near edge. */
+export function turnOffset(units: readonly AxisUnit[], viewport: number, target: number, current: number, offset: number): number {
+  const u = units[target]!
+  if (u.size <= viewport) return u.start + u.size / 2 - viewport / 2
+  const last = u.start + u.size - viewport
+  if (target === current) return Math.min(last, Math.max(u.start, offset))
+  return target > current ? u.start : last
+}
+
+export function pageSnap(units: readonly AxisUnit[], viewport: number, offset: number, velocity: number, current: number): { target: number; offset: number } {
+  if (units.length === 0) return { target: 0, offset }
+  const c = units[current]!
+  if (c.size > viewport && offset >= c.start && offset <= c.start + c.size - viewport) return { target: current, offset }
+  const target = Math.abs(velocity) >= FLICK_SPEED ? Math.min(units.length - 1, Math.max(0, current + (velocity > 0 ? 1 : -1))) : nearestUnit(units, viewport, offset)
+  return { target, offset: turnOffset(units, viewport, target, current, offset) }
+}
+
+/** CSS `cubic-bezier(0, 0, 0.58, 1)` (ease-out): progress for time `t` in 0..1. */
+export function easeOutCurve(t: number): number {
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 30; i++) {
+    const s = (lo + hi) / 2
+    const x = 3 * (1 - s) * s * s * 0.58 + s * s * s
+    if (x < t) lo = s
+    else hi = s
+  }
+  const s = (lo + hi) / 2
+  return 3 * (1 - s) * s * s + s * s * s
+}
+
+/** Wheel lock of a turned view: one turn, then locked 400 ms and while events come less than 120 ms apart (trackpad inertia). */
+export class WheelLock {
+  private locked = false
+  private from = 0
+  private last = 0
+  /** True when this wheel event (axis delta in px, `now` in ms) turns one unit. */
+  hit(now: number, delta: number): boolean {
+    if (this.locked) {
+      if (now - this.from < 400 || now - this.last < 120) {
+        this.last = now
+        return false
+      }
+      this.locked = false
+    }
+    if (!(Math.abs(delta) >= 4)) return false
+    this.locked = true
+    this.from = this.last = now
+    return true
+  }
+}

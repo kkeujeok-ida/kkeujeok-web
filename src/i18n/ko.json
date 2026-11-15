@@ -243,6 +243,8 @@
   "editor.otherTab": "다른 탭에서 이 노트를 편집 중이에요. 여기서 편집하려면 그 탭을 닫아 주세요.",
   "editor.readOnlyTip": "읽기 전용이에요",
   "editor.historyNotApplied": "되돌리지 못했어요.",
+  "editor.pagePrev": "이전 페이지",
+  "editor.pageNext": "다음 페이지",
   "editor.viewOptions": "보기 설정",
   "editor.viewPagination": "넘김 방식",
   "editor.viewDirection": "방향",

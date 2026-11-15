@@ -243,6 +243,8 @@
   "editor.otherTab": "This note is being edited in another tab. Close that tab to edit here.",
   "editor.readOnlyTip": "Read only",
   "editor.historyNotApplied": "Couldn't apply that change.",
+  "editor.pagePrev": "Previous page",
+  "editor.pageNext": "Next page",
   "editor.viewOptions": "View options",
   "editor.viewPagination": "Paging",
   "editor.viewDirection": "Direction",

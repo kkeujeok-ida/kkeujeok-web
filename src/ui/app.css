@@ -2747,6 +2747,43 @@ input[type='range'] {
   transform: translateY(-50%);
 }
 
+/* Previous / next unit of a turned view (Story 31.7). */
+.turn-edge {
+  position: absolute;
+  z-index: 2;
+  border-color: var(--color-border-control);
+  border-radius: 9999px;
+  background: var(--color-surface-raised);
+  color: var(--color-ink-primary);
+  box-shadow: var(--components-toolbar-shadow);
+  opacity: 0.85;
+}
+
+.turn-edge[data-axis='x'] {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.turn-edge[data-axis='x'][data-dir='-1'] {
+  left: var(--spacing-1);
+}
+
+.turn-edge[data-axis='x'][data-dir='1'] {
+  right: var(--spacing-1);
+}
+
+.turn-edge[data-axis='y'] {
+  right: var(--spacing-1);
+}
+
+.turn-edge[data-axis='y'][data-dir='-1'] {
+  top: var(--spacing-1);
+}
+
+.turn-edge[data-axis='y'][data-dir='1'] {
+  bottom: var(--spacing-1);
+}
+
 /* Reordering and picking pages (Story 6.7). */
 .po-item[data-drop]::before,
 .po-item[data-drop]::after {

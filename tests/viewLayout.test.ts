@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { fitHeightViewport } from '../src/render/pagePainter'
-import { PAGE_GAP, SPINE_GAP, layoutSlots as layout } from '../src/render/viewLayout'
+import { PAGE_GAP, SPINE_GAP, WheelLock, layoutSlots as layout } from '../src/render/viewLayout'
 import { VIEW_PRESETS, type PageViewMode } from '../src/storage/viewMode'
 
 const layoutSlots = (p: { width: number; height: number }[], m: keyof typeof VIEW_PRESETS) => layout(p, VIEW_PRESETS[m] as PageViewMode)
@@ -68,5 +68,17 @@ describe('fitHeightViewport', () => {
     const v = fitHeightViewport(800, 600, 400, 200, { gap: 10, extraBottom: 20 })
     expect(v.scale).toBeCloseTo(560 / 200)
     expect(v.offsetX).toBe(0)
+  })
+})
+
+describe('WheelLock (spec page-view wheel lock)', () => {
+  test('turns once, locks 400 ms, then while events are under 120 ms apart', () => {
+    const l = new WheelLock()
+    expect(l.hit(0, 3)).toBe(false) // under 4 px
+    expect(l.hit(10, 10)).toBe(true)
+    expect(l.hit(300, 10)).toBe(false) // inside 400 ms
+    expect(l.hit(410, 10)).toBe(false) // inertia: 110 ms after the last
+    expect(l.hit(500, 10)).toBe(false) // 90 ms
+    expect(l.hit(700, 10)).toBe(true) // 200 ms gap releases
   })
 })

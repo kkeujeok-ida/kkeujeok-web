@@ -36,7 +36,7 @@ import { pageBackground } from '../src/render/pageBackground'
 import { strokeOutline, strokeOutlineFor } from '../src/render/strokeOutline'
 import { pencilDensity, pencilStamps, pencilStampsV2, type PencilStampV2 } from '../src/render/pencilTexture'
 import { effectiveView, migrateView, type PageViewMode } from '../src/storage/viewMode'
-import { layoutSlots } from '../src/render/viewLayout'
+import { layoutSlots, pageSnap } from '../src/render/viewLayout'
 import { hasUnsentRule } from '../src/sync/hasUnsent'
 import { checkLogEntry } from '../src/sync/syncLogEntry'
 import { driveDuplicatesRule } from '../src/drive/duplicates'
@@ -129,6 +129,10 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
       w: d.w,
       h: d.h,
     }).toEqual(expected)
+  },
+  'pageview.snap': ({ input, expected }) => {
+    const i = input as { units: { start: number; size: number }[]; viewport: number; offset: number; velocity: number; current: number }
+    expect(pageSnap(i.units, i.viewport, i.offset, i.velocity, i.current)).toEqual(expected)
   },
   'pageview.migrate': ({ input, expected }) => {
     const i = input as { old: unknown; new: unknown }
@@ -595,8 +599,6 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
-  // Story 31.1: the snap runner arrives with Story 31.7.
-  'pageview.snap',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
 
