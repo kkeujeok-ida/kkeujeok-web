@@ -484,6 +484,7 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
   'drive.remoteTitle': ({ input, expected }) => void expect(driveRemoteTitleRule(input as Parameters<typeof driveRemoteTitleRule>[0])).toEqual(expected),
   'drive.listSummary': ({ input, expected }) => void expect(listSummaryRule(input)).toEqual(expected),
   'merge.page3way': mergeRunner,
+  'merge.paper': mergeRunner,
   'merge.staleSeq': mergeRunner,
   'merge.seqAfterMerge': mergeRunner,
   'merge.conflictSidecar': mergeRunner,
@@ -600,6 +601,16 @@ const PENDING: string[] = [
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
+  // Epic 32 (Story 32.1): runners arrive with 32.2 (Android) and 32.3 (web); formatVersion 3 too.
+  'page.paper',
+  'note.paper',
+  'ops.setPaper',
+  'ops.setNewBackground',
+  'invert.paperColor',
+  'export.paper',
+  'custom.accept',
+  'custom.coverId',
+  'custom.referencedAssets',
 ]
 
 function mergeRunner({ input, expected }: Case) {
