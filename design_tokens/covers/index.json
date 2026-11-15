@@ -1,8 +1,12 @@
 {
   "version": 1,
   "covers": [
-    { "id": "linen", "name": { "ko": "리넨", "en": "Linen" }, "file": "linen.svg" },
-    { "id": "midnight", "name": { "ko": "미드나잇", "en": "Midnight" }, "file": "midnight.svg" },
-    { "id": "sage", "name": { "ko": "세이지", "en": "Sage" }, "file": "sage.svg" }
+    { "id": "linen", "name": {"ko": "리넨", "en": "Linen"}, "file": "linen.svg"},
+    { "id": "midnight", "name": {"ko": "미드나잇", "en": "Midnight"}, "file": "midnight.svg"},
+    { "id": "sage", "name": {"ko": "세이지", "en": "Sage"}, "file": "sage.svg"},
+    { "id": "coral", "name": {"ko": "코랄", "en": "Coral"}, "file": "coral.svg"},
+    { "id": "ocean", "name": {"ko": "오션", "en": "Ocean"}, "file": "ocean.svg"},
+    { "id": "slate", "name": {"ko": "슬레이트", "en": "Slate"}, "file": "slate.svg"},
+    { "id": "rose", "name": {"ko": "로즈", "en": "Rose"}, "file": "rose.svg"}
   ]
 }

@@ -6,9 +6,9 @@ const dir = join(__dirname, '..', 'design_tokens', 'covers')
 const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8'))
 
 describe('cover assets', () => {
-  it('index has version 1 and the three covers in order', () => {
+  it('index has version 1 and the seven covers in order', () => {
     expect(index.version).toBe(1)
-    expect(index.covers.map((c: { id: string }) => c.id)).toEqual(['linen', 'midnight', 'sage'])
+    expect(index.covers.map((c: { id: string }) => c.id)).toEqual(['linen', 'midnight', 'sage', 'coral', 'ocean', 'slate', 'rose'])
   })
 
   for (const c of index.covers) {

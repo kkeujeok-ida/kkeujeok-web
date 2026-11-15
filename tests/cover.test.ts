@@ -60,8 +60,8 @@ describe('cover UI', () => {
   test('radios: none + index covers, accessible name = cover name, checked state', () => {
     act(() => root.render(createElement(I18nContext.Provider, { value: i18n() }, createElement(CoverRadios, { name: 'c', value: 'sage', onChange: () => {} }))))
     const radios = [...host.querySelectorAll<HTMLInputElement>('input[type="radio"]')]
-    expect(radios.map((r) => r.closest('label')!.textContent)).toEqual(['No cover', 'Linen', 'Midnight', 'Sage'])
-    expect(radios.map((r) => r.checked)).toEqual([false, false, false, true])
+    expect(radios.map((r) => r.closest('label')!.textContent)).toEqual(['No cover', 'Linen', 'Midnight', 'Sage', 'Coral', 'Ocean', 'Slate', 'Rose'])
+    expect(radios.map((r) => r.checked)).toEqual([false, false, false, true, false, false, false, false])
   })
 
   test('card: known id draws the cover picture, unknown id keeps the thumbnail and the note keeps its coverId', async () => {
