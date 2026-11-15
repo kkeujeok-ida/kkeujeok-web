@@ -48,7 +48,9 @@ import { VersionHistory } from './VersionHistory'
 import { ExportDialog } from './ExportDialog'
 import { onResolveRequest, takeResolveRequest } from './resolveRequest'
 import { detectEditedBy } from './useLibrary'
-import { ZOOM_MAX, ZOOM_MIN } from '../../render/pagePainter'
+import { ZOOM_MAX } from '../../render/pagePainter'
+import { canvasMode } from '../../model/canvasRules'
+import { exportCanvasPng } from '../../export/canvasPng'
 import type { ImageHost } from '../../render/imageHost'
 import { SHAPE_KINDS, type ShapeKind } from '../../model/shape'
 import { ARROW_STEP, Writer, ZOOM_STEP, type EditInfo, type ErasedInfo, type Tool, type SelectionBox, type TapeNode, type ViewInfo, type WriterMessage } from './writer'
@@ -101,6 +103,7 @@ const MESSAGE_KEY: Record<WriterMessage, Key> = {
   imageUnsupported: 'editor.imageUnsupported',
   imageUnreadable: 'editor.imageUnreadable',
   imageStoreFailed: 'editor.imageStoreFailed',
+  exportPngSoon: 'editor.exportPngSoon',
 }
 
 // Per note: the release of the lock a left editor still holds.
@@ -310,7 +313,7 @@ export function NoteEditor({
                 detectEditedBy,
                 () => live && setRevision((n) => n + 1),
               )
-              w.readOnly = readOnly || newer
+              w.readOnly = readOnly || newer || canvasMode(note as never) === 'readOnly' // unknown kind or invalid canvas: view only
               w.images = imagesRef.current ?? null
               // Pages with an unresolved conflict are read-only from the first frame (Story 3.20).
               if (sync) w.history.setLocked(unresolvedOf(sync.info).map((c) => String(c.pageId)))
@@ -543,7 +546,9 @@ export function NoteEditor({
   useEffect(() => {
     if (newer && loaded) loaded.writer.readOnly = true
   }, [newer, loaded])
-  const readOnly = (loaded?.readOnly ?? false) || newer
+  const mode = loaded ? canvasMode(loaded.writer.history.note) : 'note'
+  const isCanvas = mode === 'canvas'
+  const readOnly = (loaded?.readOnly ?? false) || newer || mode === 'readOnly'
   const readOnlyRef = useRef(readOnly)
   readOnlyRef.current = readOnly
   // Conflict pages (Story 3.20): the writer learns about pages the status store knows (never unlocks), and
@@ -786,7 +791,7 @@ export function NoteEditor({
       if (e.repeat || e.isComposing || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
       if (e.code !== 'KeyP' && e.key.toLowerCase() !== 'p') return
       e.preventDefault()
-      if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return
+      if (document.querySelector('[role="dialog"], [aria-modal="true"]') || canvasMode(loaded.writer.history.note) !== 'note') return
       setMenuOpen(false)
       setExportOpen('print')
     }
@@ -1271,7 +1276,7 @@ export function NoteEditor({
 
   const scale = view?.scale ?? 1
   const percent = Math.round(scale * 100)
-  const atMin = scale <= ZOOM_MIN + 1e-9
+  const atMin = scale <= (loaded?.writer.minZoom ?? 0.5) + 1e-9
   const atMax = scale >= ZOOM_MAX - 1e-9
   // Spoken when the level changes, and when the menu opens.
   const levelText = fmt(t('editor.zoomLevel'), { percent })
@@ -1519,7 +1524,7 @@ export function NoteEditor({
                     <circle cx="13" cy="8" r="1.4" fill="currentColor" />
                   </svg>
                 </button>
-                <button
+                {!isCanvas && <button
                   ref={viewBtn}
                   type="button"
                   className="btn editor-back"
@@ -1530,8 +1535,8 @@ export function NoteEditor({
                   onClick={() => setViewOpen((o) => !o)}
                 >
                   <ViewComboIcon mode={shown} />
-                </button>
-                <button
+                </button>}
+                {!isCanvas && <button
                   ref={pageBtn}
                   type="button"
                   className="btn editor-back"
@@ -1544,7 +1549,7 @@ export function NoteEditor({
                   <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
                     <path d="M2.5 2.5h4.5v4.5h-4.5zM9 2.5h4.5v4.5h-4.5zM2.5 9h4.5v4.5h-4.5zM9 9h4.5v4.5h-4.5z" stroke="currentColor" strokeWidth="1.5" fill="none" />
                   </svg>
-                </button>
+                </button>}
               </div>
               {viewOpen && (
                 <div ref={viewPop}>
@@ -1609,23 +1614,26 @@ export function NoteEditor({
                     className="editor-menu-item"
                     onClick={() => {
                       setMenuOpen(false)
-                      setExportOpen('export')
+                      if (!isCanvas) return setExportOpen('export')
+                      exportCanvasPng(loaded.writer.history.note).catch(() => setMessage((p) => ({ key: 'exportPngSoon', n: (p?.n ?? 0) + 1 })))
                     }}
                   >
-                    {t('editor.export')}
+                    {t(isCanvas ? 'editor.exportPng' : 'editor.export')}
                   </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="editor-menu-item"
-                    aria-keyshortcuts="Control+P Meta+P"
-                    onClick={() => {
-                      setMenuOpen(false)
-                      setExportOpen('print')
-                    }}
-                  >
-                    {t('editor.print')}
-                  </button>
+                  {!isCanvas && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="editor-menu-item"
+                      aria-keyshortcuts="Control+P Meta+P"
+                      onClick={() => {
+                        setMenuOpen(false)
+                        setExportOpen('print')
+                      }}
+                    >
+                      {t('editor.print')}
+                    </button>
+                  )}
                   {ui?.versions && (
                     <button
                       type="button"
@@ -1666,7 +1674,7 @@ export function NoteEditor({
               aria-label={pageLabel}
               aria-describedby={descId}
             />
-            {!readOnly && !loaded.readOnly && view && (['start', 'end'] as const).map((edge) => {
+            {!isCanvas && !readOnly && !loaded.readOnly && view && (['start', 'end'] as const).map((edge) => {
               const thumb = viewMode.direction === 'vertical' ? view.y : view.x
               const there = !thumb || (edge === 'start' ? thumb.start <= 0.001 : thumb.start + thumb.size >= 0.999)
               return there ? (
@@ -1678,7 +1686,7 @@ export function NoteEditor({
                 </button>
               ) : null
             })}
-            {viewMode.pagination === 'turn' && view && (
+            {!isCanvas && viewMode.pagination === 'turn' && view && (
               [-1, 1] as const).map((d) => (
               <button key={d} type="button" className="btn turn-edge" data-dir={d} data-axis={viewMode.direction === 'vertical' ? 'y' : 'x'} aria-label={t(d < 0 ? 'editor.pagePrev' : 'editor.pageNext')} title={t(d < 0 ? 'editor.pagePrev' : 'editor.pageNext')} onClick={() => loaded.writer.turnBy(d)}>
                 <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -1768,7 +1776,7 @@ export function NoteEditor({
               </span>
             )}
           </div>
-          {panelOpen && (
+          {panelOpen && !isCanvas && (
             <PageOverview
               ref={panel}
               images={images}

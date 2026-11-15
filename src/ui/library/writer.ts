@@ -23,6 +23,7 @@ import type { Page, Stroke } from '../../model/note'
 import { defaultShapePen, type Pen } from '../../model/pen'
 import { type History, touched } from '../../ops/history'
 import type { Note } from '../../model/note'
+import { canvasMode } from '../../model/canvasRules'
 import { type ResolveResult, resolveConflict } from '../../ops/resolveConflict'
 import { commitMerge } from '../../sync/commitMerge'
 import { sidecarKey } from '../../sync/conflicts'
@@ -32,6 +33,7 @@ import {
   clampViewport,
   fitHeightViewport,
   fitPageViewport,
+  ZOOM_MIN,
   fitWidthViewport,
   paintPage,
   selectionMatrix,
@@ -61,6 +63,7 @@ export type WriterMessage =
   | 'imageUnsupported'
   | 'imageUnreadable'
   | 'imageStoreFailed'
+  | 'exportPngSoon'
 
 /** `ox`, `oy`: where the page of the stroke starts in the continuous scroll; `points` are in that page's coordinates. */
 /** Line straightening state of one stroke (pen-feel.md pen.straighten): `anchor` is the still-detection anchor, `dead` once a second pointer came. */
@@ -229,7 +232,19 @@ export class Writer {
   /** The way the pages are laid out; set by the editor from the device setting. */
   private storedView: PageViewMode = DEFAULT_VIEW
   /** The layout on screen: a phone shows 1 page; the stored value is kept. */
+  private get isCanvas(): boolean {
+    return canvasMode(this.history.note) === 'canvas'
+  }
+
+  /** A canvas never zooms out past its whole-canvas fit; a note down to ZOOM_MIN. */
+  get minZoom(): number {
+    if (!this.isCanvas || !this.page || !(this.cssW > 0 && this.cssH > 0)) return ZOOM_MIN
+    const p = this.history.note.pages[0]!
+    return fitPageViewport(this.cssW, this.cssH, p.width, p.height, this.ins, 0).scale
+  }
+
   private get viewMode(): PageViewMode {
+    if (this.isCanvas) return { pagination: 'scroll', direction: 'vertical', pages: 1 } // one fixed page
     return effectiveView(this.storedView, { w: globalThis.innerWidth, h: globalThis.innerHeight })
   }
   /** A pen is known on this device: one finger moves the view instead of writing. */
@@ -469,6 +484,10 @@ export class Writer {
   }
 
   private fitFor(mode: 'width' | 'page'): PageViewport {
+    if (this.isCanvas) {
+      const p = this.history.note.pages[0]!
+      return this.clamp(fitPageViewport(this.cssW, this.cssH, p.width, p.height, this.ins, 0))
+    }
     const d = this.slots()
     if (this.viewMode.direction === 'vertical') {
       if (mode === 'width') return fitWidthViewport(this.cssW, this.cssH, d.w, d.h, this.ins)
@@ -503,6 +522,7 @@ export class Writer {
   }
 
   private clamp(v: PageViewport): PageViewport {
+    if (this.isCanvas && v.scale < this.minZoom) v = { ...v, scale: this.minZoom }
     const d = this.slots()
     return clampViewport(v, this.cssW, this.cssH, d.w, d.h, this.ins)
   }
@@ -618,7 +638,7 @@ export class Writer {
     if (!this.page || this.busy()) return
     this.forced = null
     const base = this.anim?.to ?? this.viewport
-    const z = zoomAbout(base, this.cssW / 2, this.cssH / 2, snapScale(base.scale * factor, this.fitFor('width').scale))
+    const z = zoomAbout(base, this.cssW / 2, this.cssH / 2, snapScale(base.scale * factor, this.fitFor('width').scale, this.minZoom), this.minZoom)
     this.goTo(this.clamp(z), 'free')
   }
 
@@ -753,10 +773,10 @@ export class Writer {
       const [fx, fy] = this.local(e.clientX, e.clientY)
       // The wheel keeps counting from the scale it asked for, so it leaves the snap (spec zoom.snap).
       const cur = this.viewport.scale
-      const asked = clampScale((this.wheelAsk?.shown === cur ? this.wheelAsk.value : cur) * Math.exp(-dy * WHEEL_ZOOM))
-      const shown = snapScale(asked, this.fitFor('width').scale)
+      const asked = clampScale((this.wheelAsk?.shown === cur ? this.wheelAsk.value : cur) * Math.exp(-dy * WHEEL_ZOOM), this.minZoom)
+      const shown = snapScale(asked, this.fitFor('width').scale, this.minZoom)
       this.wheelAsk = { shown, value: asked }
-      const z = zoomAbout(this.viewport, fx, fy, shown)
+      const z = zoomAbout(this.viewport, fx, fy, shown, this.minZoom)
       this.setView(this.clamp(z), 'free')
       return
     }
@@ -816,7 +836,7 @@ export class Writer {
       const shown = pv ? { ...s.page, elements: pv.elements } : s.page
       const xf = this.xform
       const sp = xf && xf.slot.page.id === s.page.id ? this.selMatrix(xf) : null
-      paintPage(ctx, shown, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null, draft && draft.pageId === s.page.id ? draft : null, this.images ?? undefined, pv ? { ids: pv.fadeIds, alpha: eraserPreviewOpacity(c) } : null, undefined, this.openTapes, sp)
+      paintPage(ctx, shown, at, this.cacheOf(s.page.id), this.drawing?.pageId === s.page.id ? live : null, draft && draft.pageId === s.page.id ? draft : null, this.images ?? undefined, pv ? { ids: pv.fadeIds, alpha: eraserPreviewOpacity(c) } : null, undefined, this.openTapes, sp, true)
     }
     this.emitTapes()
     if (this.ring && this.pointer && (this.tool === 'eraser' || this.erase)) {
@@ -2106,7 +2126,7 @@ export class Writer {
     this.forced = null
     if (this.viewMode.pagination === 'turn') this.dragged ??= { unit: this.turnAt(), v: 0, t: 0 }
     const [fx, fy] = this.local((pa.x + pb.x) / 2, (pa.y + pb.y) / 2)
-    const s = snapScale((g.s0 * Math.hypot(pa.x - pb.x, pa.y - pb.y)) / g.d0, this.fitFor('width').scale)
+    const s = snapScale((g.s0 * Math.hypot(pa.x - pb.x, pa.y - pb.y)) / g.d0, this.fitFor('width').scale, this.minZoom)
     this.changeView(this.clamp({ scale: s, offsetX: fx - g.p0[0] * s, offsetY: fy - g.p0[1] * s }))
   }
 

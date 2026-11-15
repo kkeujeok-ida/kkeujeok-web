@@ -500,6 +500,8 @@
   "page.orientationSet": "Page {n} is now {orientation}",
   "page.selectOutOfBounds": "Select {n} elements outside the page",
   "editor.export": "Export as PDF",
+  "editor.exportPng": "Export PNG",
+  "editor.exportPngSoon": "Export PNG will be available soon.",
   "editor.print": "Print",
   "print.title": "Print",
   "print.start": "Print",

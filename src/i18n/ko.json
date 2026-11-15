@@ -500,6 +500,8 @@
   "page.orientationSet": "{n}페이지를 {orientation}로 바꿨어요",
   "page.selectOutOfBounds": "페이지 밖 요소 {n}개 선택",
   "editor.export": "PDF로 내보내기",
+  "editor.exportPng": "PNG 내보내기",
+  "editor.exportPngSoon": "PNG 내보내기는 곧 제공됩니다.",
   "editor.print": "인쇄",
   "print.title": "인쇄",
   "print.start": "인쇄",

@@ -1088,7 +1088,7 @@ function PageThumb({ page, images }: { page: Page | undefined; images?: Partial<
         const ctx = c.getContext('2d')
         if (!ctx) return
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-        paintPage(ctx, page, fitViewport(r.width, r.height, page.width, page.height), cache, null, null, pdfHost)
+        paintPage(ctx, page, fitViewport(r.width, r.height, page.width, page.height), cache, null, null, pdfHost, undefined, undefined, undefined, undefined, true)
       } catch {
         // an empty card
       }

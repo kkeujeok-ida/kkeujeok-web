@@ -42,11 +42,11 @@ export type ViewInsets = { gap: number; extraBottom: number; extraTop?: number }
 /** A scrollbar thumb as fractions (0..1) of its track. */
 export type Thumb = { start: number; size: number }
 
-export const clampScale = (s: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, s))
+export const clampScale = (s: number, min = ZOOM_MIN) => Math.min(ZOOM_MAX, Math.max(min, s))
 /** Spec zoom.snap: a scale within 10% of the width-fit scale shows as that scale. */
-export function snapScale(scale: number, fitScale: number): number {
-  const f = clampScale(fitScale)
-  const s = clampScale(scale)
+export function snapScale(scale: number, fitScale: number, min = ZOOM_MIN): number {
+  const f = clampScale(fitScale, min)
+  const s = clampScale(scale, min)
   return f * 0.9 <= s && s <= f * 1.1 ? f : s
 }
 /** A page this close to the view width (float error of a width fit) counts as fitting. */
@@ -98,16 +98,16 @@ export function fitWidthViewport(w: number, h: number, pageW: number, pageH: num
 }
 
 /** The whole page inside the padded area, centered. */
-export function fitPageViewport(w: number, h: number, pageW: number, pageH: number, ins: ViewInsets): PageViewport {
+export function fitPageViewport(w: number, h: number, pageW: number, pageH: number, ins: ViewInsets, min = ZOOM_MIN): PageViewport {
   const a = area(w, h, pageW, pageH, ins)
   if (!a) return IDENTITY
-  const scale = clampScale(Math.min(a.aw / pageW, a.ah / pageH))
+  const scale = clampScale(Math.min(a.aw / pageW, a.ah / pageH), min)
   return clampViewport({ scale, offsetX: 0, offsetY: 0 }, w, h, pageW, pageH, ins)
 }
 
 /** `scale` (in range) with the page point under (fx, fy) staying under it. Not clamped to the page. */
-export function zoomAbout(vp: PageViewport, fx: number, fy: number, scale: number): PageViewport {
-  const s = clampScale(scale)
+export function zoomAbout(vp: PageViewport, fx: number, fy: number, scale: number, min = ZOOM_MIN): PageViewport {
+  const s = clampScale(scale, min)
   const [px, py] = toPage(vp, fx, fy)
   return { scale: s, offsetX: fx - px * s, offsetY: fy - py * s }
 }
@@ -563,6 +563,8 @@ export function paintPage(
   openTapes?: ReadonlySet<string>,
   /** A selection being dragged: these elements are drawn through `m` (page coordinates) instead of in place. Display only. */
   selPreview?: { ids: ReadonlySet<string>; m: Affine } | null,
+  /** Display only: a transparent canvas shows a checkerboard (never in an export or thumbnail). */
+  checker = false,
 ): void {
   const { width: w, height: h } = page
   const { scale, offsetX, offsetY } = viewport
@@ -577,14 +579,26 @@ export function paintPage(
     ctx.clip()
 
     // A PDF page inverts nothing, so one rule decides for every layer.
-    const dark = allDark && invertLayers({ page, layer: 'paper' }).invert
+    const bgv = page.background as unknown
+    const canvasBg = bgv === 'transparent' || (typeof bgv === 'object' && bgv !== null && (bgv as { type?: unknown }).type === 'color')
+    const dark = !canvasBg && allDark && invertLayers({ page, layer: 'paper' }).invert
     const name = patternOf(page.background)
     // A huge page would make the pattern explode: paper only past this count.
     const count = name === 'dot' ? (w / 28) * (h / 28) : name === 'grid' ? (w + h) / 28 : name === 'grid-s' ? (w + h) / 14 : h / 28
     const custom = isCustomBackground(page.background) // no paper, no pattern: the image is the ground
     const bg = custom || count > MAX_BACKGROUND_ITEMS ? pageBackground('plain', w, h, custom ? 'white' : page.paper) : pageBackground(name, w, h, page.paper)
-    ctx.fillStyle = dark ? paperHex() : bg.paper
-    ctx.fillRect(0, 0, w, h)
+    if (bgv === 'transparent') {
+      if (checker) {
+        const s = 16
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, w, h)
+        ctx.fillStyle = '#d9d9d9'
+        for (let y = 0; y * s < h; y++) for (let x = y % 2; x * s < w; x += 2) ctx.fillRect(x * s, y * s, s, s)
+      }
+    } else {
+      ctx.fillStyle = dark ? paperHex() : canvasBg ? ((bgv as { value: string }).value) : bg.paper
+      ctx.fillRect(0, 0, w, h)
+    }
     if (bg.lines.length > 0) {
       ctx.strokeStyle = dark ? lineHex() : bg.lineColor
       ctx.lineWidth = bg.lineWidth
