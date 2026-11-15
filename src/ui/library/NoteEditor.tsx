@@ -35,7 +35,7 @@ import { ShapePopover } from './ShapePopover'
 import { sharedEraserSettings, type EraserSettingsStore } from '../../storage/eraserSettings'
 import { PenToolbar } from './PenToolbar'
 import { sharedToolbarPosition, type ToolbarPositionStore } from '../../storage/toolbarPosition'
-import { sharedViewMode, VIEW_MODES, type ViewMode, type ViewModeStore } from '../../storage/viewMode'
+import { PRESET_NAMES, VIEW_PRESETS, sharedViewMode, type PageViewMode, type PresetName, type ViewModeStore } from '../../storage/viewMode'
 import { sharedPenDetected, type PenDetectedStore } from '../../storage/penDetected'
 import { revealShift } from './toolbarDock'
 import { useToolbarDock } from './useToolbarDock'
@@ -205,7 +205,7 @@ export function NoteEditor({
   const [, setRevision] = useState(0)
   const [view, setView] = useState<ViewInfo | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [viewMode, setViewMode] = useState<ViewMode>(() => viewModeStore.read())
+  const [viewMode, setViewMode] = useState<PageViewMode>(() => viewModeStore.read())
   const [modeSay, setModeSay] = useState('')
   const [panelOpen, setPanelOpen] = useState(false)
   // [+ 페이지 추가] at the ends of the note: adds a page there (set once the page list is known).
@@ -1303,9 +1303,9 @@ export function NoteEditor({
     setPanelOpen(false)
     pageBtn.current?.focus()
   }
-  const modeName = (m: ViewMode) => t({ vertical: 'editor.viewVertical', horizontal: 'editor.viewHorizontal', twoPage: 'editor.viewTwoPage' }[m] as 'editor.viewVertical')
-  const pickMode = (m: ViewMode) => {
-    setViewMode(viewModeStore.write(m))
+  const modeName = (m: PresetName) => t({ vertical: 'editor.viewVertical', horizontal: 'editor.viewHorizontal', twoPage: 'editor.viewTwoPage' }[m] as 'editor.viewVertical')
+  const pickMode = (m: PresetName) => {
+    setViewMode(viewModeStore.write({ ...VIEW_PRESETS[m], pagination: viewMode.pagination }))
     setModeSay(fmt(t('editor.viewModeChanged'), { mode: modeName(m) }))
     setMenuOpen(false)
     more.current?.focus()
@@ -1546,15 +1546,15 @@ export function NoteEditor({
                       </svg>
                     </button>
                   </div>
-                  <button type="button" role="menuitem" className="editor-menu-item" title={viewMode === 'vertical' ? t('editor.fitWidthTip') : `${t('editor.fitHeight')} (Ctrl+0)`} onClick={() => choose('width')}>
-                    {t(viewMode === 'vertical' ? 'editor.fitWidth' : 'editor.fitHeight')}
+                  <button type="button" role="menuitem" className="editor-menu-item" title={viewMode.direction === 'vertical' ? t('editor.fitWidthTip') : `${t('editor.fitHeight')} (Ctrl+0)`} onClick={() => choose('width')}>
+                    {t(viewMode.direction === 'vertical' ? 'editor.fitWidth' : 'editor.fitHeight')}
                   </button>
                   <button type="button" role="menuitem" className="editor-menu-item" onClick={() => choose('page')}>
                     {t('editor.fitPage')}
                   </button>
                   <div role="group" aria-label={t('editor.viewMode')} className="editor-menu-group">
-                    {VIEW_MODES.map((m) => (
-                      <button key={m} type="button" role="menuitemradio" aria-checked={viewMode === m} className="editor-menu-item" onClick={() => pickMode(m)}>
+                    {PRESET_NAMES.map((m) => (
+                      <button key={m} type="button" role="menuitemradio" aria-checked={viewMode.direction === VIEW_PRESETS[m].direction && viewMode.pages === VIEW_PRESETS[m].pages} className="editor-menu-item" onClick={() => pickMode(m)}>
                         {modeName(m)}
                       </button>
                     ))}
@@ -1623,10 +1623,10 @@ export function NoteEditor({
               aria-describedby={descId}
             />
             {!readOnly && !loaded.readOnly && view && (['start', 'end'] as const).map((edge) => {
-              const thumb = viewMode === 'vertical' ? view.y : view.x
+              const thumb = viewMode.direction === 'vertical' ? view.y : view.x
               const there = !thumb || (edge === 'start' ? thumb.start <= 0.001 : thumb.start + thumb.size >= 0.999)
               return there ? (
-                <button key={edge} type="button" className="btn add-page-edge" data-edge={edge} data-axis={viewMode === 'vertical' ? 'y' : 'x'} onClick={() => addEdgeRef.current(edge)}>
+                <button key={edge} type="button" className="btn add-page-edge" data-edge={edge} data-axis={viewMode.direction === 'vertical' ? 'y' : 'x'} onClick={() => addEdgeRef.current(edge)}>
                   <svg className="icon" viewBox="0 0 16 16" aria-hidden="true">
                     <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
                   </svg>

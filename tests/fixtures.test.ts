@@ -35,6 +35,8 @@ import { liveFreeze, snapScale } from '../src/render/pagePainter'
 import { pageBackground } from '../src/render/pageBackground'
 import { strokeOutline, strokeOutlineFor } from '../src/render/strokeOutline'
 import { pencilDensity, pencilStamps, pencilStampsV2, type PencilStampV2 } from '../src/render/pencilTexture'
+import { effectiveView, migrateView, type PageViewMode } from '../src/storage/viewMode'
+import { layoutSlots } from '../src/render/viewLayout'
 import { hasUnsentRule } from '../src/sync/hasUnsent'
 import { checkLogEntry } from '../src/sync/syncLogEntry'
 import { driveDuplicatesRule } from '../src/drive/duplicates'
@@ -115,6 +117,22 @@ const runners: Record<string, (c: Case) => void | Promise<void>> = {
     const out = round2(input)
     expect(Object.is(out, -0), 'output is negative zero').toBe(false)
     expect(out).toBe(expected)
+  },
+  'pageview.layout': ({ input, expected }) => {
+    const i = input as { sizes: { w: number; h: number }[]; pagination: PageViewMode['pagination']; direction: PageViewMode['direction']; pages: 1 | 2; screen?: { w: number; h: number } }
+    const m = effectiveView({ pagination: i.pagination, direction: i.direction, pages: i.pages }, i.screen)
+    const d = layoutSlots(i.sizes.map((s) => ({ width: s.w, height: s.h })), m)
+    expect({
+      pages: m.pages,
+      rects: d.list.map((l) => ({ x: l.x, y: l.y, w: i.sizes[l.index]!.w, h: i.sizes[l.index]!.h })),
+      units: d.units.map((u) => ({ first: u.first, last: u.last, x: u.x, y: u.y, w: u.w, h: u.h })),
+      w: d.w,
+      h: d.h,
+    }).toEqual(expected)
+  },
+  'pageview.migrate': ({ input, expected }) => {
+    const i = input as { old: unknown; new: unknown }
+    expect(migrateView(i.old, i.new)).toEqual(expected)
   },
   'pen.defaultSlots': ({ expected }) => {
     expect({ slots: defaultPenSlots }).toEqual(expected)
@@ -577,10 +595,8 @@ const PENDING: string[] = [
   // note.penKinds, stroke.outline.fountain), 24.5 (pencil), 24.7 (tape).
   // Epic 25/26 (Stories 25.1, 26.1): runners arrive with the 25.x and 26.x web stories.
   'note.shape',
-  // Story 31.1: runners arrive with the 31.5 (web) stories.
-  'pageview.layout',
+  // Story 31.1: the snap runner arrives with Story 31.7.
   'pageview.snap',
-  'pageview.migrate',
   // Library rules (Story 7.1) arrive with the web stories 7.4, 7.6, 7.8, 7.10.
 ]
 

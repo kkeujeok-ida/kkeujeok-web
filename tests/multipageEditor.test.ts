@@ -14,7 +14,7 @@ import { savesSettled } from '../src/storage/saveQueue'
 import { PAGE_GAP } from '../src/ui/library/writer'
 import { NoteEditor } from '../src/ui/library/NoteEditor'
 import { PEN_DETECTED_KEY, createPenDetected } from '../src/storage/penDetected'
-import { VIEW_MODE_KEY, createViewMode } from '../src/storage/viewMode'
+import { PAGE_VIEW_KEY, VIEW_MODE_KEY, createViewMode } from '../src/storage/viewMode'
 import { type Mounted, mountUi } from './syncUiHarness'
 import { NID, PA, PB, mkNote, stroke } from './uploadHarness'
 
@@ -334,7 +334,7 @@ describe('page view modes (Story 5.12)', () => {
     expect(m!.q('[role="menu"]')).toBeNull()
     expect(document.activeElement).toBe(m!.q('button[aria-label="더 보기"]'))
     expect(m!.q('[data-view-mode]')!.textContent).toBe('보기 방식: 가로 스크롤')
-    expect(JSON.parse(dev.data.get(VIEW_MODE_KEY)!)).toEqual({ mode: 'horizontal' })
+    expect(JSON.parse(dev.data.get(PAGE_VIEW_KEY)!)).toEqual({ pagination: 'scroll', direction: 'horizontal', pages: 1 })
     menu()
     expect(radio('가로 스크롤').getAttribute('aria-checked')).toBe('true')
     expect(m!.qa('[role="menuitem"]').some((b) => b.textContent === '높이 맞춤')).toBe(true)

@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest'
 import { fitHeightViewport } from '../src/render/pagePainter'
-import { PAGE_GAP, layoutSlots } from '../src/render/viewLayout'
+import { PAGE_GAP, SPINE_GAP, layoutSlots as layout } from '../src/render/viewLayout'
+import { VIEW_PRESETS, type PageViewMode } from '../src/storage/viewMode'
+
+const layoutSlots = (p: { width: number; height: number }[], m: keyof typeof VIEW_PRESETS) => layout(p, VIEW_PRESETS[m] as PageViewMode)
 
 const P = { width: 100, height: 200 } // portrait
 const L = { width: 200, height: 100 } // landscape
@@ -28,13 +31,13 @@ describe('layoutSlots', () => {
     expect([d.w, d.h]).toEqual([400 + 2 * PAGE_GAP, 200])
   })
 
-  test('two pages: portrait pairs, 3 gaps between pairs, one gap inside', () => {
+  test('two pages: portrait pairs, a PAGE_GAP between pairs, a SPINE_GAP inside', () => {
     const d = layoutSlots([P, P, P, P, P, P], 'twoPage')
     expect(units([P, P, P, P, P, P])).toEqual([[0, 1], [2, 3], [4, 5]])
-    expect(d.list[1]).toMatchObject({ x: 100 + PAGE_GAP, y: 0, unit: 0 })
-    expect(d.list[2]!.x).toBe(200 + PAGE_GAP + 3 * PAGE_GAP)
-    expect(d.units[0]).toEqual({ first: 0, last: 1, x: 0, y: 0, w: 200 + PAGE_GAP, h: 200 })
-    expect(d.w).toBe(3 * (200 + PAGE_GAP) + 2 * 3 * PAGE_GAP)
+    expect(d.list[1]).toMatchObject({ x: 100 + SPINE_GAP, y: 0, unit: 0 })
+    expect(d.list[2]!.x).toBe(200 + SPINE_GAP + PAGE_GAP)
+    expect(d.units[0]).toEqual({ first: 0, last: 1, x: 0, y: 0, w: 200 + SPINE_GAP, h: 200 })
+    expect(d.w).toBe(3 * (200 + SPINE_GAP) + 2 * PAGE_GAP)
   })
 
   test('an odd last page is alone; a landscape page is always alone, and so is the portrait before it', () => {
@@ -49,7 +52,7 @@ describe('layoutSlots', () => {
     const d = layoutSlots([P, small], 'twoPage')
     expect(d.list.map((s) => [s.x, s.y])).toEqual([
       [0, 0],
-      [100 + PAGE_GAP, 50],
+      [100 + SPINE_GAP, 50],
     ])
   })
 

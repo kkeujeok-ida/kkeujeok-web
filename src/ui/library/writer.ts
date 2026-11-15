@@ -47,7 +47,7 @@ import {
   type ViewInsets,
 } from '../../render/pagePainter'
 import { PAGE_GAP, layoutSlots, type Unit } from '../../render/viewLayout'
-import type { ViewMode } from '../../storage/viewMode'
+import { DEFAULT_VIEW, effectiveView, type PageViewMode } from '../../storage/viewMode'
 import type { NoteStore } from '../../storage/noteStore'
 import { SaveQueue, markUnsaved, trackSave } from '../../storage/saveQueue'
 
@@ -224,7 +224,11 @@ export class Writer {
   /** The images of this note (bytes, sync state, decoded pictures); none: image elements are grey boxes and nothing can be inserted. */
   images: ImageHost | null = null
   /** The way the pages are laid out; set by the editor from the device setting. */
-  private viewMode: ViewMode = 'vertical'
+  private storedView: PageViewMode = DEFAULT_VIEW
+  /** The layout on screen: a phone shows 1 page; the stored value is kept. */
+  private get viewMode(): PageViewMode {
+    return effectiveView(this.storedView, { w: globalThis.innerWidth, h: globalThis.innerHeight })
+  }
   /** A pen is known on this device: one finger moves the view instead of writing. */
   penOnly = false
   /** The first pen pointer was seen (hover included). Called once. */
@@ -296,12 +300,12 @@ export class Writer {
     if (list.length < 2) return 0
     let i = list.findIndex((s) => s.page.id === this.forced)
     if (i < 0) {
-      const side = this.viewMode !== 'vertical'
+      const side = this.viewMode.direction !== 'vertical'
       const [mx, my] = toPage(this.viewport, this.cssW / 2, this.cssH / 2)
       i = list.findIndex((s) => (side ? mx < s.x + s.page.width + PAGE_GAP / 2 : my < s.y + s.page.height + PAGE_GAP / 2))
       if (i < 0) i = list.length - 1
     }
-    return this.viewMode === 'twoPage' && !raw ? (units ?? this.slots().units)[list[i]!.unit]!.first : i
+    return this.viewMode.pages === 2 && !raw ? (units ?? this.slots().units)[list[i]!.unit]!.first : i
   }
 
   /** The id of the page actually in view (the right page of a two-page unit stays itself). */
@@ -462,7 +466,7 @@ export class Writer {
 
   private fitFor(mode: 'width' | 'page'): PageViewport {
     const d = this.slots()
-    if (this.viewMode === 'vertical') {
+    if (this.viewMode.direction === 'vertical') {
       if (mode === 'width') return fitWidthViewport(this.cssW, this.cssH, d.w, d.h, this.ins)
       // A whole page, the current one; with one page that is the whole document.
       const cur = d.list[this.currentIndex(d.list, d.units)]!
@@ -480,15 +484,15 @@ export class Writer {
   private atStart(v: PageViewport): PageViewport {
     const d = this.slots()
     const u = d.units[d.list[this.currentIndex(d.list, d.units)]!.unit]!
-    return this.clamp(this.viewMode === 'vertical' ? { ...v, offsetY: this.ins.gap - u.y * v.scale } : { ...v, offsetX: -u.x * v.scale })
+    return this.clamp(this.viewMode.direction === 'vertical' ? { ...v, offsetY: this.ins.gap - u.y * v.scale } : { ...v, offsetX: -u.x * v.scale })
   }
 
   /** The way pages are laid out. The page in view stays in view; the view starts at the mode's width fit. */
-  setViewMode(m: ViewMode): void {
-    if (m === this.viewMode) return
+  setViewMode(m: PageViewMode): void {
+    if (m.pagination === this.storedView.pagination && m.direction === this.storedView.direction && m.pages === this.storedView.pages) return
     const id = this.canvas && this.page ? this.inView() : undefined
     this.snap()
-    this.viewMode = m
+    this.storedView = m
     if (!this.canvas || !this.page) return
     if (id) this.forced = id
     this.setView(this.atStart(this.fitFor('width')), 'width')
@@ -529,7 +533,7 @@ export class Writer {
     const v = this.anim?.to ?? this.viewport
     const u = units[list[k]!.unit]!
     this.forced = list[k]!.page.id
-    const at = this.viewMode === 'vertical' ? { offsetX: v.offsetX, offsetY: this.ins.gap - u.y * v.scale } : { offsetX: -u.x * v.scale, offsetY: v.offsetY }
+    const at = this.viewMode.direction === 'vertical' ? { offsetX: v.offsetX, offsetY: this.ins.gap - u.y * v.scale } : { offsetX: -u.x * v.scale, offsetY: v.offsetY }
     this.goTo(this.clamp({ scale: v.scale, ...at }), 'free')
   }
 
@@ -538,7 +542,7 @@ export class Writer {
     const { list, units } = this.slots()
     if (list.length === 0) return
     const cur = this.currentIndex(list, units)
-    if (this.viewMode !== 'twoPage') return this.goToPage(cur + d)
+    if (this.viewMode.pages !== 2) return this.goToPage(cur + d)
     this.goToPage(units[Math.min(units.length - 1, Math.max(0, list[cur]!.unit + d))]!.first)
   }
 
@@ -628,7 +632,7 @@ export class Writer {
   /** Wheel and arrow scrolling: side by side with nothing to scroll up or down, a vertical move goes sideways. */
   scroll(dx: number, dy: number): void {
     if (this.busy()) return
-    const sideways = this.viewMode !== 'vertical' && this.info().y === null
+    const sideways = this.viewMode.direction !== 'vertical' && this.info().y === null
     this.movePan(sideways ? dx + dy : dx, sideways ? 0 : dy)
   }
 
